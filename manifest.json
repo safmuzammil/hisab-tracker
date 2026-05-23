@@ -1,0 +1,20 @@
+{
+    "name": "Hisab Tracker",
+    "short_name": "Hisab",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "background_color": "#121212",
+    "theme_color": "#bb86fc",
+    "icons": [
+        {
+            "src": "https://via.placeholder.com/192/bb86fc/000000?text=Hisab",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "https://via.placeholder.com/512/bb86fc/000000?text=Hisab",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}

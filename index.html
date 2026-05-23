@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hisab</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+
+    <style>
+        :root { --bg: #121212; --card: #1e1e1e; --text: #ffffff; --primary: #bb86fc; --danger: #cf6679; --success: #03dac6; --warning: #f6e58d; }
+        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 0; margin: 0; padding-bottom: 70px; }
+        
+        .container { padding: 20px; }
+        .tab-content { display: none; animation: fadeIn 0.3s; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: #1e1e1e; display: flex; border-top: 1px solid #333; z-index: 1000; }
+        .nav-item { flex: 1; text-align: center; padding: 15px 0; color: #aaa; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        .nav-item.active { color: var(--primary); border-top: 3px solid var(--primary); background: #2c2c2c; }
+
+        .daily-highlight { background: linear-gradient(135deg, #2c2c2c, #1e1e1e); padding: 20px; border-radius: 12px; text-align: center; border: 2px solid var(--primary); margin-bottom: 15px; position: relative; }
+        .daily-highlight h2 { margin: 0; font-size: 3rem; color: var(--success); }
+        .daily-highlight p { margin: 5px 0 0 0; color: #aaa; text-transform: uppercase; letter-spacing: 1px; font-size: 0.8rem; }
+        
+        /* NEW: Notification Button */
+       /* FIXED: Notification Button */
+.btn-notify { 
+    position: absolute; 
+    top: 15px; 
+    right: 15px; 
+    width: auto; /* Prevents it from stretching to 100% */
+    margin: 0;   /* Removes the default button margin */
+    background: transparent; 
+    border: 1px solid var(--warning); 
+    color: var(--warning); 
+    padding: 6px 12px; 
+    border-radius: 20px; 
+    font-size: 0.75rem; 
+    cursor: pointer; 
+}
+.btn-notify.enabled { 
+    background: var(--warning); 
+    color: #000; 
+}
+        .btn-notify.enabled { background: var(--warning); color: #000; }
+
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .stat-box { background: var(--card); padding: 12px 5px; border-radius: 10px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .stat-box strong { color: #aaa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; }
+        .stat-values { margin-top: 5px; font-size: 1.1rem; font-weight: bold; }
+        .earned { color: var(--success); }
+        .max { color: #888; font-size: 0.8rem; }
+
+        .chart-container { position: relative; height: 250px; width: 100%; margin-top: 15px; }
+
+        .history-list { max-height: 250px; overflow-y: auto; background: #2c2c2c; border-radius: 8px; padding: 10px; margin-top: 10px; }
+        .history-item { display: flex; justify-content: space-between; border-bottom: 1px solid #444; padding: 8px 0; font-size: 0.85rem; }
+        .history-item:last-child { border-bottom: none; }
+        .history-time { color: #aaa; font-size: 0.75rem; }
+
+        .card { background: var(--card); padding: 15px; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        input, select, button, textarea { width: 100%; padding: 10px; margin-top: 5px; border-radius: 5px; border: none; box-sizing: border-box; }
+        input[type="number"], input[type="date"] { font-family: monospace; font-size: 1rem; }
+        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; margin-top: 15px; border-radius: 5px; border: none; padding: 12px; }
+        
+        .btn-secondary { background: #333; color: #fff; }
+        .btn-google { background: #fff; color: #333; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .btn-edit { background: var(--warning); color: #000; padding: 5px 10px; margin: 0; font-size: 0.8rem; width: auto; }
+        .btn-delete { background: transparent; border: 1px solid var(--danger); color: var(--danger); padding: 5px 10px; margin: 0; font-size: 0.8rem; width: auto; }
+
+        .section-title { margin-top: 25px; margin-bottom: 10px; color: var(--primary); border-bottom: 1px solid #333; padding-bottom: 5px; }
+        .task-item { background: #2c2c2c; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 5px solid var(--primary); }
+        .task-item.penalty { border-left: 5px solid var(--danger); background: #3a1c1e; }
+        .task-item.banked { border-left: 5px solid var(--success); }
+        
+        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+        .task-title-area strong { font-size: 1.1rem; display: block; }
+        .task-controls { display: flex; gap: 5px; }
+        
+        .task-status { font-size: 0.85rem; margin-bottom: 10px; color: #aaa; }
+        .highlight-banked { color: var(--success); font-weight: bold; }
+        
+        .task-action { display: flex; gap: 10px; }
+        .task-action input { width: 70px; margin: 0; text-align: center; }
+        .btn-done { background: var(--success); margin: 0; color: #000; flex: 1; }
+        .btn-fail { background: var(--danger); width: 100%; margin: 0; color: white; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div id="tab-dashboard" class="tab-content active">
+            
+            <div class="daily-highlight">
+                <button id="btn-notifications" class="btn-notify" onclick="toggleNotifications()">🔔 Enable Alerts</button>
+                <h2 id="today-points">0</h2>
+                <p>Points Earned Today</p>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-box"><strong>Today</strong><div class="stat-values"><span id="day-earned" class="earned">0</span><span class="max"> / <span id="day-max">0</span></span></div></div>
+                <div class="stat-box"><strong>This Week</strong><div class="stat-values"><span id="week-earned" class="earned">0</span><span class="max"> / <span id="week-max">0</span></span></div></div>
+                <div class="stat-box"><strong>This Month</strong><div class="stat-values"><span id="month-earned" class="earned">0</span><span class="max"> / <span id="month-max">0</span></span></div></div>
+                <div class="stat-box"><strong>This Year</strong><div class="stat-values"><span id="year-earned" class="earned">0</span><span class="max"> / <span id="year-max">0</span></span></div></div>
+            </div>
+
+            <div class="card">
+                <h3>📊 Progress (% of Goal)</h3>
+                <div class="chart-container"><canvas id="progressChart"></canvas></div>
+            </div>
+
+            <div class="card">
+                <h3>🕰️ Work History Log</h3>
+                <div class="history-list" id="history-log"></div>
+            </div>
+
+            <div class="card">
+                <h3>☁️ Google Drive Sync</h3>
+                <button class="btn-google" onclick="handleDriveAction('backup')">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="18"> Save Backup to Drive
+                </button>
+                <button class="btn-secondary" style="margin-top: 10px;" onclick="handleDriveAction('restore')">🔄 Restore from Drive</button>
+            </div>
+        </div>
+
+        <div id="tab-tasks" class="tab-content">
+            
+            <div class="card" id="task-form-card" style="border: 1px solid var(--primary);">
+                <h3 id="form-title">➕ Add New Task</h3>
+                <input type="hidden" id="task-id">
+                <input type="text" id="task-title" placeholder="Task Name (e.g., Read pages)">
+                
+                <select id="task-type" onchange="toggleDateInputs()">
+                    <option value="daily">Daily Habit</option>
+                    <option value="weekly">Weekly Goal</option>
+                    <option value="monthly">Monthly Goal</option>
+                    <option value="one-time">One-Time Task</option>
+                    <option value="fixed-period">Fixed Period (e.g., March 1 - 13)</option>
+                    <option value="bad">Bad Habit (Minus points)</option>
+                </select>
+
+                <div id="date-range-inputs" style="display: none; background: #2c2c2c; padding: 10px; border-radius: 5px; margin-top: 5px;">
+                    <label style="font-size: 0.8rem; color: #aaa;">Start Date:</label>
+                    <input type="date" id="task-start-date">
+                    <label style="font-size: 0.8rem; color: #aaa; display: block; margin-top: 5px;">End Date:</label>
+                    <input type="date" id="task-end-date">
+                </div>
+
+                <input type="number" id="task-base-target" placeholder="Target per Period (e.g., 3)">
+                <input type="number" id="task-points-unit" placeholder="Points per Unit (e.g., 10)">
+                
+                <button id="btn-save-task" onclick="saveTask()">Add Task</button>
+                <button id="btn-cancel-edit" class="btn-secondary" style="display: none;" onclick="cancelEdit()">Cancel Edit</button>
+            </div>
+
+            <div id="task-list-container"></div>
+            
+            <div class="card" style="margin-top: 20px;">
+                <h3>🎱 Penalty Roulette Pool</h3>
+                <input type="text" id="pool-title" placeholder="e.g., No YouTube for 24hrs">
+                <input type="number" id="pool-points" placeholder="Penalty Points (e.g., 50)">
+                <button class="btn-secondary" onclick="addToPool()">Add to Pool</button>
+                <div id="pool-list" style="margin-top: 15px; font-size: 0.9rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <nav class="bottom-nav">
+        <div class="nav-item active" onclick="switchTab('dashboard', this)">📊 Dashboard</div>
+        <div class="nav-item" onclick="switchTab('tasks', this)">📝 Tasks</div>
+    </nav>
+
+    <script src="app.js"></script>
+</body>
+</html>

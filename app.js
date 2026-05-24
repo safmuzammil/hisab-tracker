@@ -281,67 +281,22 @@ function openHistory() {
 function closeHistory() { document.getElementById('history-modal').style.display = 'none'; }
 
 // ==========================================
-// FINANCE & DUAL-PROXY LIVE SYNC
+// FINANCE & CUSTOM VERCEL BACKEND API
 // ==========================================
-function renderInvestments() {
-    const container = document.getElementById('invest-container'); container.innerHTML = '';
-    const currency = document.getElementById('currency-toggle') ? document.getElementById('currency-toggle').value : 'INR';
-    const symbol = currency === 'INR' ? '₹' : '$';
-    
-    let totalInvested = 0; let totalCurrent = 0;
-
-    investData.forEach((inv, index) => {
-        const invested = inv.qty * inv.buyPrice; const current = inv.qty * inv.currentPrice;
-        const pl = current - invested; const plPercent = invested > 0 ? (pl / invested) * 100 : 0;
-        totalInvested += invested; totalCurrent += current;
-        const color = pl >= 0 ? 'var(--success)' : 'var(--danger)'; const sign = pl >= 0 ? '+' : '';
-
-        const div = document.createElement('div');
-        div.style = `background: #2c2c2c; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 5px solid ${color};`;
-        div.innerHTML = `<div style="display: flex; justify-content: space-between; align-items: center;"><strong style="font-size: 1.2rem;">${inv.asset}</strong><button onclick="deleteInvestment(${index})" style="background:transparent; color:#888; border:none; padding:0; font-size:1.2rem;">×</button></div><div style="color: #aaa; font-size: 0.85rem; margin-bottom: 10px;">${inv.qty} units @ avg ${symbol}${inv.buyPrice.toLocaleString()}</div><div style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-size: 0.8rem; color: #aaa;">Current Price (${symbol})</div><div style="display: flex; gap: 5px; align-items: center;"><input type="number" step="any" id="inv-update-${index}" value="${inv.currentPrice}" style="width: 80px; padding: 5px; margin: 0;"><button onclick="updateInvestmentPrice(${index})" style="background: #444; color: #fff; padding: 5px 10px; margin: 0;">Update</button></div></div><div style="text-align: right;"><div style="font-size: 1.2rem; color: ${color}; font-weight: bold;">${sign}${symbol}${pl.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div><div style="font-size: 0.85rem; color: ${color};">${sign}${plPercent.toFixed(2)}%</div></div></div>`;
-        container.appendChild(div);
-    });
-
-    const netPL = totalCurrent - totalInvested; const netPLPercent = totalInvested > 0 ? (netPL / totalInvested) * 100 : 0;
-    const summaryColor = netPL >= 0 ? 'var(--success)' : 'var(--danger)'; const summarySign = netPL >= 0 ? '+' : '';
-    document.getElementById('inv-total-invested').innerText = symbol + totalInvested.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    document.getElementById('inv-current-value').innerText = symbol + totalCurrent.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-    
-    const plText = document.getElementById('inv-total-pl');
-    plText.innerText = `Net P/L: ${summarySign}${symbol}${netPL.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} (${summarySign}${netPLPercent.toFixed(2)}%)`;
-    plText.style.color = summaryColor;
-}
-
-// Highly robust fetch with fallback proxy
+// Your app now talks to your own Vercel API, which talks to Yahoo!
 async function fetchLivePrices() {
     const btn = document.getElementById('btn-refresh-prices'); if (!btn) return;
-    btn.innerText = "⏳ Fetching global market data...";
+    btn.innerText = "⏳ Fetching from Custom Backend...";
     let updatedCount = 0;
 
     for (let i = 0; i < investData.length; i++) {
         let symbol = investData[i].asset.toUpperCase().trim();
-        const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m`;
         
-        // Try Proxy 1 (corsproxy.io)
         try {
-            let proxyUrl1 = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
-            let response = await fetch(proxyUrl1);
+            // Hitting your custom api/price.js file
+            let response = await fetch(`/api/price?symbol=${encodeURIComponent(symbol)}`);
             if (response.ok) {
                 let data = await response.json();
-                if (data.chart && data.chart.result && data.chart.result.length > 0) {
-                    let livePrice = data.chart.result[0].meta.regularMarketPrice;
-                    if (livePrice) { investData[i].currentPrice = parseFloat(livePrice); updatedCount++; continue; }
-                }
-            }
-        } catch (e) { console.log(`Proxy 1 failed for ${symbol}, trying backup...`); }
-
-        // Try Proxy 2 (allorigins) if Proxy 1 fails
-        try {
-            let proxyUrl2 = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-            let response = await fetch(proxyUrl2);
-            if (response.ok) {
-                let proxyData = await response.json(); 
-                let data = JSON.parse(proxyData.contents);
                 if (data.chart && data.chart.result && data.chart.result.length > 0) {
                     let livePrice = data.chart.result[0].meta.regularMarketPrice;
                     if (livePrice) { investData[i].currentPrice = parseFloat(livePrice); updatedCount++; }
@@ -353,7 +308,7 @@ async function fetchLivePrices() {
     if (updatedCount > 0) {
         saveData(); renderInvestments(); updateDashboard();
         alert(`✅ Successfully synced live prices!`);
-    } else { alert("⚠️ Live sync failed. Both Market API proxies are temporarily down or the symbol is incorrect."); }
+    } else { alert("⚠️ Live sync failed. The backend might still be deploying, give Vercel 1 minute."); }
     btn.innerText = "🔄 Auto-Update Live Market Prices";
 }
 
@@ -362,11 +317,11 @@ async function searchAsset(query) {
     const list = document.getElementById('asset-suggestions');
     if (!query || query.trim().length < 2) { list.style.display = 'none'; return; }
     clearTimeout(searchTimeout);
+    
     searchTimeout = setTimeout(async () => {
         try {
-            const targetUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=6&newsCount=0`;
-            const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
-            const response = await fetch(proxyUrl);
+            // Hitting your custom api/search.js file
+            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
             if (response.ok) {
                 const data = await response.json(); list.innerHTML = '';
                 if (data.quotes && data.quotes.length > 0) {
@@ -384,8 +339,6 @@ async function searchAsset(query) {
         } catch (err) { console.error("Search fetch failed", err); }
     }, 400);
 }
-document.addEventListener('click', function (e) { if (e.target.id !== 'inv-asset') { const list = document.getElementById('asset-suggestions'); if(list) list.style.display = 'none'; } });
-
 function addInvestment() { const asset = document.getElementById('inv-asset').value.trim(); const qty = parseFloat(document.getElementById('inv-qty').value); const buyPrice = parseFloat(document.getElementById('inv-buy').value); if (!asset || !qty || !buyPrice) return alert("Please fill in all details."); investData.push({ asset, qty, buyPrice, currentPrice: buyPrice }); document.getElementById('inv-asset').value = ''; document.getElementById('inv-qty').value = ''; document.getElementById('inv-buy').value = ''; saveData(); renderInvestments(); }
 function updateInvestmentPrice(index) { const newPrice = parseFloat(document.getElementById(`inv-update-${index}`).value); if (isNaN(newPrice) || newPrice < 0) return alert("Invalid price."); investData[index].currentPrice = newPrice; saveData(); renderInvestments(); }
 function deleteInvestment(index) { if (confirm(`Remove ${investData[index].asset}?`)) { investData.splice(index, 1); saveData(); renderInvestments(); } }

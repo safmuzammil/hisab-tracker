@@ -12,18 +12,32 @@
 
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --text: #ffffff; --primary: #bb86fc; --danger: #cf6679; --success: #03dac6; --warning: #f6e58d; --deen: #4db6ac; --ledger: #ffb74d; --invest: #64b5f6; }
-        body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 0; margin: 0; padding-bottom: 70px; }
         
-        .container { padding: 20px; }
+        /* CORE MOBILE TYPOGRAPHY & SPACING */
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 0; margin: 0; padding-bottom: 90px; -webkit-font-smoothing: antialiased; }
+        .container { padding: 15px; max-width: 600px; margin: 0 auto; }
+        
         .tab-content { display: none; animation: fadeIn 0.3s; }
         .tab-content.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: #1e1e1e; display: flex; border-top: 1px solid #333; z-index: 1000; overflow-x: auto; white-space: nowrap; }
-        .nav-item { flex: 1; text-align: center; padding: 15px 10px; color: #aaa; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 0.85rem;}
-        .nav-item.active { color: var(--primary); border-top: 3px solid var(--primary); background: #2c2c2c; }
-        .nav-item.active-deen { color: var(--deen); border-top: 3px solid var(--deen); background: #2c2c2c; }
-        .nav-item.active-ledger { color: var(--ledger); border-top: 3px solid var(--ledger); background: #2c2c2c; }
+        /* TOUCH-FRIENDLY FORMS & BUTTONS */
+        .card { background: var(--card); padding: 18px; border-radius: 14px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .card h3 { margin-top: 0; margin-bottom: 15px; font-size: 1.15rem; display: flex; align-items: center; gap: 8px; }
+        
+        input, select, button { width: 100%; padding: 14px; margin-top: 8px; border-radius: 8px; border: 1px solid #333; box-sizing: border-box; background: #2c2c2c; color: #fff; font-size: 1rem; appearance: none; }
+        input:focus, select:focus { outline: 2px solid var(--primary); border-color: transparent; }
+        input[type="number"], input[type="date"], input[type="text"] { font-family: monospace; font-size: 1rem; }
+        
+        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; border: none; padding: 16px; margin-top: 15px; transition: transform 0.1s, opacity 0.2s; font-size: 1rem; }
+        button:active { transform: scale(0.98); opacity: 0.8; }
+        .btn-secondary { background: #444; color: #fff; }
+        .btn-google { background: #fff; color: #333; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        
+        /* CSS GRIDS TO PREVENT MOBILE SQUISHING */
+        .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .input-grid > * { margin-top: 0 !important; }
+        .full-width { grid-column: span 2; }
 
         /* AUTH & PROFILE SECTION */
         .profile-header { display: flex; align-items: center; gap: 15px; background: #2c2c2c; padding: 15px; border-radius: 12px; margin-bottom: 15px; }
@@ -31,67 +45,101 @@
         .profile-info h3 { margin: 0; font-size: 1.1rem; }
         .profile-info p { margin: 0; color: #aaa; font-size: 0.8rem; }
 
-        .daily-highlight { background: linear-gradient(135deg, #2c2c2c, #1e1e1e); padding: 20px; border-radius: 12px; text-align: center; border: 2px solid var(--primary); margin-bottom: 15px; position: relative; }
-        .daily-highlight h2 { margin: 0; font-size: 3rem; color: var(--success); }
-        .daily-highlight p { margin: 5px 0 0 0; color: #aaa; text-transform: uppercase; letter-spacing: 1px; font-size: 0.8rem; }
-        
-        .btn-notify { position: absolute; top: 15px; right: 15px; width: auto; margin: 0; background: transparent; border: 1px solid var(--warning); color: var(--warning); padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; cursor: pointer; }
+        /* DASHBOARD COMPONENTS */
+        .daily-highlight { background: linear-gradient(135deg, #2c2c2c, #1e1e1e); padding: 25px 20px; border-radius: 14px; text-align: center; border: 2px solid var(--primary); margin-bottom: 15px; position: relative; }
+        .daily-highlight h2 { margin: 0; font-size: 3.5rem; color: var(--success); font-weight: 800; line-height: 1; }
+        .daily-highlight p { margin: 8px 0 0 0; color: #aaa; text-transform: uppercase; letter-spacing: 1px; font-size: 0.8rem; font-weight: bold; }
+        .btn-notify { position: absolute; top: 15px; right: 15px; width: auto; margin: 0; background: transparent; border: 1px solid var(--warning); color: var(--warning); padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; }
         .btn-notify.enabled { background: var(--warning); color: #000; }
 
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
-        .stat-box { background: var(--card); padding: 12px 5px; border-radius: 10px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .stat-box strong { color: #aaa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; }
-        .stat-values { margin-top: 5px; font-size: 1.1rem; font-weight: bold; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px; }
+        .stat-box { background: var(--card); padding: 15px 10px; border-radius: 12px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #2c2c2c; }
+        .stat-box strong { color: #aaa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 5px; }
+        .stat-values { font-size: 1.25rem; font-weight: bold; }
         .earned { color: var(--success); }
-        .max { color: #888; font-size: 0.8rem; }
+        .max { color: #888; font-size: 0.85rem; font-weight: normal; }
 
-        .chart-container { position: relative; height: 250px; width: 100%; margin-top: 15px; }
+        .chart-container { position: relative; height: 220px; width: 100%; margin-top: 15px; }
 
-        .card { background: var(--card); padding: 15px; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        input, select, button { width: 100%; padding: 10px; margin-top: 5px; border-radius: 5px; border: none; box-sizing: border-box; }
-        input[type="number"], input[type="date"], input[type="text"] { font-family: monospace; font-size: 1rem; }
-        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; margin-top: 15px; border-radius: 5px; border: none; padding: 12px; }
-        
-        .btn-secondary { background: #333; color: #fff; }
-        .btn-google { background: #fff; color: #333; display: flex; align-items: center; justify-content: center; gap: 10px; }
-        .btn-edit { background: var(--warning); color: #000; padding: 5px 10px; margin: 0; font-size: 0.8rem; width: auto; }
-        .btn-delete { background: transparent; border: 1px solid var(--danger); color: var(--danger); padding: 5px 10px; margin: 0; font-size: 0.8rem; width: auto; }
-
-        .task-item { background: #2c2c2c; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 5px solid var(--primary); }
-        .task-item.penalty { border-left: 5px solid var(--danger); background: #3a1c1e; }
-        .task-item.banked { border-left: 5px solid var(--success); }
-        
+        /* TASKS LIST */
+        .task-item { background: #2c2c2c; padding: 16px; border-radius: 12px; margin-bottom: 12px; border-left: 6px solid var(--primary); }
+        .task-item.penalty { border-left-color: var(--danger); background: #3a1c1e; }
+        .task-item.banked { border-left-color: var(--success); }
         .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-        .task-title-area strong { font-size: 1.1rem; display: block; }
-        .task-controls { display: flex; gap: 5px; }
-        .task-status { font-size: 0.85rem; margin-bottom: 10px; color: #aaa; }
-        .task-action { display: flex; gap: 10px; }
-        .task-action input { width: 70px; margin: 0; text-align: center; }
-        .btn-done { background: var(--success); margin: 0; color: #000; flex: 1; }
+        .task-title-area strong { font-size: 1.1rem; display: block; margin-bottom: 4px; }
+        .task-status { font-size: 0.9rem; margin-bottom: 12px; color: #bbb; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; }
+        
+        .task-controls { display: flex; gap: 8px; }
+        .btn-edit, .btn-delete { padding: 8px 12px; margin: 0; font-size: 1rem; width: auto; border-radius: 6px; }
+        .btn-edit { background: var(--warning); color: #000; }
+        .btn-delete { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+        
+        .task-action { display: flex; gap: 10px; align-items: center; }
+        .task-action input { flex: 1; max-width: 80px; margin: 0; text-align: center; font-size: 1.2rem; font-weight: bold; }
+        .btn-done { background: var(--success); margin: 0; color: #000; flex: 2; }
 
-        /* DEEN & LEDGER STYLES */
-        .qada-row { display: flex; justify-content: space-between; align-items: center; background: #2c2c2c; padding: 10px; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid var(--deen); }
-        .qada-controls { display: flex; gap: 10px; align-items: center; }
-        .qada-btn { background: #444; color: #fff; width: 35px; height: 35px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; margin: 0; }
+        /* DEEN & LEDGER COMPONENTS */
+        .qada-row { display: flex; justify-content: space-between; align-items: center; background: #2c2c2c; padding: 12px 16px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid var(--deen); }
+        .qada-controls { display: flex; gap: 12px; align-items: center; }
+        .qada-btn { background: #444; color: #fff; width: 40px; height: 40px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; margin: 0; }
         .qada-btn.minus { background: var(--deen); color: #000; }
-        .quran-item { display: flex; justify-content: space-between; background: #2c2c2c; padding: 12px; margin-top: 5px; border-radius: 5px; border-left: 3px solid var(--deen); }
-        .zakat-total { font-size: 2rem; color: var(--deen); font-weight: bold; text-align: center; margin: 10px 0; }
-        .ledger-item { background: #2c2c2c; padding: 15px; border-radius: 8px; margin-bottom: 10px; }
-        .ledger-item.owe { border-left: 5px solid var(--danger); }
-        .ledger-item.lent { border-left: 5px solid var(--success); }
-        .ledger-amount { font-size: 1.5rem; font-weight: bold; margin: 5px 0; }
-        .ledger-action { display: flex; gap: 10px; margin-top: 10px; }
-        .ledger-action input { margin: 0; flex: 2; }
-        .ledger-action button { margin: 0; flex: 1; }
+        .quran-item { display: flex; justify-content: space-between; background: #2c2c2c; padding: 15px; margin-top: 8px; border-radius: 10px; border-left: 4px solid var(--deen); }
+        .zakat-total { font-size: 2.2rem; color: var(--deen); font-weight: bold; text-align: center; margin: 15px 0 5px 0; }
+        
+        .ledger-item { background: #2c2c2c; padding: 16px; border-radius: 12px; margin-bottom: 12px; }
+        .ledger-item.owe { border-left: 6px solid var(--danger); }
+        .ledger-item.lent { border-left: 6px solid var(--success); }
+        .ledger-amount { font-size: 1.8rem; font-weight: bold; margin: 8px 0; }
+        .ledger-action { display: flex; gap: 10px; margin-top: 15px; }
+        .ledger-action input { margin: 0; flex: 1; }
+        .ledger-action button { margin: 0; flex: 1; padding: 14px 10px; }
 
         /* AUTOCOMPLETE DROPDOWN STYLES */
-        .autocomplete-container { position: relative; flex: 1; margin: 0; }
-        .autocomplete-list { position: absolute; background-color: var(--card); border: 1px solid #444; border-radius: 5px; z-index: 999; top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto; display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.8); }
-        .autocomplete-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #333; font-size: 0.85rem; }
+        .autocomplete-container { position: relative; width: 100%; margin: 0; }
+        .autocomplete-list { position: absolute; background-color: var(--card); border: 1px solid #444; border-radius: 8px; z-index: 999; top: 100%; left: 0; right: 0; max-height: 250px; overflow-y: auto; display: none; box-shadow: 0 8px 16px rgba(0,0,0,0.5); margin-top: 4px; }
+        .autocomplete-item { padding: 14px 12px; cursor: pointer; border-bottom: 1px solid #333; font-size: 0.95rem; }
         .autocomplete-item:last-child { border-bottom: none; }
         .autocomplete-item:hover { background-color: #333; }
-        .auto-symbol { font-weight: bold; color: var(--invest); margin-right: 5px; }
-        .auto-name { color: #aaa; font-size: 0.75rem; }
+        .auto-symbol { font-weight: bold; color: var(--invest); margin-right: 8px; display: inline-block; min-width: 60px; }
+        .auto-name { color: #aaa; font-size: 0.85rem; }
+
+        /* PREMIUM BOTTOM NAVIGATION */
+        .bottom-nav { 
+            position: fixed; bottom: 0; left: 0; right: 0; 
+            background: rgba(24, 24, 24, 0.85); 
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            display: flex; justify-content: space-around; align-items: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.05); z-index: 1000; 
+            padding-bottom: env(safe-area-inset-bottom); /* iPhone notch support */
+        }
+        
+        .nav-item { 
+            flex: 1; text-align: center; padding: 12px 0 16px 0; 
+            color: #666; font-weight: 600; cursor: pointer; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+            font-size: 0.75rem; letter-spacing: 0.5px;
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            position: relative;
+        }
+        
+        .nav-item svg { width: 24px; height: 24px; stroke-width: 2; transition: all 0.3s ease; }
+        .nav-item span { transition: all 0.3s ease; }
+
+        /* Animated Active States */
+        .nav-item.active { color: var(--primary); }
+        .nav-item.active svg { transform: translateY(-4px); filter: drop-shadow(0 4px 6px rgba(187, 134, 252, 0.5)); }
+        .nav-item.active span { transform: translateY(-2px); }
+        .nav-item.active::after { content: ''; position: absolute; bottom: 6px; width: 4px; height: 4px; background: var(--primary); border-radius: 50%; }
+
+        .nav-item.active-deen { color: var(--deen); }
+        .nav-item.active-deen svg { transform: translateY(-4px); filter: drop-shadow(0 4px 6px rgba(77, 182, 172, 0.5)); }
+        .nav-item.active-deen span { transform: translateY(-2px); }
+        .nav-item.active-deen::after { content: ''; position: absolute; bottom: 6px; width: 4px; height: 4px; background: var(--deen); border-radius: 50%; }
+
+        .nav-item.active-ledger { color: var(--ledger); }
+        .nav-item.active-ledger svg { transform: translateY(-4px); filter: drop-shadow(0 4px 6px rgba(255, 183, 77, 0.5)); }
+        .nav-item.active-ledger span { transform: translateY(-2px); }
+        .nav-item.active-ledger::after { content: ''; position: absolute; bottom: 6px; width: 4px; height: 4px; background: var(--ledger); border-radius: 50%; }
     </style>
 </head>
 <body>
@@ -101,14 +149,14 @@
         <div id="auth-container" class="profile-header" style="display: none;"></div>
 
         <div id="login-prompt" class="card" style="text-align: center;">
-            <h3>👋 Welcome to Hisab</h3>
+            <h3 style="justify-content: center;">👋 Welcome to Hisab</h3>
             <p style="color: #aaa; font-size: 0.9rem;">Sign in to secure your data and enable Google Drive Backup.</p>
-            <div id="google-signin-button" style="display: flex; justify-content: center; margin-top: 15px;"></div>
+            <div id="google-signin-button" style="display: flex; justify-content: center; margin-top: 20px;"></div>
         </div>
 
         <div id="tab-dashboard" class="tab-content active">
             <div class="daily-highlight">
-                <button id="btn-notifications" class="btn-notify" onclick="toggleNotifications()">🔔 Enable Alerts</button>
+                <button id="btn-notifications" class="btn-notify" onclick="toggleNotifications()">🔔 Alerts On</button>
                 <h2 id="today-points">0</h2>
                 <p>Points Earned Today</p>
             </div>
@@ -121,25 +169,32 @@
             </div>
 
             <div class="card">
-                <h3>📊 Progress (% of Goal)</h3>
+                <h3 style="color: var(--success);">📊 Progress (% of Goal)</h3>
                 <div class="chart-container"><canvas id="progressChart"></canvas></div>
             </div>
 
             <div class="card">
-                <h3>☁️ Google Drive Sync (Permanent Storage)</h3>
+                <h3 style="color: #fff;">☁️ Cloud & Local Backup</h3>
+                
                 <button class="btn-google" onclick="handleDriveAction('backup')">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="18"> Save Backup to Drive
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="18"> Save to Google Drive
                 </button>
-                <button class="btn-secondary" style="margin-top: 10px;" onclick="handleDriveAction('restore')">🔄 Restore from Drive</button>
+                <button class="btn-secondary" onclick="handleDriveAction('restore')">🔄 Restore from Drive</button>
+
+                <div class="input-grid" style="margin-top:20px; border-top:1px solid #333; padding-top:20px;">
+                    <button style="background: #333; color: #fff; margin: 0; padding: 12px; font-size: 0.9rem;" onclick="downloadLocalBackup()">💾 Download File</button>
+                    <button style="background: #333; color: #fff; margin: 0; padding: 12px; font-size: 0.9rem;" onclick="document.getElementById('file-upload').click()">📂 Upload File</button>
+                    <input type="file" id="file-upload" style="display:none" accept=".json" onchange="uploadLocalBackup(event)">
+                </div>
             </div>
         </div>
 
         <div id="tab-tasks" class="tab-content">
             <div class="card" id="task-form-card" style="border: 1px solid var(--primary);">
-                <h3 id="form-title">➕ Add New Task</h3>
+                <h3 id="form-title" style="color: var(--primary);">➕ Add New Task</h3>
                 <input type="hidden" id="task-id">
-                <input type="text" id="task-title" placeholder="Task Name (e.g., Read pages)">
                 
+                <input type="text" id="task-title" placeholder="Task Name (e.g., Read pages)">
                 <select id="task-type" onchange="toggleDateInputs()">
                     <option value="daily">Daily Habit</option>
                     <option value="weekly">Weekly Goal</option>
@@ -149,59 +204,71 @@
                     <option value="bad">Bad Habit (Minus points)</option>
                 </select>
 
-                <div id="date-range-inputs" style="display: none; background: #2c2c2c; padding: 10px; border-radius: 5px; margin-top: 5px;">
-                    <label style="font-size: 0.8rem; color: #aaa;">Start Date:</label>
-                    <input type="date" id="task-start-date">
-                    <label style="font-size: 0.8rem; color: #aaa; display: block; margin-top: 5px;">End Date:</label>
+                <div id="date-range-inputs" style="display: none; background: #252525; padding: 15px; border-radius: 8px; margin-top: 10px;">
+                    <label style="font-size: 0.85rem; color: #aaa;">Start Date:</label>
+                    <input type="date" id="task-start-date" style="margin-bottom: 10px;">
+                    <label style="font-size: 0.85rem; color: #aaa;">End Date:</label>
                     <input type="date" id="task-end-date">
                 </div>
 
-                <input type="number" id="task-base-target" placeholder="Target per Period (e.g., 3)">
-                <input type="number" id="task-points-unit" placeholder="Points per Unit (e.g., 10)">
+                <div class="input-grid">
+                    <input type="number" id="task-base-target" placeholder="Target per Period">
+                    <input type="number" id="task-points-unit" placeholder="Pts per Unit">
+                </div>
+                
                 <button id="btn-save-task" onclick="saveTask()">Add Task</button>
                 <button id="btn-cancel-edit" class="btn-secondary" style="display: none;" onclick="cancelEdit()">Cancel Edit</button>
             </div>
 
             <div id="task-list-container"></div>
             
-            <div class="card" style="margin-top: 20px;">
-                <h3>🎱 Penalty Roulette Pool</h3>
-                <input type="text" id="pool-title" placeholder="e.g., No YouTube for 24hrs">
-                <input type="number" id="pool-points" placeholder="Penalty Points (e.g., 50)">
-                <button class="btn-secondary" onclick="addToPool()">Add to Pool</button>
-                <div id="pool-list" style="margin-top: 15px; font-size: 0.9rem;"></div>
+            <div class="card" style="margin-top: 25px;">
+                <h3 style="color: var(--danger);">🎱 Penalty Roulette Pool</h3>
+                <div class="input-grid">
+                    <input class="full-width" type="text" id="pool-title" placeholder="e.g., No YouTube for 24hrs">
+                    <input type="number" id="pool-points" placeholder="Penalty Pts">
+                    <button class="btn-secondary" style="margin:0; padding:12px;" onclick="addToPool()">Add to Pool</button>
+                </div>
+                <div id="pool-list" style="margin-top: 20px; font-size: 0.9rem;"></div>
             </div>
         </div>
 
         <div id="tab-deen" class="tab-content">
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">📖 Quran Juz Tracker</h3>
-                <p style="font-size: 0.8rem; color: #aaa;">Make an intention to recite a specific Juz and tick it off when completed.</p>
-                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
-                    <div style="display: flex; gap: 10px;">
-                        <select id="juz-select" style="margin: 0; flex: 1;"><option value="">Select Juz (1-30)</option></select>
-                        <button style="background: var(--deen); margin: 0; width: auto; padding: 0 20px;" onclick="addJuzIntention()">Add</button>
-                    </div>
-                    <input type="text" id="juz-intention" placeholder="Intention (e.g., For my parents, for healing...)" style="margin: 0;">
+                <p style="font-size: 0.85rem; color: #aaa; margin-bottom: 15px;">Make an intention to recite a specific Juz and tick it off when completed.</p>
+                
+                <div class="input-grid">
+                    <select class="full-width" id="juz-select"><option value="">Select Juz (1-30)</option></select>
+                    <input class="full-width" type="text" id="juz-intention" placeholder="Intention (e.g., For parents...)">
+                    <button class="full-width" style="background: var(--deen); color: #000;" onclick="addJuzIntention()">Add Intention</button>
                 </div>
-                <div id="juz-list-container" style="margin-top: 15px;"></div>
+                <div id="juz-list-container" style="margin-top: 20px;"></div>
             </div>
 
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">🕌 Qada (Missed Prayers)</h3>
-                <div id="qada-container" style="margin-top: 10px;"></div>
+                <div id="qada-container" style="margin-top: 15px;"></div>
             </div>
 
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">💰 Zakat Calculator (2.5%)</h3>
-                <label style="font-size: 0.8rem; color: #aaa;">Cash & Bank Balances:</label>
-                <input type="number" id="zakat-cash" value="0" oninput="calculateZakat()">
-                <label style="font-size: 0.8rem; color: #aaa; display:block; margin-top:10px;">Value of Gold & Silver:</label>
-                <input type="number" id="zakat-gold" value="0" oninput="calculateZakat()">
-                <label style="font-size: 0.8rem; color: #aaa; display:block; margin-top:10px;">Investments & Stock Value:</label>
-                <input type="number" id="zakat-invest" value="0" oninput="calculateZakat()">
-                <div style="margin-top: 20px; text-align: center; border-top: 1px solid #444; padding-top: 15px;">
-                    <span style="color: #aaa; text-transform: uppercase; font-size: 0.9rem;">Total Zakat Due</span>
+                
+                <div style="margin-top: 15px;">
+                    <label style="font-size: 0.85rem; color: #aaa;">Cash & Bank Balances:</label>
+                    <input type="number" id="zakat-cash" value="0" oninput="calculateZakat()">
+                </div>
+                <div style="margin-top: 15px;">
+                    <label style="font-size: 0.85rem; color: #aaa;">Value of Gold & Silver:</label>
+                    <input type="number" id="zakat-gold" value="0" oninput="calculateZakat()">
+                </div>
+                <div style="margin-top: 15px;">
+                    <label style="font-size: 0.85rem; color: #aaa;">Investments & Stock Value:</label>
+                    <input type="number" id="zakat-invest" value="0" oninput="calculateZakat()">
+                </div>
+                
+                <div style="margin-top: 25px; text-align: center; border-top: 1px solid #444; padding-top: 20px;">
+                    <span style="color: #aaa; text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px;">Total Zakat Due</span>
                     <div class="zakat-total" id="zakat-due">0.00</div>
                 </div>
             </div>
@@ -215,43 +282,49 @@
                     <option value="owe">🔴 I Borrowed Money (I Owe Them)</option>
                     <option value="lent">🟢 I Lent Money (They Owe Me)</option>
                 </select>
-                <input type="text" id="ledger-person" placeholder="Person's Name">
-                <input type="number" id="ledger-amount" placeholder="Total Amount">
-                <input type="text" id="ledger-desc" placeholder="Reason / Description (Optional)">
-                <button style="background: var(--ledger);" onclick="addLedgerEntry()">Add Record</button>
+                
+                <div class="input-grid">
+                    <input class="full-width" type="text" id="ledger-person" placeholder="Person's Name">
+                    <input type="number" id="ledger-amount" placeholder="Amount">
+                    <input type="text" id="ledger-desc" placeholder="Reason (Optional)">
+                    <button class="full-width" style="background: var(--ledger); color:#000;" onclick="addLedgerEntry()">Add Record</button>
+                </div>
             </div>
 
-            <h3 class="section-title" style="color: var(--ledger);">🔴 Monies I Owe</h3>
+            <h3 style="color: var(--ledger); font-size: 1.1rem; margin: 25px 0 10px 0;">🔴 Monies I Owe</h3>
             <div id="ledger-owe-container"></div>
 
-            <h3 class="section-title" style="color: var(--ledger);">🟢 Monies Owed To Me</h3>
+            <h3 style="color: var(--ledger); font-size: 1.1rem; margin: 25px 0 10px 0;">🟢 Monies Owed To Me</h3>
             <div id="ledger-lent-container"></div>
 
-            <div class="card" style="border: 1px solid var(--invest); margin-top: 30px;">
+            <div class="card" style="border: 1px solid var(--invest); margin-top: 35px;">
                 <h3 style="color: var(--invest);">📈 Investment Portfolio</h3>
-                <p style="font-size: 0.8rem; color: #aaa;">Track your assets to see live Profit & Loss.</p>
+                <p style="font-size: 0.85rem; color: #aaa; margin-bottom: 15px;">Track your assets to see live Profit & Loss.</p>
                 
-                <div class="stats-grid" style="margin-top: 10px;">
-                    <div class="stat-box"><strong>Total Invested</strong><div class="stat-values" id="inv-total-invested">0</div></div>
-                    <div class="stat-box"><strong>Current Value</strong><div class="stat-values" id="inv-current-value">0</div></div>
+                <div class="stats-grid">
+                    <div class="stat-box"><strong>Total Invested</strong><div class="stat-values" id="inv-total-invested" style="font-size:1.1rem;">0</div></div>
+                    <div class="stat-box"><strong>Current Value</strong><div class="stat-values" id="inv-current-value" style="font-size:1.1rem;">0</div></div>
                 </div>
-                <div style="text-align: center; margin-bottom: 10px; font-size: 1.2rem; font-weight: bold;" id="inv-total-pl">Net P/L: 0 (0%)</div>
+                <div style="text-align: center; margin: 20px 0; font-size: 1.4rem; font-weight: bold;" id="inv-total-pl">Net P/L: 0 (0%)</div>
                 
-                <button id="btn-refresh-prices" onclick="fetchLivePrices()" style="background: transparent; border: 1px solid var(--invest); color: var(--invest); margin-bottom: 15px;">
+                <button id="btn-refresh-prices" onclick="fetchLivePrices()" style="background: rgba(100, 181, 246, 0.1); border: 1px solid var(--invest); color: var(--invest); margin-bottom: 25px;">
                     🔄 Auto-Update Live Market Prices
                 </button>
 
-                <div style="display: flex; gap: 5px; margin-bottom: 15px;">
-                    <div class="autocomplete-container">
-                        <input type="text" id="inv-asset" placeholder="Search Asset" oninput="searchAsset(this.value)" autocomplete="off">
-                        <div id="asset-suggestions" class="autocomplete-list"></div>
+                <div style="border-top: 1px solid #333; padding-top: 20px;">
+                    <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: #fff;">Add New Asset</h4>
+                    <div class="input-grid">
+                        <div class="autocomplete-container full-width">
+                            <input type="text" id="inv-asset" placeholder="Search Asset (e.g. BTC, RELIANCE.NS)" oninput="searchAsset(this.value)" autocomplete="off">
+                            <div id="asset-suggestions" class="autocomplete-list"></div>
+                        </div>
+                        <input type="number" id="inv-qty" placeholder="Quantity">
+                        <input type="number" id="inv-buy" placeholder="Avg Buy Price">
+                        <button class="full-width" style="background: var(--invest); color:#000;" onclick="addInvestment()">Add to Portfolio</button>
                     </div>
-                    <input type="number" id="inv-qty" placeholder="Qty" style="width: 70px;">
-                    <input type="number" id="inv-buy" placeholder="Buy Price" style="width: 100px;">
-                    <button style="background: var(--invest); margin: 0; width: auto;" onclick="addInvestment()">Add</button>
                 </div>
 
-                <div id="invest-container"></div>
+                <div id="invest-container" style="margin-top: 25px;"></div>
             </div>
 
         </div>
@@ -259,10 +332,30 @@
     </div>
 
     <nav class="bottom-nav">
-        <div id="nav-dashboard" class="nav-item active" onclick="switchTab('dashboard', this)">📊 Dash</div>
-        <div id="nav-tasks" class="nav-item" onclick="switchTab('tasks', this)">📝 Tasks</div>
-        <div id="nav-deen" class="nav-item" onclick="switchTab('deen', this)">🕋 Deen</div>
-        <div id="nav-ledger" class="nav-item" onclick="switchTab('ledger', this)">💸 Ledger</div>
+        <div id="nav-dashboard" class="nav-item active" onclick="switchTab('dashboard', this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+            </svg>
+            <span>Dash</span>
+        </div>
+        <div id="nav-tasks" class="nav-item" onclick="switchTab('tasks', this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span>Tasks</span>
+        </div>
+        <div id="nav-deen" class="nav-item" onclick="switchTab('deen', this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+            </svg>
+            <span>Deen</span>
+        </div>
+        <div id="nav-ledger" class="nav-item" onclick="switchTab('ledger', this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span>Ledger</span>
+        </div>
     </nav>
 
     <script src="app.js"></script>

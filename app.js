@@ -2,7 +2,7 @@
 // FIREBASE CLOUD SERVER INITIALIZATION
 // ==========================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -27,8 +27,6 @@ document.getElementById('google-signin-button').innerHTML = `
         <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="20"> Continue with Google
     </button>`;
 
-getRedirectResult(auth).catch((error) => console.error("Login Error:", error));
-
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
@@ -42,7 +40,13 @@ onAuthStateChanged(auth, async (user) => {
     }
 });
 
-function loginWithGoogle() { signInWithRedirect(auth, provider); }
+function loginWithGoogle() { 
+    signInWithPopup(auth, provider).catch((error) => {
+        console.error("Login Error:", error);
+        alert("Login failed or was cancelled. Please try again.");
+    }); 
+}
+
 function logout() { signOut(auth).then(() => { location.reload(); }); }
 
 function showProfile(user) {

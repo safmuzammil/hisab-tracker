@@ -14,7 +14,6 @@
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --text: #ffffff; --primary: #bb86fc; --danger: #cf6679; --success: #03dac6; --warning: #f6e58d; --deen: #4db6ac; --ledger: #ffb74d; --invest: #64b5f6; }
         
-        /* CORE MOBILE TYPOGRAPHY & SPACING */
         body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 0; margin: 0; padding-bottom: 90px; -webkit-font-smoothing: antialiased; }
         .container { padding: 15px; max-width: 600px; margin: 0 auto; }
         
@@ -22,64 +21,63 @@
         .tab-content.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* TOUCH-FRIENDLY FORMS & BUTTONS */
         .card { background: var(--card); padding: 18px; border-radius: 14px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
         .card h3 { margin-top: 0; margin-bottom: 15px; font-size: 1.15rem; display: flex; align-items: center; gap: 8px; }
         
-        input, select, button { width: 100%; padding: 14px; margin-top: 8px; border-radius: 8px; border: 1px solid #333; box-sizing: border-box; background: #2c2c2c; color: #fff; font-size: 1rem; appearance: none; }
+        input[type="text"], input[type="number"], input[type="date"], select, button { width: 100%; padding: 14px; margin-top: 8px; border-radius: 8px; border: 1px solid #333; box-sizing: border-box; background: #2c2c2c; color: #fff; font-size: 1rem; appearance: none; }
         input:focus, select:focus { outline: 2px solid var(--primary); border-color: transparent; }
-        input[type="number"], input[type="date"], input[type="text"] { font-family: monospace; font-size: 1rem; }
         
         button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; border: none; padding: 16px; margin-top: 15px; transition: transform 0.1s, opacity 0.2s; font-size: 1rem; }
         button:active { transform: scale(0.98); opacity: 0.8; }
         .btn-secondary { background: #444; color: #fff; }
-        .btn-google { background: #fff; color: #333; display: flex; align-items: center; justify-content: center; gap: 10px; }
         
-        /* CSS GRIDS TO PREVENT MOBILE SQUISHING */
         .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
         .input-grid > * { margin-top: 0 !important; }
         .full-width { grid-column: span 2; }
 
-        /* AUTH & PROFILE SECTION */
         .profile-header { display: flex; align-items: center; gap: 15px; background: #2c2c2c; padding: 15px; border-radius: 12px; margin-bottom: 15px; }
         .profile-pic { width: 50px; height: 50px; border-radius: 50%; border: 2px solid var(--primary); }
-        .profile-info h3 { margin: 0; font-size: 1.1rem; }
-        .profile-info p { margin: 0; color: #aaa; font-size: 0.8rem; }
-
-        /* DASHBOARD COMPONENTS */
+        
         .daily-highlight { background: linear-gradient(135deg, #2c2c2c, #1e1e1e); padding: 25px 20px; border-radius: 14px; text-align: center; border: 2px solid var(--primary); margin-bottom: 15px; position: relative; }
         .daily-highlight h2 { margin: 0; font-size: 3.5rem; color: var(--success); font-weight: 800; line-height: 1; }
         .daily-highlight p { margin: 8px 0 0 0; color: #aaa; text-transform: uppercase; letter-spacing: 1px; font-size: 0.8rem; font-weight: bold; }
         .btn-notify { position: absolute; top: 15px; right: 15px; width: auto; margin: 0; background: transparent; border: 1px solid var(--warning); color: var(--warning); padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; }
-        .btn-notify.enabled { background: var(--warning); color: #000; }
-
+        
         .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px; }
-        .stat-box { background: var(--card); padding: 15px 10px; border-radius: 12px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #2c2c2c; }
+        .stat-box { background: var(--card); padding: 15px 10px; border-radius: 12px; text-align: center; border: 1px solid #2c2c2c; }
         .stat-box strong { color: #aaa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 5px; }
         .stat-values { font-size: 1.25rem; font-weight: bold; }
         .earned { color: var(--success); }
-        .max { color: #888; font-size: 0.85rem; font-weight: normal; }
-
         .chart-container { position: relative; height: 220px; width: 100%; margin-top: 15px; }
 
-        /* TASKS LIST */
-        .task-item { background: #2c2c2c; padding: 16px; border-radius: 12px; margin-bottom: 12px; border-left: 6px solid var(--primary); }
-        .task-item.penalty { border-left-color: var(--danger); background: #3a1c1e; }
+        /* UPGRADED AESTHETIC TASK UI (MATCHING SCREENSHOT) */
+        .task-item { background: #1e1e1e; padding: 16px 18px; border-radius: 12px; margin-bottom: 15px; border-left: 6px solid var(--primary); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        .task-item.penalty { border-left-color: var(--danger); }
         .task-item.banked { border-left-color: var(--success); }
-        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-        .task-title-area strong { font-size: 1.1rem; display: block; margin-bottom: 4px; }
-        .task-status { font-size: 0.9rem; margin-bottom: 12px; color: #bbb; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; }
         
-        .task-controls { display: flex; gap: 8px; }
-        .btn-edit, .btn-delete { padding: 8px 12px; margin: 0; font-size: 1rem; width: auto; border-radius: 6px; }
-        .btn-edit { background: var(--warning); color: #000; }
-        .btn-delete { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; }
+        .task-title { font-size: 1.25rem; font-weight: bold; margin-bottom: 8px; color: #fff; }
         
-        .task-action { display: flex; gap: 10px; align-items: center; }
-        .task-action input { flex: 1; max-width: 80px; margin: 0; text-align: center; font-size: 1.2rem; font-weight: bold; }
-        .btn-done { background: var(--success); margin: 0; color: #000; flex: 2; }
+        .task-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+        .badge { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; }
+        .badge.points { background: rgba(187, 134, 252, 0.15); color: var(--primary); }
+        .badge.points.negative { background: rgba(207, 102, 121, 0.15); color: var(--danger); }
+        .badge.target { background: #2c2c2c; color: #ccc; }
+        .badge.done-badge { background: rgba(3, 218, 198, 0.15); color: var(--success); }
+        
+        .task-controls { display: flex; gap: 6px; }
+        .btn-icon { background: transparent; border: 1px solid #444; color: #fff; padding: 8px 10px; border-radius: 8px; margin: 0; font-size: 0.9rem; transition: background 0.2s; }
+        .btn-icon:hover { background: #333; }
 
-        /* DEEN & LEDGER COMPONENTS */
+        .task-action-row { display: flex; gap: 10px; align-items: stretch; margin-top: 5px; }
+        .task-input-box { flex: 0 0 75px; }
+        .task-input-box input { margin: 0; text-align: center; font-weight: bold; padding: 12px; height: 100%; border: 1px solid #444; background: #252525; border-radius: 8px; }
+        
+        .btn-task-action { margin: 0; border-radius: 8px; padding: 14px; font-size: 1.05rem; font-weight: bold; border: none; display: flex; align-items: center; justify-content: center; }
+        .btn-task-action.done { flex: 1; background: var(--success); color: #000; }
+        .btn-task-action.missed { flex: 0 0 auto; background: transparent; border: 1px solid var(--danger); color: var(--danger); padding: 12px 15px; }
+        .btn-task-action.fail-full { width: 100%; background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+
         .qada-row { display: flex; justify-content: space-between; align-items: center; background: #2c2c2c; padding: 12px 16px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid var(--deen); }
         .qada-controls { display: flex; gap: 12px; align-items: center; }
         .qada-btn { background: #444; color: #fff; width: 40px; height: 40px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; margin: 0; }
@@ -91,56 +89,20 @@
         .ledger-item.owe { border-left: 6px solid var(--danger); }
         .ledger-item.lent { border-left: 6px solid var(--success); }
         .ledger-amount { font-size: 1.8rem; font-weight: bold; margin: 8px 0; }
-        .ledger-action { display: flex; gap: 10px; margin-top: 15px; }
-        .ledger-action input { margin: 0; flex: 1; }
-        .ledger-action button { margin: 0; flex: 1; padding: 14px 10px; }
 
-        /* AUTOCOMPLETE DROPDOWN STYLES */
         .autocomplete-container { position: relative; width: 100%; margin: 0; }
         .autocomplete-list { position: absolute; background-color: var(--card); border: 1px solid #444; border-radius: 8px; z-index: 999; top: 100%; left: 0; right: 0; max-height: 250px; overflow-y: auto; display: none; box-shadow: 0 8px 16px rgba(0,0,0,0.5); margin-top: 4px; }
         .autocomplete-item { padding: 14px 12px; cursor: pointer; border-bottom: 1px solid #333; font-size: 0.95rem; }
-        .autocomplete-item:last-child { border-bottom: none; }
-        .autocomplete-item:hover { background-color: #333; }
-        .auto-symbol { font-weight: bold; color: var(--invest); margin-right: 8px; display: inline-block; min-width: 60px; }
-        .auto-name { color: #aaa; font-size: 0.85rem; }
-
-        /* PREMIUM BOTTOM NAVIGATION */
-        .bottom-nav { 
-            position: fixed; bottom: 0; left: 0; right: 0; 
-            background: rgba(24, 24, 24, 0.85); 
-            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            display: flex; justify-content: space-around; align-items: center;
-            border-top: 1px solid rgba(255, 255, 255, 0.05); z-index: 1000; 
-            padding-bottom: env(safe-area-inset-bottom); /* iPhone notch support */
-        }
         
-        .nav-item { 
-            flex: 1; text-align: center; padding: 12px 0 16px 0; 
-            color: #666; font-weight: 600; cursor: pointer; 
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-            font-size: 0.75rem; letter-spacing: 0.5px;
-            display: flex; flex-direction: column; align-items: center; gap: 6px;
-            position: relative;
-        }
-        
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(24, 24, 24, 0.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); display: flex; justify-content: space-around; align-items: center; border-top: 1px solid rgba(255, 255, 255, 0.05); z-index: 1000; padding-bottom: env(safe-area-inset-bottom); }
+        .nav-item { flex: 1; text-align: center; padding: 12px 0 16px 0; color: #666; font-weight: 600; cursor: pointer; transition: all 0.3s; font-size: 0.75rem; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; }
         .nav-item svg { width: 24px; height: 24px; stroke-width: 2; transition: all 0.3s ease; }
-        .nav-item span { transition: all 0.3s ease; }
-
-        /* Animated Active States */
         .nav-item.active { color: var(--primary); }
         .nav-item.active svg { transform: translateY(-4px); filter: drop-shadow(0 4px 6px rgba(187, 134, 252, 0.5)); }
-        .nav-item.active span { transform: translateY(-2px); }
-        .nav-item.active::after { content: ''; position: absolute; bottom: 6px; width: 4px; height: 4px; background: var(--primary); border-radius: 50%; }
-
         .nav-item.active-deen { color: var(--deen); }
         .nav-item.active-deen svg { transform: translateY(-4px); filter: drop-shadow(0 4px 6px rgba(77, 182, 172, 0.5)); }
-        .nav-item.active-deen span { transform: translateY(-2px); }
-        .nav-item.active-deen::after { content: ''; position: absolute; bottom: 6px; width: 4px; height: 4px; background: var(--deen); border-radius: 50%; }
-
         .nav-item.active-ledger { color: var(--ledger); }
         .nav-item.active-ledger svg { transform: translateY(-4px); filter: drop-shadow(0 4px 6px rgba(255, 183, 77, 0.5)); }
-        .nav-item.active-ledger span { transform: translateY(-2px); }
-        .nav-item.active-ledger::after { content: ''; position: absolute; bottom: 6px; width: 4px; height: 4px; background: var(--ledger); border-radius: 50%; }
     </style>
 </head>
 <body>
@@ -148,7 +110,6 @@
     <div class="container">
 
         <div id="auth-container" class="profile-header" style="display: none;"></div>
-
         <div id="login-prompt" class="card" style="text-align: center;">
             <h3 style="justify-content: center;">👋 Welcome to Hisab</h3>
             <p style="color: #aaa; font-size: 0.9rem;">Sign in to sync your data securely to the Cloud.</p>
@@ -169,12 +130,13 @@
                 <div class="stat-box"><strong>This Year</strong><div class="stat-values"><span id="year-earned" class="earned">0</span><span class="max"> / <span id="year-max">0</span></span></div></div>
             </div>
 
+            <button onclick="openHistory()" style="background:transparent; border:1px solid #aaa; color:#fff; width:100%; margin-bottom:15px;">📜 View My Activity History</button>
+
             <div class="card">
                 <h3 style="color: var(--success);">📊 Progress (% of Goal)</h3>
                 <div class="chart-container"><canvas id="progressChart"></canvas></div>
             </div>
-            
-            </div>
+        </div>
 
         <div id="tab-tasks" class="tab-content">
             <div class="card" id="task-form-card" style="border: 1px solid var(--primary);">
@@ -199,13 +161,25 @@
                 </div>
 
                 <div class="input-grid">
-                    <input type="number" id="task-base-target" placeholder="Target per Period">
-                    <input type="number" id="task-points-unit" placeholder="Pts per Unit">
+                    <input type="number" step="any" id="task-base-target" placeholder="Target per Period">
+                    <input type="number" step="any" id="task-points-unit" placeholder="Pts per Unit">
+                </div>
+
+                <div id="penalty-toggle-container" style="margin-top:15px; display:flex; align-items:center; gap:10px; background:#252525; padding:12px; border-radius:8px;">
+                    <input type="checkbox" id="task-has-penalty" style="width:20px; height:20px; margin:0; accent-color:var(--danger);">
+                    <label for="task-has-penalty" style="font-size:0.9rem; color:#ccc;">Enable minus marks if missed?</label>
                 </div>
                 
                 <button id="btn-save-task" onclick="saveTask()">Add Task</button>
                 <button id="btn-cancel-edit" class="btn-secondary" style="display: none;" onclick="cancelEdit()">Cancel Edit</button>
             </div>
+
+            <select id="task-view-filter" onchange="renderTasks()" style="margin-bottom: 15px; background: #333; border: 1px solid var(--primary);">
+                <option value="all">Show All Pending Tasks</option>
+                <option value="daily">Show Only Daily</option>
+                <option value="weekly">Show Only Weekly</option>
+                <option value="monthly">Show Only Monthly</option>
+            </select>
 
             <div id="task-list-container"></div>
             
@@ -223,8 +197,6 @@
         <div id="tab-deen" class="tab-content">
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">📖 Quran Juz Tracker</h3>
-                <p style="font-size: 0.85rem; color: #aaa; margin-bottom: 15px;">Make an intention to recite a specific Juz and tick it off when completed.</p>
-                
                 <div class="input-grid">
                     <select class="full-width" id="juz-select"><option value="">Select Juz (1-30)</option></select>
                     <input class="full-width" type="text" id="juz-intention" placeholder="Intention (e.g., For parents...)">
@@ -240,39 +212,20 @@
 
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">💰 Zakat Calculator (2.5%)</h3>
-                
-                <div style="margin-top: 15px;">
-                    <label style="font-size: 0.85rem; color: #aaa;">Cash & Bank Balances:</label>
-                    <input type="number" id="zakat-cash" value="0" oninput="calculateZakat()">
-                </div>
-                <div style="margin-top: 15px;">
-                    <label style="font-size: 0.85rem; color: #aaa;">Value of Gold & Silver:</label>
-                    <input type="number" id="zakat-gold" value="0" oninput="calculateZakat()">
-                </div>
-                <div style="margin-top: 15px;">
-                    <label style="font-size: 0.85rem; color: #aaa;">Investments & Stock Value:</label>
-                    <input type="number" id="zakat-invest" value="0" oninput="calculateZakat()">
-                </div>
-                
-                <div style="margin-top: 25px; text-align: center; border-top: 1px solid #444; padding-top: 20px;">
-                    <span style="color: #aaa; text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px;">Total Zakat Due</span>
-                    <div class="zakat-total" id="zakat-due">0.00</div>
-                </div>
+                <div style="margin-top: 15px;"><label style="font-size: 0.85rem; color: #aaa;">Cash & Bank Balances:</label><input type="number" id="zakat-cash" value="0" oninput="calculateZakat()"></div>
+                <div style="margin-top: 15px;"><label style="font-size: 0.85rem; color: #aaa;">Value of Gold & Silver:</label><input type="number" id="zakat-gold" value="0" oninput="calculateZakat()"></div>
+                <div style="margin-top: 15px;"><label style="font-size: 0.85rem; color: #aaa;">Investments & Stock Value:</label><input type="number" id="zakat-invest" value="0" oninput="calculateZakat()"></div>
+                <div style="margin-top: 25px; text-align: center; border-top: 1px solid #444; padding-top: 20px;"><span style="color: #aaa; text-transform: uppercase; font-size: 0.9rem; letter-spacing: 1px;">Total Zakat Due</span><div class="zakat-total" id="zakat-due">0.00</div></div>
             </div>
         </div>
 
         <div id="tab-ledger" class="tab-content">
-            
             <div class="card" style="border: 1px solid var(--ledger);">
                 <h3 style="color: var(--ledger);">📝 Record a Debt</h3>
-                <select id="ledger-type">
-                    <option value="owe">🔴 I Borrowed Money (I Owe Them)</option>
-                    <option value="lent">🟢 I Lent Money (They Owe Me)</option>
-                </select>
-                
+                <select id="ledger-type"><option value="owe">🔴 I Owe Them</option><option value="lent">🟢 They Owe Me</option></select>
                 <div class="input-grid">
                     <input class="full-width" type="text" id="ledger-person" placeholder="Person's Name">
-                    <input type="number" id="ledger-amount" placeholder="Amount">
+                    <input type="number" step="any" id="ledger-amount" placeholder="Amount">
                     <input type="text" id="ledger-desc" placeholder="Reason (Optional)">
                     <button class="full-width" style="background: var(--ledger); color:#000;" onclick="addLedgerEntry()">Add Record</button>
                 </div>
@@ -280,14 +233,20 @@
 
             <h3 style="color: var(--ledger); font-size: 1.1rem; margin: 25px 0 10px 0;">🔴 Monies I Owe</h3>
             <div id="ledger-owe-container"></div>
-
             <h3 style="color: var(--ledger); font-size: 1.1rem; margin: 25px 0 10px 0;">🟢 Monies Owed To Me</h3>
             <div id="ledger-lent-container"></div>
 
             <div class="card" style="border: 1px solid var(--invest); margin-top: 35px;">
                 <h3 style="color: var(--invest);">📈 Investment Portfolio</h3>
-                <p style="font-size: 0.85rem; color: #aaa; margin-bottom: 15px;">Track your assets to see live Profit & Loss.</p>
                 
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="font-size:0.9rem; color:#aaa;">Display Currency:</span>
+                    <select id="currency-toggle" onchange="renderInvestments()" style="width: auto; margin: 0; padding: 8px;">
+                        <option value="INR">₹ INR</option>
+                        <option value="USD">$ USD</option>
+                    </select>
+                </div>
+
                 <div class="stats-grid">
                     <div class="stat-box"><strong>Total Invested</strong><div class="stat-values" id="inv-total-invested" style="font-size:1.1rem;">0</div></div>
                     <div class="stat-box"><strong>Current Value</strong><div class="stat-values" id="inv-current-value" style="font-size:1.1rem;">0</div></div>
@@ -305,42 +264,40 @@
                             <input type="text" id="inv-asset" placeholder="Search Asset (e.g. BTC, RELIANCE.NS)" oninput="searchAsset(this.value)" autocomplete="off">
                             <div id="asset-suggestions" class="autocomplete-list"></div>
                         </div>
-                        <input type="number" id="inv-qty" placeholder="Quantity">
-                        <input type="number" id="inv-buy" placeholder="Avg Buy Price">
+                        <input type="number" step="any" id="inv-qty" placeholder="Quantity">
+                        <input type="number" step="any" id="inv-buy" placeholder="Avg Buy Price">
                         <button class="full-width" style="background: var(--invest); color:#000;" onclick="addInvestment()">Add to Portfolio</button>
                     </div>
                 </div>
-
                 <div id="invest-container" style="margin-top: 25px;"></div>
             </div>
-
         </div>
 
     </div>
 
+    <div id="history-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg); z-index:2000; overflow-y:auto; padding:20px; box-sizing:border-box; padding-bottom:100px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid #333; padding-bottom:10px;">
+            <h2 style="margin:0; color:var(--primary);">📜 Task History</h2>
+            <button onclick="closeHistory()" style="background:transparent; color:#aaa; font-size:2rem; width:auto; margin:0; padding:0; line-height:1;">&times;</button>
+        </div>
+        <div id="history-list"></div>
+    </div>
+
     <nav class="bottom-nav">
         <div id="nav-dashboard" class="nav-item active" onclick="switchTab('dashboard', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
-            </svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
             <span>Dash</span>
         </div>
         <div id="nav-tasks" class="nav-item" onclick="switchTab('tasks', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             <span>Tasks</span>
         </div>
         <div id="nav-deen" class="nav-item" onclick="switchTab('deen', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-            </svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
             <span>Deen</span>
         </div>
         <div id="nav-ledger" class="nav-item" onclick="switchTab('ledger', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             <span>Ledger</span>
         </div>
     </nav>

@@ -11,7 +11,7 @@
     <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
 
     <style>
-        :root { --bg: #121212; --card: #1e1e1e; --text: #ffffff; --primary: #bb86fc; --danger: #cf6679; --success: #03dac6; --warning: #f6e58d; --deen: #4db6ac; --ledger: #ffb74d; }
+        :root { --bg: #121212; --card: #1e1e1e; --text: #ffffff; --primary: #bb86fc; --danger: #cf6679; --success: #03dac6; --warning: #f6e58d; --deen: #4db6ac; --ledger: #ffb74d; --invest: #64b5f6; }
         body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 0; margin: 0; padding-bottom: 70px; }
         
         .container { padding: 20px; }
@@ -69,15 +69,13 @@
         .task-action input { width: 70px; margin: 0; text-align: center; }
         .btn-done { background: var(--success); margin: 0; color: #000; flex: 1; }
 
-        /* DEEN TAB STYLES */
+        /* DEEN & LEDGER STYLES */
         .qada-row { display: flex; justify-content: space-between; align-items: center; background: #2c2c2c; padding: 10px; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid var(--deen); }
         .qada-controls { display: flex; gap: 10px; align-items: center; }
         .qada-btn { background: #444; color: #fff; width: 35px; height: 35px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; margin: 0; }
         .qada-btn.minus { background: var(--deen); color: #000; }
         .quran-item { display: flex; justify-content: space-between; background: #2c2c2c; padding: 12px; margin-top: 5px; border-radius: 5px; border-left: 3px solid var(--deen); }
         .zakat-total { font-size: 2rem; color: var(--deen); font-weight: bold; text-align: center; margin: 10px 0; }
-
-        /* LEDGER TAB STYLES */
         .ledger-item { background: #2c2c2c; padding: 15px; border-radius: 8px; margin-bottom: 10px; }
         .ledger-item.owe { border-left: 5px solid var(--danger); }
         .ledger-item.lent { border-left: 5px solid var(--success); }
@@ -85,6 +83,15 @@
         .ledger-action { display: flex; gap: 10px; margin-top: 10px; }
         .ledger-action input { margin: 0; flex: 2; }
         .ledger-action button { margin: 0; flex: 1; }
+
+        /* AUTOCOMPLETE DROPDOWN STYLES */
+        .autocomplete-container { position: relative; flex: 1; margin: 0; }
+        .autocomplete-list { position: absolute; background-color: var(--card); border: 1px solid #444; border-radius: 5px; z-index: 999; top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto; display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.8); }
+        .autocomplete-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #333; font-size: 0.85rem; }
+        .autocomplete-item:last-child { border-bottom: none; }
+        .autocomplete-item:hover { background-color: #333; }
+        .auto-symbol { font-weight: bold; color: var(--invest); margin-right: 5px; }
+        .auto-name { color: #aaa; font-size: 0.75rem; }
     </style>
 </head>
 <body>
@@ -169,9 +176,13 @@
         <div id="tab-deen" class="tab-content">
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">📖 Quran Juz Tracker</h3>
-                <div style="display: flex; gap: 10px; margin-top: 10px;">
-                    <select id="juz-select" style="margin: 0;"><option value="">Select Juz (1-30)</option></select>
-                    <button style="background: var(--deen); margin: 0; width: auto;" onclick="addJuzIntention()">Add</button>
+                <p style="font-size: 0.8rem; color: #aaa;">Make an intention to recite a specific Juz and tick it off when completed.</p>
+                <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                    <div style="display: flex; gap: 10px;">
+                        <select id="juz-select" style="margin: 0; flex: 1;"><option value="">Select Juz (1-30)</option></select>
+                        <button style="background: var(--deen); margin: 0; width: auto; padding: 0 20px;" onclick="addJuzIntention()">Add</button>
+                    </div>
+                    <input type="text" id="juz-intention" placeholder="Intention (e.g., For my parents, for healing...)" style="margin: 0;">
                 </div>
                 <div id="juz-list-container" style="margin-top: 15px;"></div>
             </div>
@@ -197,6 +208,7 @@
         </div>
 
         <div id="tab-ledger" class="tab-content">
+            
             <div class="card" style="border: 1px solid var(--ledger);">
                 <h3 style="color: var(--ledger);">📝 Record a Debt</h3>
                 <select id="ledger-type">
@@ -209,11 +221,39 @@
                 <button style="background: var(--ledger);" onclick="addLedgerEntry()">Add Record</button>
             </div>
 
-            <h3 class="section-title" style="color: var(--ledger);">🔴 Monies I Owe (Payables)</h3>
+            <h3 class="section-title" style="color: var(--ledger);">🔴 Monies I Owe</h3>
             <div id="ledger-owe-container"></div>
 
-            <h3 class="section-title" style="color: var(--ledger);">🟢 Monies Owed To Me (Receivables)</h3>
+            <h3 class="section-title" style="color: var(--ledger);">🟢 Monies Owed To Me</h3>
             <div id="ledger-lent-container"></div>
+
+            <div class="card" style="border: 1px solid var(--invest); margin-top: 30px;">
+                <h3 style="color: var(--invest);">📈 Investment Portfolio</h3>
+                <p style="font-size: 0.8rem; color: #aaa;">Track your assets to see live Profit & Loss.</p>
+                
+                <div class="stats-grid" style="margin-top: 10px;">
+                    <div class="stat-box"><strong>Total Invested</strong><div class="stat-values" id="inv-total-invested">0</div></div>
+                    <div class="stat-box"><strong>Current Value</strong><div class="stat-values" id="inv-current-value">0</div></div>
+                </div>
+                <div style="text-align: center; margin-bottom: 10px; font-size: 1.2rem; font-weight: bold;" id="inv-total-pl">Net P/L: 0 (0%)</div>
+                
+                <button id="btn-refresh-prices" onclick="fetchLivePrices()" style="background: transparent; border: 1px solid var(--invest); color: var(--invest); margin-bottom: 15px;">
+                    🔄 Auto-Update Live Market Prices
+                </button>
+
+                <div style="display: flex; gap: 5px; margin-bottom: 15px;">
+                    <div class="autocomplete-container">
+                        <input type="text" id="inv-asset" placeholder="Search Asset" oninput="searchAsset(this.value)" autocomplete="off">
+                        <div id="asset-suggestions" class="autocomplete-list"></div>
+                    </div>
+                    <input type="number" id="inv-qty" placeholder="Qty" style="width: 70px;">
+                    <input type="number" id="inv-buy" placeholder="Buy Price" style="width: 100px;">
+                    <button style="background: var(--invest); margin: 0; width: auto;" onclick="addInvestment()">Add</button>
+                </div>
+
+                <div id="invest-container"></div>
+            </div>
+
         </div>
 
     </div>

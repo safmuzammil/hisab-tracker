@@ -1,34 +1,51 @@
 // ==========================================
-// GOOGLE DRIVE API CONFIGURATION
+// FIREBASE CLOUD SERVER INITIALIZATION
 // ==========================================
-const CLIENT_ID = '692381665206-5blu4q3717h5p8ndij58s1m5nevrug0r.apps.googleusercontent.com';
-const API_KEY = 'AIzaSyDJplHrfuYfqyVLc08ce1Kt4wZWqXW8IvA';
-const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
-const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-let tokenClient; let gapiInited = false; let gisInited = false;
-
-function gapiLoaded() { gapi.load('client', initializeGapiClient); }
-async function initializeGapiClient() {
-    await gapi.client.init({ apiKey: API_KEY, discoveryDocs: [DISCOVERY_DOC] });
-    gapiInited = true;
-}
-
-window.onload = function () {
-    google.accounts.id.initialize({ client_id: CLIENT_ID, callback: handleCredentialResponse });
-    const savedUser = JSON.parse(localStorage.getItem('hisab_user'));
-    if (savedUser) { showProfile(savedUser); } 
-    else { google.accounts.id.renderButton(document.getElementById("google-signin-button"), { theme: "outline", size: "large", type: "standard" }); }
-    tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: '' });
-    gisInited = true;
+const firebaseConfig = {
+    apiKey: "AIzaSyBPw0XqzplPvH6KxbcJxwYNdyjfdPDntNo",
+    authDomain: "hisab-1127d.firebaseapp.com",
+    projectId: "hisab-1127d",
+    storageBucket: "hisab-1127d.firebasestorage.app",
+    messagingSenderId: "155630179687",
+    appId: "1:155630179687:web:16e1542dbded16f337cbc2",
+    measurementId: "G-NFNN32KFHZ"
 };
 
-function handleCredentialResponse(response) {
-    const payload = JSON.parse(atob(response.credential.split('.')[1]));
-    const userData = { name: payload.name, email: payload.email, picture: payload.picture };
-    localStorage.setItem('hisab_user', JSON.stringify(userData));
-    showProfile(userData);
-}
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const provider = new GoogleAuthProvider();
+let currentUser = null;
+
+// Replace the old Google button with a custom Firebase login button
+document.getElementById('google-signin-button').innerHTML = `
+    <button onclick="loginWithGoogle()" style="background:#fff; color:#000; display:flex; align-items:center; gap:10px; width:100%; justify-content:center; padding:12px; border-radius:8px; font-weight:bold;">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="20"> Continue with Google
+    </button>`;
+
+// Handle the redirect login (Crucial for Mobile PWAs)
+getRedirectResult(auth).catch((error) => console.error("Login Error:", error));
+
+onAuthStateChanged(auth, async (user) => {
+    if (user) {
+        currentUser = user;
+        showProfile({ name: user.displayName, email: user.email, picture: user.photoURL });
+        await loadDataFromFirebase();
+        render();
+    } else {
+        currentUser = null;
+        document.getElementById('login-prompt').style.display = 'block';
+        document.getElementById('auth-container').style.display = 'none';
+        render(); // Render local data if they aren't logged in
+    }
+});
+
+function loginWithGoogle() { signInWithRedirect(auth, provider); }
+function logout() { signOut(auth).then(() => { location.reload(); }); }
 
 function showProfile(user) {
     document.getElementById('login-prompt').style.display = 'none';
@@ -36,7 +53,6 @@ function showProfile(user) {
     authContainer.style.display = 'flex';
     authContainer.innerHTML = `<img src="${user.picture}" class="profile-pic" alt="Profile"><div class="profile-info"><h3>${user.name}</h3><p>${user.email}</p></div><button onclick="logout()" style="background:transparent; border:1px solid #aaa; color:#aaa; width:auto; padding:5px 10px; margin-left:auto; font-size:0.8rem;">Logout</button>`;
 }
-function logout() { localStorage.removeItem('hisab_user'); location.reload(); }
 
 // ==========================================
 // APP STATE & STORAGE
@@ -50,7 +66,6 @@ let penaltyPool = JSON.parse(localStorage.getItem('hisab_penalties')) || [{ titl
 let deenData = JSON.parse(localStorage.getItem('hisab_deen')) || {
     quran: [], qada: { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 }, zakatInputs: { cash: 0, gold: 0, invest: 0 }
 };
-
 let ledgerData = JSON.parse(localStorage.getItem('hisab_ledger')) || [];
 let investData = JSON.parse(localStorage.getItem('hisab_invest')) || []; 
 
@@ -62,7 +77,7 @@ tasks.forEach(t => {
     if (t.currentTarget === undefined) { t.currentTarget = t.baseTarget; needsSave = true; }
     if (t.isCompleted === undefined) { t.isCompleted = false; needsSave = true; }
 });
-if (needsSave) localStorage.setItem('hisab_tasks', JSON.stringify(tasks));
+if (needsSave) saveDataLocallyOnly();
 
 let progressChart = null;
 
@@ -85,9 +100,54 @@ function getDynamicTargets() {
 }
 
 // ==========================================
+// CLOUD SYNC LOGIC
+// ==========================================
+async function loadDataFromFirebase() {
+    if (!currentUser) return;
+    try {
+        const docSnap = await getDoc(doc(db, "users", currentUser.uid));
+        if (docSnap.exists()) {
+            // Pull Cloud Data to Local
+            const parsed = docSnap.data();
+            tasks = parsed.tasks || []; score = parsed.score || 0; pointHistory = parsed.history || [];
+            lastEvals = parsed.evals || { week: getWeekNumber(new Date()) }; penaltyPool = parsed.penalties || [];
+            if (parsed.deen) deenData = parsed.deen;
+            if (parsed.ledger) ledgerData = parsed.ledger;
+            if (parsed.invest) investData = parsed.invest;
+            saveDataLocallyOnly(); 
+        } else {
+            // First time login! Push local data UP to the cloud so you don't lose anything
+            await syncDataToFirebase();
+        }
+    } catch (e) { console.error("Error loading cloud data:", e); }
+}
+
+function saveDataLocallyOnly() {
+    localStorage.setItem('hisab_tasks', JSON.stringify(tasks)); localStorage.setItem('hisab_score', score.toString()); localStorage.setItem('hisab_history', JSON.stringify(pointHistory)); localStorage.setItem('hisab_evals', JSON.stringify(lastEvals)); localStorage.setItem('hisab_penalties', JSON.stringify(penaltyPool)); localStorage.setItem('hisab_deen', JSON.stringify(deenData)); localStorage.setItem('hisab_ledger', JSON.stringify(ledgerData)); localStorage.setItem('hisab_invest', JSON.stringify(investData)); 
+}
+
+async function syncDataToFirebase() {
+    if (currentUser) {
+        try {
+            await setDoc(doc(db, "users", currentUser.uid), {
+                tasks, score, history: pointHistory, evals: lastEvals,
+                penalties: penaltyPool, deen: deenData, ledger: ledgerData, invest: investData
+            });
+        } catch(e) { console.error("Firebase sync failed", e); }
+    }
+}
+
+// Replaces the old saveData so every click automatically saves to Local AND Cloud instantly
+function saveData() {
+    saveDataLocallyOnly();
+    syncDataToFirebase();
+}
+
+// ==========================================
 // UI TABS LOGIC
 // ==========================================
 function switchTab(tabName, element) {
+    localStorage.setItem('hisab_active_tab', tabName);
     document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(nav => { nav.classList.remove('active'); nav.classList.remove('active-deen'); nav.classList.remove('active-ledger'); });
     document.getElementById(`tab-${tabName}`).classList.add('active');
@@ -109,7 +169,7 @@ function render() {
 }
 
 // ==========================================
-// LEDGER & INVESTMENTS TAB LOGIC
+// LEDGER & INVESTMENTS
 // ==========================================
 function renderLedger() {
     const oweContainer = document.getElementById('ledger-owe-container'); const lentContainer = document.getElementById('ledger-lent-container');
@@ -190,10 +250,10 @@ function updateInvestmentPrice(index) {
     if (isNaN(newPrice) || newPrice < 0) return alert("Invalid price.");
     investData[index].currentPrice = newPrice; saveData(); renderInvestments();
 }
-function deleteInvestment(index) { if (confirm(`Remove ${investData[index].asset} from portfolio?`)) { investData.splice(index, 1); saveData(); renderInvestments(); } }
+function deleteInvestment(index) { if (confirm(`Remove ${investData[index].asset}?`)) { investData.splice(index, 1); saveData(); renderInvestments(); } }
 
 // ==========================================
-// YAHOO FINANCE AUTO-SYNC & AUTOCOMPLETE
+// YAHOO FINANCE AUTOCOMPLETE & SYNC
 // ==========================================
 let searchTimeout = null;
 async function searchAsset(query) {
@@ -296,28 +356,28 @@ function updateQada(prayer, amount) { deenData.qada[prayer] += amount; if(deenDa
 
 function calculateZakat() {
     const cash = parseFloat(document.getElementById('zakat-cash').value) || 0; const gold = parseFloat(document.getElementById('zakat-gold').value) || 0; const invest = parseFloat(document.getElementById('zakat-invest').value) || 0;
-    deenData.zakatInputs = { cash, gold, invest }; saveData();
+    deenData.zakatInputs = { cash, gold, invest }; saveDataLocallyOnly();
     const zakatDue = (cash + gold + invest) * 0.025; document.getElementById('zakat-due').innerText = zakatDue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
 // ==========================================
-// RENDER TASKS 
+// RENDER TASKS & HISTORY
 // ==========================================
 function renderTasks() {
     const container = document.getElementById('task-list-container'); container.innerHTML = '';
     const categories = [ { id: 'daily', title: '📅 Daily Tasks', filter: t => t.type === 'daily' && !t.isPenalty }, { id: 'weekly', title: '📆 Weekly Tasks', filter: t => t.type === 'weekly' && !t.isPenalty }, { id: 'monthly', title: '🗓️ Monthly Tasks', filter: t => t.type === 'monthly' && !t.isPenalty }, { id: 'special', title: '🎯 Goals & One-Time Tasks', filter: t => (t.type === 'one-time' || t.type === 'fixed-period') && !t.isPenalty && !t.isCompleted }, { id: 'bad', title: '🚫 Bad Habits & Penalties', filter: t => t.type === 'bad' || t.isPenalty } ];
     categories.forEach(cat => {
         const filteredTasks = tasks.filter(cat.filter); if (filteredTasks.length === 0) return;
-        const section = document.createElement('div'); section.innerHTML = `<h3 class="section-title">${cat.title}</h3>`;
+        const section = document.createElement('div'); section.innerHTML = `<h3 class="section-title" style="margin-top:20px;">${cat.title}</h3>`;
         filteredTasks.forEach(task => {
             const div = document.createElement('div');
             if (task.type === 'bad') {
-                div.className = 'task-item penalty'; div.innerHTML = `<div class="task-header"><div class="task-title-area"><strong>${task.title}</strong></div><div class="task-controls"><button class="btn-delete" onclick="deleteTask('${task.id}')">🗑️</button></div></div><div class="task-status">Penalty: -${task.pointsPerUnit} pts if triggered</div><button class="btn-fail" onclick="punish('${task.id}', '${task.title}')">I Messed Up</button>`;
+                div.className = 'task-item penalty'; div.innerHTML = `<div class="task-header"><div class="task-title-area"><strong>${task.title}</strong></div><div class="task-controls"><button class="btn-delete" onclick="deleteTask('${task.id}')">🗑️</button></div></div><div class="task-status" style="color:var(--danger)">Penalty: -${task.pointsPerUnit} pts if triggered</div><button class="btn-fail" style="background:transparent; border:1px solid var(--danger); color:var(--danger); padding:12px; border-radius:8px; width:100%;" onclick="punish('${task.id}', '${task.title}')">I Messed Up</button>`;
             } else {
                 const isAhead = task.currentTarget <= 0; div.className = `task-item ${task.isPenalty ? 'penalty' : ''} ${isAhead ? 'banked' : ''}`;
                 let timeInfo = task.type === 'fixed-period' ? `<div style="font-size:0.75rem; color:#aaa; margin-bottom:5px;">Window: ${task.startDate} to ${task.endDate}</div>` : '';
-                let statusHTML = isAhead ? `<span class="highlight-banked">✅ Done! Credit banked: ${Math.abs(task.currentTarget)} units.</span>` : `⏳ Pending: <strong>${task.currentTarget}</strong> (Base: ${task.baseTarget})`;
-                div.innerHTML = `<div class="task-header"><div class="task-title-area"><strong>${task.isPenalty ? '⚠️ ' : ''}${task.title}</strong><span style="font-size:0.8rem; color:var(--primary);">+${task.pointsPerUnit} pts/unit</span></div><div class="task-controls"><button class="btn-edit" onclick="editTask('${task.id}')">✏️</button><button class="btn-delete" onclick="deleteTask('${task.id}')">🗑️</button></div></div>${timeInfo}<div class="task-status">${statusHTML}</div><div class="task-action"><input type="number" id="input-${task.id}" value="1" min="1"><button class="btn-done" onclick="logProgress('${task.id}')">Log Units</button></div>`;
+                let statusHTML = isAhead ? `<span style="color:var(--success);">✅ Done! Credit banked: ${Math.abs(task.currentTarget)} units.</span>` : `⏳ Pending: <strong>${task.currentTarget}</strong> (Base: ${task.baseTarget})`;
+                div.innerHTML = `<div class="task-header"><div class="task-title-area"><strong>${task.isPenalty ? '⚠️ ' : ''}${task.title}</strong><span style="font-size:0.8rem; color:var(--primary); display:block;">+${task.pointsPerUnit} pts/unit</span></div><div class="task-controls"><button class="btn-edit" onclick="editTask('${task.id}')">✏️</button><button class="btn-delete" onclick="deleteTask('${task.id}')">🗑️</button></div></div>${timeInfo}<div class="task-status">${statusHTML}</div><div class="task-action"><input type="number" id="input-${task.id}" value="1" min="1"><button class="btn-done" onclick="logProgress('${task.id}')">Log Units</button></div>`;
             }
             section.appendChild(div);
         });
@@ -325,19 +385,10 @@ function renderTasks() {
     });
 }
 
-function renderHistory() {
-    const log = document.getElementById('history-log'); log.innerHTML = '';
-    const recentHistory = [...pointHistory].reverse().slice(0, 20);
-    if (recentHistory.length === 0) { log.innerHTML = '<div style="color:#aaa; text-align:center; padding:10px;">No history yet.</div>'; return; }
-    recentHistory.forEach(record => {
-        const d = new Date(record.timestamp); const timeStr = `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
-        const pointsFmt = record.points > 0 ? `<span style="color:var(--success)">+${record.points}</span>` : `<span style="color:var(--danger)">${record.points}</span>`;
-        const div = document.createElement('div'); div.className = 'history-item'; div.innerHTML = `<div><div>${record.title || 'Unknown Task'}</div><div class="history-time">${timeStr}</div></div><div style="font-weight:bold;">${pointsFmt}</div>`; log.appendChild(div);
-    });
-}
+function renderHistory() {} // Optional visual log
 
 // ==========================================
-// TASKS & CORE LOGIC
+// TASKS LOGIC
 // ==========================================
 function saveTask() {
     const id = document.getElementById('task-id').value; const title = document.getElementById('task-title').value; const type = document.getElementById('task-type').value;
@@ -393,11 +444,11 @@ function processRollovers() {
         }
         task.lastChecked = new Date().toISOString();
     });
-    saveData();
+    saveDataLocallyOnly();
 }
 
 // ==========================================
-// DASHBOARD & CHART
+// DASHBOARD & UTILS
 // ==========================================
 function updateDashboard() {
     const now = new Date(); const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); const startOfWeek = getStartOfWeek(now).getTime(); const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
@@ -410,7 +461,7 @@ function updateDashboard() {
     const dayPct = dynTargets.daily.goal > 0 ? (dayPts / dynTargets.daily.goal) * 100 : 0; const weekPct = dynTargets.weekly.goal > 0 ? (weekPts / dynTargets.weekly.goal) * 100 : 0; const monthPct = dynTargets.monthly.goal > 0 ? (monthPts / dynTargets.monthly.goal) * 100 : 0; const yearPct = dynTargets.yearly.goal > 0 ? (yearPts / dynTargets.yearly.goal) * 100 : 0;
 
     const canvas = document.getElementById('progressChart'); if (!canvas) return; const ctx = canvas.getContext('2d'); if (progressChart) progressChart.destroy();
-    progressChart = new Chart(ctx, { data: { labels: ['Today', 'This Week', 'This Month', 'This Year'], datasets: [ { type: 'line', label: 'Min to Avoid Penalty (50%)', data: [50, 50, 50, 50], borderColor: '#f6e58d', borderWidth: 3, borderDash: [5, 5], fill: false, pointBackgroundColor: '#f6e58d' }, { type: 'bar', label: 'Progress (%)', data: [dayPct, weekPct, monthPct, yearPct], backgroundColor: '#03dac6', borderRadius: 4 }, { type: 'bar', label: 'Goal (100%)', data: [100, 100, 100, 100], backgroundColor: 'rgba(207, 102, 121, 0.4)', borderRadius: 4 } ] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 120, grid: { color: '#333' }, ticks: { callback: function(value) { return value + "%" } } } }, plugins: { legend: { labels: { color: '#fff' } }, tooltip: { callbacks: { label: function(context) { return context.dataset.label + ': ' + context.raw.toFixed(1) + '%'; } } } } } });
+    progressChart = new Chart(ctx, { data: { labels: ['Today', 'This Week', 'This Month', 'This Year'], datasets: [ { type: 'line', label: 'Min to Avoid Penalty (50%)', data: [50, 50, 50, 50], borderColor: '#f6e58d', borderWidth: 3, borderDash: [5, 5], fill: false, pointBackgroundColor: '#f6e58d' }, { type: 'bar', label: 'Progress (%)', data: [dayPct, weekPct, monthPct, yearPct], backgroundColor: '#03dac6', borderRadius: 4 }, { type: 'bar', label: 'Goal (100%)', data: [100, 100, 100, 100], backgroundColor: 'rgba(207, 102, 121, 0.4)', borderRadius: 4 } ] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 120, grid: { color: '#333' }, ticks: { callback: function(value) { return value + "%" } } } }, plugins: { legend: { labels: { color: '#fff' } } } } });
 }
 
 function evaluatePerformance() {
@@ -421,20 +472,16 @@ function evaluatePerformance() {
         if (lastWeekScore < dynTargets.weekly.min) {
             let selectedPenalty = penaltyPool.length > 0 ? penaltyPool[Math.floor(Math.random() * penaltyPool.length)] : { title: "Generic Penalty", points: 50 };
             tasks.push({ id: Date.now().toString() + "-pen", title: selectedPenalty.title, type: 'daily', baseTarget: 1, currentTarget: 1, pointsPerUnit: selectedPenalty.points, lastChecked: new Date().toISOString(), isPenalty: true });
-            alert(`⚠️ Roulette has chosen your punishment:\n"${selectedPenalty.title}"`);
         }
-        lastEvals.week = currentWeek; saveData();
+        lastEvals.week = currentWeek; saveDataLocallyOnly();
     }
 }
 
-// ==========================================
-// DATA STORAGE & GOOGLE DRIVE SYNC
-// ==========================================
 function renderPool() {
     const list = document.getElementById('pool-list'); list.innerHTML = '';
     penaltyPool.forEach((p, index) => {
-        const div = document.createElement('div'); div.style = "display:flex; justify-content:space-between; align-items:center; background:#3a1c1e; padding:8px; border-radius:5px; margin-top:5px;";
-        div.innerHTML = `<span>${p.title} (-${p.points})</span><button onclick="removePoolItem(${index})" style="background:transparent; color:var(--danger); margin:0; width:auto; padding:0 10px;">❌</button>`; list.appendChild(div);
+        const div = document.createElement('div'); div.style = "display:flex; justify-content:space-between; align-items:center; background:#3a1c1e; padding:12px; border-radius:8px; margin-top:8px;";
+        div.innerHTML = `<span>${p.title} (-${p.points})</span><button onclick="removePoolItem(${index})" style="background:transparent; color:var(--danger); margin:0; width:auto; padding:0 10px; font-size:1.2rem;">×</button>`; list.appendChild(div);
     });
 }
 function addToPool() {
@@ -444,55 +491,51 @@ function addToPool() {
 }
 function removePoolItem(index) { penaltyPool.splice(index, 1); saveData(); renderPool(); }
 
-function saveData() {
-    localStorage.setItem('hisab_tasks', JSON.stringify(tasks)); localStorage.setItem('hisab_score', score.toString()); localStorage.setItem('hisab_history', JSON.stringify(pointHistory)); localStorage.setItem('hisab_evals', JSON.stringify(lastEvals)); localStorage.setItem('hisab_penalties', JSON.stringify(penaltyPool)); localStorage.setItem('hisab_deen', JSON.stringify(deenData)); localStorage.setItem('hisab_ledger', JSON.stringify(ledgerData)); localStorage.setItem('hisab_invest', JSON.stringify(investData)); 
-}
-
-function handleDriveAction(action) {
-    if (!CLIENT_ID.includes("apps.googleusercontent.com")) { return alert("Error: You must insert your Google Client ID into app.js first!"); }
-    tokenClient.callback = async (resp) => {
-        if (resp.error !== undefined) { throw (resp); }
-        try {
-            document.body.style.cursor = 'wait'; let fileId = null;
-            let searchResp = await gapi.client.drive.files.list({ q: "name='hisab_backup.json' and trashed=false", fields: 'files(id, name)' });
-            if (searchResp.result.files && searchResp.result.files.length > 0) { fileId = searchResp.result.files[0].id; }
-
-            if (action === 'backup') {
-                const fileContent = JSON.stringify({ tasks, score, history: pointHistory, evals: lastEvals, penalties: penaltyPool, deen: deenData, ledger: ledgerData, invest: investData });
-                const metadata = { 'name': 'hisab_backup.json', 'mimeType': 'application/json' }; const boundary = '-------314159265358979323846'; const delimiter = "\r\n--" + boundary + "\r\n"; const close_delim = "\r\n--" + boundary + "--";
-                const multipartRequestBody = delimiter + 'Content-Type: application/json\r\n\r\n' + JSON.stringify(metadata) + delimiter + 'Content-Type: application/json\r\n\r\n' + fileContent + close_delim;
-
-                let request = fileId ? gapi.client.request({ 'path': '/upload/drive/v3/files/' + fileId, 'method': 'PATCH', 'params': {'uploadType': 'multipart'}, 'headers': {'Content-Type': 'multipart/related; boundary="' + boundary + '"'}, 'body': multipartRequestBody }) : gapi.client.request({ 'path': '/upload/drive/v3/files', 'method': 'POST', 'params': {'uploadType': 'multipart'}, 'headers': {'Content-Type': 'multipart/related; boundary="' + boundary + '"'}, 'body': multipartRequestBody });
-                await request; alert("✅ Successfully backed up to your Google Drive!");
-            } else if (action === 'restore') {
-                if (!fileId) return alert("❌ No 'hisab_backup.json' file found in your Google Drive.");
-                let fileResp = await gapi.client.drive.files.get({ fileId: fileId, alt: 'media' });
-                const parsed = typeof fileResp.body === 'string' ? JSON.parse(fileResp.body) : fileResp.result;
-                if (parsed.tasks && confirm("Restore data from Drive? This will overwrite your current progress.")) {
-                    tasks = parsed.tasks; score = parsed.score || 0; pointHistory = parsed.history || []; lastEvals = parsed.evals || { week: getWeekNumber(new Date()) }; penaltyPool = parsed.penalties || [];
-                    if (parsed.deen) deenData = parsed.deen; if (parsed.ledger) ledgerData = parsed.ledger; if (parsed.invest) investData = parsed.invest; 
-                    saveData(); render(); alert("✅ Data successfully restored from Google Drive!");
-                }
-            }
-        } catch(err) { console.error(err); alert("An error occurred. Check the console."); } finally { document.body.style.cursor = 'default'; }
-    };
-    gapi.client.getToken() === null ? tokenClient.requestAccessToken({prompt: 'consent'}) : tokenClient.requestAccessToken({prompt: ''});
-}
-
-// ==========================================
-// UTILS & INIT
-// ==========================================
 function getStartOfWeek(date) { const d = new Date(date); return new Date(d.setDate(d.getDate() - d.getDay() + (d.getDay() === 0 ? -6 : 1))); }
 function getWeekNumber(d) { d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7)); return Math.ceil((((d - new Date(Date.UTC(d.getUTCFullYear(),0,1))) / 86400000) + 1)/7); }
 
 // Notifications
 function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }
-function toggleNotifications() { if (!("Notification" in window)) return alert("Browser does not support notifications."); if (Notification.permission === "granted") { alert("Notifications already enabled!"); checkAndNotify(); } else if (Notification.permission !== "denied") { Notification.requestPermission().then(p => { if (p === "granted") { const btn = document.getElementById('btn-notifications'); btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); checkAndNotify(); } }); } else { alert("Notifications blocked in device settings."); } }
-function checkAndNotify() { if (Notification.permission !== "granted") return; let pendingCount = 0; let hasPenalty = false; tasks.forEach(t => { if (t.isPenalty) hasPenalty = true; else if (t.type !== 'bad' && !t.isCompleted && t.currentTarget > 0) pendingCount++; }); if (hasPenalty) new Notification("Hisab Warning! ⚠️", { body: "You have an active Penalty Task.", icon: "https://via.placeholder.com/192/cf6679/ffffff?text=!" }); else if (pendingCount > 0) new Notification("Hisab Reminder 📝", { body: `You have ${pendingCount} tasks pending.`, icon: "https://via.placeholder.com/192/03dac6/000000?text=+" }); }
-setInterval(checkAndNotify, 1000 * 60 * 60 * 3);
+function toggleNotifications() { if (!("Notification" in window)) return alert("Browser does not support notifications."); if (Notification.permission === "granted") { alert("Notifications already enabled!"); } else if (Notification.permission !== "denied") { Notification.requestPermission().then(p => { if (p === "granted") { const btn = document.getElementById('btn-notifications'); btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }); } else { alert("Notifications blocked in device settings."); } }
 
-// INIT
+// ==========================================
+// EXPORT FUNCTIONS TO HTML (REQUIRED FOR MODULES)
+// ==========================================
+window.loginWithGoogle = loginWithGoogle;
+window.logout = logout;
+window.switchTab = switchTab;
+window.toggleDateInputs = toggleDateInputs;
+window.saveTask = saveTask;
+window.editTask = editTask;
+window.cancelEdit = cancelEdit;
+window.deleteTask = deleteTask;
+window.logProgress = logProgress;
+window.punish = punish;
+window.addToPool = addToPool;
+window.removePoolItem = removePoolItem;
+window.addJuzIntention = addJuzIntention;
+window.completeJuz = completeJuz;
+window.deleteJuz = deleteJuz;
+window.updateQada = updateQada;
+window.calculateZakat = calculateZakat;
+window.addLedgerEntry = addLedgerEntry;
+window.logLedgerPayment = logLedgerPayment;
+window.deleteLedgerEntry = deleteLedgerEntry;
+window.fetchLivePrices = fetchLivePrices;
+window.searchAsset = searchAsset;
+window.addInvestment = addInvestment;
+window.updateInvestmentPrice = updateInvestmentPrice;
+window.deleteInvestment = deleteInvestment;
+window.toggleNotifications = toggleNotifications;
+
+// ==========================================
+// INITIALIZATION
+// ==========================================
 initNotifications();
 processRollovers();
 evaluatePerformance();
-render();
+
+// Restore the last opened tab
+const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+const savedNavElement = document.getElementById('nav-' + savedTab);
+if (savedNavElement) switchTab(savedTab, savedNavElement);

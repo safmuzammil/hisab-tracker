@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Hisab</title>
     <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon.png">
+    <link rel="apple-touch-icon" href="icon.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
-
 
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --text: #ffffff; --primary: #bb86fc; --danger: #cf6679; --success: #03dac6; --warning: #f6e58d; --deen: #4db6ac; --ledger: #ffb74d; --invest: #64b5f6; }
@@ -149,7 +149,7 @@
 
         <div id="login-prompt" class="card" style="text-align: center;">
             <h3 style="justify-content: center;">👋 Welcome to Hisab</h3>
-            <p style="color: #aaa; font-size: 0.9rem;">Sign in to secure your data and enable Google Drive Backup.</p>
+            <p style="color: #aaa; font-size: 0.9rem;">Sign in to sync your data securely to the Cloud.</p>
             <div id="google-signin-button" style="display: flex; justify-content: center; margin-top: 20px;"></div>
         </div>
 
@@ -171,22 +171,8 @@
                 <h3 style="color: var(--success);">📊 Progress (% of Goal)</h3>
                 <div class="chart-container"><canvas id="progressChart"></canvas></div>
             </div>
-
-            <div class="card">
-                <h3 style="color: #fff;">☁️ Cloud & Local Backup</h3>
-                
-                <button class="btn-google" onclick="handleDriveAction('backup')">
-                    <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="18"> Save to Google Drive
-                </button>
-                <button class="btn-secondary" onclick="handleDriveAction('restore')">🔄 Restore from Drive</button>
-
-                <div class="input-grid" style="margin-top:20px; border-top:1px solid #333; padding-top:20px;">
-                    <button style="background: #333; color: #fff; margin: 0; padding: 12px; font-size: 0.9rem;" onclick="downloadLocalBackup()">💾 Download File</button>
-                    <button style="background: #333; color: #fff; margin: 0; padding: 12px; font-size: 0.9rem;" onclick="document.getElementById('file-upload').click()">📂 Upload File</button>
-                    <input type="file" id="file-upload" style="display:none" accept=".json" onchange="uploadLocalBackup(event)">
-                </div>
+            
             </div>
-        </div>
 
         <div id="tab-tasks" class="tab-content">
             <div class="card" id="task-form-card" style="border: 1px solid var(--primary);">

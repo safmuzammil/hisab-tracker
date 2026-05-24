@@ -3,7 +3,7 @@
 // ==========================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyBPw0XqzplPvH6KxbcJxwYNdyjfdPDntNo",
@@ -27,20 +27,18 @@ document.getElementById('google-signin-button').innerHTML = `
         <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="20"> Continue with Google
     </button>`;
 
-// Handle the redirect login (Crucial for Mobile PWAs)
 getRedirectResult(auth).catch((error) => console.error("Login Error:", error));
 
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
         showProfile({ name: user.displayName, email: user.email, picture: user.photoURL });
-        await loadDataFromFirebase();
-        render();
+        listenToFirebase(); // <--- MAGIC REAL-TIME LISTENER
     } else {
         currentUser = null;
         document.getElementById('login-prompt').style.display = 'block';
         document.getElementById('auth-container').style.display = 'none';
-        render(); // Render local data if they aren't logged in
+        render(); // Render local data if they aren't logged in yet
     }
 });
 
@@ -100,26 +98,32 @@ function getDynamicTargets() {
 }
 
 // ==========================================
-// CLOUD SYNC LOGIC
+// CLOUD SYNC LOGIC (MAGIC REAL-TIME)
 // ==========================================
-async function loadDataFromFirebase() {
+function listenToFirebase() {
     if (!currentUser) return;
-    try {
-        const docSnap = await getDoc(doc(db, "users", currentUser.uid));
+    
+    // onSnapshot creates a live, permanent connection to your cloud database
+    onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
         if (docSnap.exists()) {
-            // Pull Cloud Data to Local
+            // Instantly pull data whenever a change happens on ANY device
             const parsed = docSnap.data();
-            tasks = parsed.tasks || []; score = parsed.score || 0; pointHistory = parsed.history || [];
-            lastEvals = parsed.evals || { week: getWeekNumber(new Date()) }; penaltyPool = parsed.penalties || [];
+            tasks = parsed.tasks || []; 
+            score = parsed.score || 0; 
+            pointHistory = parsed.history || [];
+            lastEvals = parsed.evals || { week: getWeekNumber(new Date()) }; 
+            penaltyPool = parsed.penalties || [];
             if (parsed.deen) deenData = parsed.deen;
             if (parsed.ledger) ledgerData = parsed.ledger;
             if (parsed.invest) investData = parsed.invest;
+            
             saveDataLocallyOnly(); 
+            render(); // Instantly redraw the screen with the new data
         } else {
-            // First time login! Push local data UP to the cloud so you don't lose anything
-            await syncDataToFirebase();
+            // First time login! Push local data up to the cloud
+            syncDataToFirebase();
         }
-    } catch (e) { console.error("Error loading cloud data:", e); }
+    });
 }
 
 function saveDataLocallyOnly() {
@@ -164,7 +168,7 @@ function toggleDateInputs() {
 }
 
 function render() {
-    renderTasks(); renderHistory(); renderPool(); renderDeen(); renderLedger(); renderInvestments();
+    renderTasks(); renderPool(); renderDeen(); renderLedger(); renderInvestments();
     if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
 
@@ -327,7 +331,13 @@ function renderDeen() {
     deenData.quran.forEach((q, index) => {
         const div = document.createElement('div'); div.className = 'quran-item'; div.style.opacity = q.completed ? '0.5' : '1'; div.style.flexDirection = 'column'; div.style.gap = '10px';
         let intentionText = q.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-top:4px;"><em>" ${q.intention} "</em></div>` : '';
-        div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 5px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">Complete</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`;
+        
+        div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div>
+        <div style="display: flex; gap: 5px; justify-content: flex-end;">
+            ${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">Complete</button>
+            <button onclick="editJuz(${index})" style="background:var(--warning); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}
+            <button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">🗑️</button>
+        </div>`;
         juzContainer.appendChild(div);
     });
 
@@ -351,6 +361,7 @@ function addJuzIntention() {
 }
 
 function completeJuz(index) { deenData.quran[index].completed = true; saveData(); renderDeen(); }
+function editJuz(index) { const q = deenData.quran[index]; const newIntention = prompt(`Edit your intention for Juz ${q.juz}:`, q.intention); if (newIntention !== null) { deenData.quran[index].intention = newIntention.trim(); saveData(); renderDeen(); } }
 function deleteJuz(index) { deenData.quran.splice(index, 1); saveData(); renderDeen(); }
 function updateQada(prayer, amount) { deenData.qada[prayer] += amount; if(deenData.qada[prayer] < 0) deenData.qada[prayer] = 0; saveData(); renderDeen(); }
 
@@ -361,7 +372,7 @@ function calculateZakat() {
 }
 
 // ==========================================
-// RENDER TASKS & HISTORY
+// RENDER TASKS 
 // ==========================================
 function renderTasks() {
     const container = document.getElementById('task-list-container'); container.innerHTML = '';
@@ -384,8 +395,6 @@ function renderTasks() {
         container.appendChild(section);
     });
 }
-
-function renderHistory() {} // Optional visual log
 
 // ==========================================
 // TASKS LOGIC
@@ -515,6 +524,7 @@ window.addToPool = addToPool;
 window.removePoolItem = removePoolItem;
 window.addJuzIntention = addJuzIntention;
 window.completeJuz = completeJuz;
+window.editJuz = editJuz;
 window.deleteJuz = deleteJuz;
 window.updateQada = updateQada;
 window.calculateZakat = calculateZakat;

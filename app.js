@@ -58,7 +58,7 @@ function showProfile(user) {
 // APP STATE & STORAGE
 // ==========================================
 let tasks = JSON.parse(localStorage.getItem('hisab_tasks')) || [];
-let score = parseInt(localStorage.getItem('hisab_score')) || 0;
+let score = parseFloat(localStorage.getItem('hisab_score')) || 0;
 let pointHistory = JSON.parse(localStorage.getItem('hisab_history')) || [];
 let lastEvals = JSON.parse(localStorage.getItem('hisab_evals')) || { week: getWeekNumber(new Date()) };
 let penaltyPool = JSON.parse(localStorage.getItem('hisab_penalties')) || [{ title: "30 Min Intense Focus", points: 50 }];
@@ -86,11 +86,12 @@ function listenToFirebase() {
     onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
         if (docSnap.exists()) {
             const parsed = docSnap.data();
-            tasks = parsed.tasks || []; score = parsed.score || 0; pointHistory = parsed.history || []; lastEvals = parsed.evals || { week: getWeekNumber(new Date()) }; penaltyPool = parsed.penalties || [];
+            tasks = parsed.tasks || []; score = parseFloat(parsed.score) || 0; pointHistory = parsed.history || []; lastEvals = parsed.evals || { week: getWeekNumber(new Date()) }; penaltyPool = parsed.penalties || [];
             if (parsed.deen) deenData = parsed.deen; if (parsed.ledger) ledgerData = parsed.ledger; if (parsed.invest) investData = parsed.invest;
             
             tasks.forEach(t => { if(t.hasPenaltyToggle === undefined) t.hasPenaltyToggle = false; });
             
+            processRollovers();
             saveDataLocallyOnly(); render();
         } else { syncDataToFirebase(); }
     });
@@ -148,7 +149,7 @@ function renderTasks() {
                 let statusHTML = isAhead ? `<span class="badge done-badge">✅ Done</span>` : `<span class="badge target">⏳ Pending: ${task.currentTarget}</span>`;
                 
                 let missedButtonHtml = task.hasPenaltyToggle 
-                    ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}')">❌ Missed</button>` 
+                    ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}')">❌</button>` 
                     : ``;
 
                 div.innerHTML = `
@@ -169,7 +170,7 @@ function renderTasks() {
                 <div class="task-action-row">
                     ${missedButtonHtml}
                     <div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="1" min="0.1"></div>
-                    <button class="btn-task-action done" onclick="logProgress('${task.id}')">Complete</button>
+                    <button class="btn-task-action done" onclick="logProgress('${task.id}')">Log</button>
                 </div>`;
             }
             section.appendChild(div);
@@ -281,9 +282,38 @@ function openHistory() {
 function closeHistory() { document.getElementById('history-modal').style.display = 'none'; }
 
 // ==========================================
-// FINANCE & CUSTOM VERCEL BACKEND API
+// FINANCE & DUAL-PROXY LIVE SYNC
 // ==========================================
-// Your app now talks to your own Vercel API, which talks to Yahoo!
+function renderInvestments() {
+    const container = document.getElementById('invest-container'); container.innerHTML = '';
+    const currency = document.getElementById('currency-toggle') ? document.getElementById('currency-toggle').value : 'INR';
+    const symbol = currency === 'INR' ? '₹' : '$';
+    
+    let totalInvested = 0; let totalCurrent = 0;
+
+    investData.forEach((inv, index) => {
+        const invested = inv.qty * inv.buyPrice; const current = inv.qty * inv.currentPrice;
+        const pl = current - invested; const plPercent = invested > 0 ? (pl / invested) * 100 : 0;
+        totalInvested += invested; totalCurrent += current;
+        const color = pl >= 0 ? 'var(--success)' : 'var(--danger)'; const sign = pl >= 0 ? '+' : '';
+
+        const div = document.createElement('div');
+        div.style = `background: #2c2c2c; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 5px solid ${color};`;
+        div.innerHTML = `<div style="display: flex; justify-content: space-between; align-items: center;"><strong style="font-size: 1.2rem;">${inv.asset}</strong><button onclick="deleteInvestment(${index})" style="background:transparent; color:#888; border:none; padding:0; font-size:1.2rem;">×</button></div><div style="color: #aaa; font-size: 0.85rem; margin-bottom: 10px;">${inv.qty} units @ avg ${symbol}${inv.buyPrice.toLocaleString()}</div><div style="display: flex; justify-content: space-between; align-items: center;"><div><div style="font-size: 0.8rem; color: #aaa;">Current Price (${symbol})</div><div style="display: flex; gap: 5px; align-items: center;"><input type="number" step="any" id="inv-update-${index}" value="${inv.currentPrice}" style="width: 80px; padding: 5px; margin: 0;"><button onclick="updateInvestmentPrice(${index})" style="background: #444; color: #fff; padding: 5px 10px; margin: 0;">Update</button></div></div><div style="text-align: right;"><div style="font-size: 1.2rem; color: ${color}; font-weight: bold;">${sign}${symbol}${pl.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div><div style="font-size: 0.85rem; color: ${color};">${sign}${plPercent.toFixed(2)}%</div></div></div>`;
+        container.appendChild(div);
+    });
+
+    const netPL = totalCurrent - totalInvested; const netPLPercent = totalInvested > 0 ? (netPL / totalInvested) * 100 : 0;
+    const summaryColor = netPL >= 0 ? 'var(--success)' : 'var(--danger)'; const summarySign = netPL >= 0 ? '+' : '';
+    document.getElementById('inv-total-invested').innerText = symbol + totalInvested.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    document.getElementById('inv-current-value').innerText = symbol + totalCurrent.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    
+    const plText = document.getElementById('inv-total-pl');
+    plText.innerText = `Net P/L: ${summarySign}${symbol}${netPL.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} (${summarySign}${netPLPercent.toFixed(2)}%)`;
+    plText.style.color = summaryColor;
+}
+
+// Fetch via YOUR Vercel Serverless Function
 async function fetchLivePrices() {
     const btn = document.getElementById('btn-refresh-prices'); if (!btn) return;
     btn.innerText = "⏳ Fetching from Custom Backend...";
@@ -293,7 +323,6 @@ async function fetchLivePrices() {
         let symbol = investData[i].asset.toUpperCase().trim();
         
         try {
-            // Hitting your custom api/price.js file
             let response = await fetch(`/api/price?symbol=${encodeURIComponent(symbol)}`);
             if (response.ok) {
                 let data = await response.json();
@@ -320,7 +349,6 @@ async function searchAsset(query) {
     
     searchTimeout = setTimeout(async () => {
         try {
-            // Hitting your custom api/search.js file
             const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
             if (response.ok) {
                 const data = await response.json(); list.innerHTML = '';
@@ -339,6 +367,8 @@ async function searchAsset(query) {
         } catch (err) { console.error("Search fetch failed", err); }
     }, 400);
 }
+document.addEventListener('click', function (e) { if (e.target.id !== 'inv-asset') { const list = document.getElementById('asset-suggestions'); if(list) list.style.display = 'none'; } });
+
 function addInvestment() { const asset = document.getElementById('inv-asset').value.trim(); const qty = parseFloat(document.getElementById('inv-qty').value); const buyPrice = parseFloat(document.getElementById('inv-buy').value); if (!asset || !qty || !buyPrice) return alert("Please fill in all details."); investData.push({ asset, qty, buyPrice, currentPrice: buyPrice }); document.getElementById('inv-asset').value = ''; document.getElementById('inv-qty').value = ''; document.getElementById('inv-buy').value = ''; saveData(); renderInvestments(); }
 function updateInvestmentPrice(index) { const newPrice = parseFloat(document.getElementById(`inv-update-${index}`).value); if (isNaN(newPrice) || newPrice < 0) return alert("Invalid price."); investData[index].currentPrice = newPrice; saveData(); renderInvestments(); }
 function deleteInvestment(index) { if (confirm(`Remove ${investData[index].asset}?`)) { investData.splice(index, 1); saveData(); renderInvestments(); } }

@@ -222,6 +222,25 @@
 
         <!-- TAB 4: WORSHIP (DEEN) -->
         <div id="tab-deen" class="tab-content">
+            
+            <!-- NEW: COMMITTED DHIKR CARD -->
+            <div class="card" style="border: 1px solid var(--deen);">
+                <h3 style="color: var(--deen);">📿 Special Committed Dhikr</h3>
+                <p style="font-size:0.85rem; color:#aaa; margin-top:-10px;">For specific intentions (e.g., 100 Salawat for healing).</p>
+                <div class="input-grid">
+                    <input type="text" id="dhikr-name" placeholder="Dhikr (e.g., 100 Salawat)">
+                    <input type="number" id="dhikr-target" placeholder="Target Number">
+                    <input class="full-width" type="text" id="dhikr-intention" placeholder="Intention (e.g., Healing for Kareem)">
+                    <div class="full-width">
+                        <label style="font-size:0.8rem; color:#aaa;">Optional Deadline:</label>
+                        <input type="date" id="dhikr-deadline" style="margin-top:4px;">
+                    </div>
+                    <button class="full-width" style="background: var(--deen); color: #000;" onclick="addDhikr()">Add Intention</button>
+                </div>
+                <div id="dhikr-list-container" style="margin-top: 20px;"></div>
+            </div>
+
+            <!-- QURAN JUZ TRACKER -->
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">📖 Quran Juz Tracker</h3>
                 <div class="input-grid">
@@ -232,11 +251,13 @@
                 <div id="juz-list-container" style="margin-top: 20px;"></div>
             </div>
 
+            <!-- QADA PRAYERS -->
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">🕌 Qada (Missed Prayers)</h3>
                 <div id="qada-container" style="margin-top: 15px;"></div>
             </div>
 
+            <!-- ZAKAT CALCULATOR -->
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">💰 Zakat Calculator (2.5%)</h3>
                 <div style="margin-top: 15px;"><label style="font-size: 0.85rem; color: #aaa;">Cash & Bank Balances:</label><input type="number" id="zakat-cash" value="0" oninput="calculateZakat()"></div>

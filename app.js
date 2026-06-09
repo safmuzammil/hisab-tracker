@@ -60,6 +60,7 @@ function showProfile(user) {
 let tasks = JSON.parse(localStorage.getItem('hisab_tasks')) || [];
 let score = parseFloat(localStorage.getItem('hisab_score')) || 0;
 let pointHistory = JSON.parse(localStorage.getItem('hisab_history')) || [];
+let missedTasks = JSON.parse(localStorage.getItem('hisab_missed')) || []; // NEW: Missed task ledger
 let lastEvals = JSON.parse(localStorage.getItem('hisab_evals')) || { week: getWeekNumber(new Date()) };
 let penaltyPool = JSON.parse(localStorage.getItem('hisab_penalties')) || [{ title: "30 Min Intense Focus", points: 50 }];
 let deenData = JSON.parse(localStorage.getItem('hisab_deen')) || { quran: [], qada: { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 }, zakatInputs: { cash: 0, gold: 0, invest: 0 } };
@@ -86,7 +87,7 @@ function listenToFirebase() {
     onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
         if (docSnap.exists()) {
             const parsed = docSnap.data();
-            tasks = parsed.tasks || []; score = parseFloat(parsed.score) || 0; pointHistory = parsed.history || []; lastEvals = parsed.evals || { week: getWeekNumber(new Date()) }; penaltyPool = parsed.penalties || [];
+            tasks = parsed.tasks || []; score = parseFloat(parsed.score) || 0; pointHistory = parsed.history || []; missedTasks = parsed.missed || []; lastEvals = parsed.evals || { week: getWeekNumber(new Date()) }; penaltyPool = parsed.penalties || [];
             if (parsed.deen) deenData = parsed.deen; if (parsed.ledger) ledgerData = parsed.ledger; if (parsed.invest) investData = parsed.invest;
             
             tasks.forEach(t => { if(t.hasPenaltyToggle === undefined) t.hasPenaltyToggle = false; });
@@ -97,8 +98,8 @@ function listenToFirebase() {
     });
 }
 
-function saveDataLocallyOnly() { localStorage.setItem('hisab_tasks', JSON.stringify(tasks)); localStorage.setItem('hisab_score', score.toString()); localStorage.setItem('hisab_history', JSON.stringify(pointHistory)); localStorage.setItem('hisab_evals', JSON.stringify(lastEvals)); localStorage.setItem('hisab_penalties', JSON.stringify(penaltyPool)); localStorage.setItem('hisab_deen', JSON.stringify(deenData)); localStorage.setItem('hisab_ledger', JSON.stringify(ledgerData)); localStorage.setItem('hisab_invest', JSON.stringify(investData)); }
-async function syncDataToFirebase() { if (currentUser) { try { await setDoc(doc(db, "users", currentUser.uid), { tasks, score, history: pointHistory, evals: lastEvals, penalties: penaltyPool, deen: deenData, ledger: ledgerData, invest: investData }); } catch(e) { console.error("Firebase sync failed", e); } } }
+function saveDataLocallyOnly() { localStorage.setItem('hisab_tasks', JSON.stringify(tasks)); localStorage.setItem('hisab_score', score.toString()); localStorage.setItem('hisab_history', JSON.stringify(pointHistory)); localStorage.setItem('hisab_missed', JSON.stringify(missedTasks)); localStorage.setItem('hisab_evals', JSON.stringify(lastEvals)); localStorage.setItem('hisab_penalties', JSON.stringify(penaltyPool)); localStorage.setItem('hisab_deen', JSON.stringify(deenData)); localStorage.setItem('hisab_ledger', JSON.stringify(ledgerData)); localStorage.setItem('hisab_invest', JSON.stringify(investData)); }
+async function syncDataToFirebase() { if (currentUser) { try { await setDoc(doc(db, "users", currentUser.uid), { tasks, score, history: pointHistory, missed: missedTasks, evals: lastEvals, penalties: penaltyPool, deen: deenData, ledger: ledgerData, invest: investData }); } catch(e) { console.error("Firebase sync failed", e); } } }
 function saveData() { saveDataLocallyOnly(); syncDataToFirebase(); }
 
 // ==========================================
@@ -147,6 +148,7 @@ function renderTasks() {
                 
                 let timeInfo = task.type === 'fixed-period' ? `<div style="font-size:0.75rem; color:#aaa; margin-bottom:8px;">📅 ${task.startDate} to ${task.endDate}</div>` : '';
                 let statusHTML = isAhead ? `<span class="badge done-badge">✅ Done</span>` : `<span class="badge target">⏳ Pending: ${task.currentTarget}</span>`;
+                let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
                 
                 let missedButtonHtml = task.hasPenaltyToggle 
                     ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}')">❌</button>` 
@@ -159,6 +161,7 @@ function renderTasks() {
                         <div class="task-badges">
                             <span class="badge points">+${task.pointsPerUnit} pts</span>
                             ${statusHTML}
+                            ${reminderHtml}
                         </div>
                         ${timeInfo}
                     </div>
@@ -170,7 +173,7 @@ function renderTasks() {
                 <div class="task-action-row">
                     ${missedButtonHtml}
                     <div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="1" min="0.1"></div>
-                    <button class="btn-task-action done" onclick="logProgress('${task.id}')">Log</button>
+                    <button class="btn-task-action done" onclick="logProgress('${task.id}')">Complete</button>
                 </div>`;
             }
             section.appendChild(div);
@@ -180,7 +183,7 @@ function renderTasks() {
 }
 
 // ==========================================
-// TASKS LOGIC 
+// TASKS LOGIC (WITH REMINDERS & UNDO)
 // ==========================================
 function toggleDateInputs() {
     const type = document.getElementById('task-type').value;
@@ -196,6 +199,7 @@ function saveTask() {
     const pointsPerUnit = parseFloat(document.getElementById('task-points-unit').value) || 10; 
     const startDate = document.getElementById('task-start-date').value; 
     const endDate = document.getElementById('task-end-date').value; 
+    const reminderTime = document.getElementById('task-reminder-time').value;
     const hasPenaltyToggle = document.getElementById('task-has-penalty').checked;
 
     if (!title) return alert('Enter a title'); 
@@ -207,9 +211,10 @@ function saveTask() {
         task.currentTarget += (baseTarget - task.baseTarget); 
         task.baseTarget = baseTarget; task.pointsPerUnit = pointsPerUnit; 
         task.startDate = startDate; task.endDate = endDate;
+        task.reminderTime = reminderTime;
         task.hasPenaltyToggle = hasPenaltyToggle;
     } else { 
-        tasks.push({ id: Date.now().toString(), title, type, baseTarget, currentTarget: baseTarget, pointsPerUnit, startDate, endDate, lastChecked: new Date().toISOString(), isPenalty: false, isCompleted: false, hasPenaltyToggle }); 
+        tasks.push({ id: Date.now().toString(), title, type, baseTarget, currentTarget: baseTarget, pointsPerUnit, startDate, endDate, reminderTime, lastChecked: new Date().toISOString(), isPenalty: false, isCompleted: false, hasPenaltyToggle }); 
     } 
     cancelEdit(); saveData(); render(); 
 }
@@ -218,6 +223,7 @@ function editTask(id) {
     const task = tasks.find(t => t.id === id); if (!task) return; 
     document.getElementById('form-title').innerText = '✏️ Edit Task'; document.getElementById('btn-save-task').innerText = 'Save Changes'; document.getElementById('btn-cancel-edit').style.display = 'inline-block'; 
     document.getElementById('task-id').value = task.id; document.getElementById('task-title').value = task.title; document.getElementById('task-type').value = task.type || 'daily'; document.getElementById('task-base-target').value = task.baseTarget; document.getElementById('task-points-unit').value = task.pointsPerUnit; document.getElementById('task-start-date').value = task.startDate || ''; document.getElementById('task-end-date').value = task.endDate || ''; 
+    document.getElementById('task-reminder-time').value = task.reminderTime || '';
     document.getElementById('task-has-penalty').checked = task.hasPenaltyToggle || false;
     toggleDateInputs(); window.scrollTo({ top: 0, behavior: 'smooth' }); 
 }
@@ -225,6 +231,7 @@ function editTask(id) {
 function cancelEdit() { 
     document.getElementById('form-title').innerText = '➕ Add New Task'; document.getElementById('btn-save-task').innerText = 'Add Task'; document.getElementById('btn-cancel-edit').style.display = 'none'; 
     document.getElementById('task-id').value = ''; document.getElementById('task-title').value = ''; document.getElementById('task-type').value = 'daily'; document.getElementById('task-base-target').value = ''; document.getElementById('task-points-unit').value = ''; document.getElementById('task-start-date').value = ''; document.getElementById('task-end-date').value = ''; 
+    document.getElementById('task-reminder-time').value = '';
     document.getElementById('task-has-penalty').checked = false;
     toggleDateInputs(); 
 }
@@ -238,7 +245,9 @@ function logProgress(id) {
     
     const pointsEarned = Math.round((amountDone * task.pointsPerUnit) * 100) / 100; 
     score += pointsEarned; 
-    pointHistory.push({ timestamp: Date.now(), points: pointsEarned, title: task.title });
+    
+    // Create unique history entry that can be undone
+    pointHistory.push({ id: Date.now().toString(), taskId: task.id, timestamp: Date.now(), points: pointsEarned, title: task.title, actionType: 'complete', amount: amountDone });
     
     if (task.isPenalty) { 
         tasks = tasks.filter(t => t.id !== id); 
@@ -253,17 +262,61 @@ function logProgress(id) {
 function markMissed(id) {
     const task = tasks.find(t => t.id === id); if (!task) return;
     if (confirm(`Mark "${task.title}" as missed? This will deduct ${task.pointsPerUnit} points.`)) {
-        score -= task.pointsPerUnit; pointHistory.push({ timestamp: Date.now(), points: -task.pointsPerUnit, title: "Missed: " + task.title }); 
+        score -= task.pointsPerUnit; 
+        
+        const historyId = Date.now().toString();
+        pointHistory.push({ id: historyId, taskId: task.id, timestamp: Date.now(), points: -task.pointsPerUnit, title: "Missed: " + task.title, actionType: 'missed', amount: 1 }); 
+        
+        // Add to Missed/Compensation array
+        missedTasks.push({ id: historyId, taskId: task.id, title: task.title, pointsLost: task.pointsPerUnit, dateMissed: new Date().getTime(), compensated: false });
+
         task.currentTarget -= 1; task.lastChecked = new Date().toISOString();
         saveData(); render();
     }
 }
 
-function punish(id, title) { const task = tasks.find(t => t.id === id); score -= task.pointsPerUnit; pointHistory.push({ timestamp: Date.now(), points: -task.pointsPerUnit, title: "Failed: " + title }); saveData(); render(); }
+function punish(id, title) { 
+    const task = tasks.find(t => t.id === id); 
+    score -= task.pointsPerUnit; 
+    
+    const historyId = Date.now().toString();
+    pointHistory.push({ id: historyId, taskId: task.id, timestamp: Date.now(), points: -task.pointsPerUnit, title: "Failed: " + title, actionType: 'missed', amount: 1 }); 
+    
+    missedTasks.push({ id: historyId, taskId: task.id, title: title, pointsLost: task.pointsPerUnit, dateMissed: new Date().getTime(), compensated: false });
+
+    saveData(); render(); 
+}
 
 // ==========================================
-// HISTORY UI MODAL
+// UNDO & HISTORY MODAL
 // ==========================================
+function undoAction(historyId) {
+    const entry = pointHistory.find(h => h.id === historyId);
+    if (!entry) return;
+    
+    if (confirm(`Undo "${entry.title}"? This will reverse the ${entry.points} points.`)) {
+        score -= entry.points; // Reverse the score
+        
+        // Reverse the task target if the task still exists
+        const task = tasks.find(t => t.id === entry.taskId);
+        if (task) {
+            if (entry.actionType === 'complete' || entry.actionType === 'missed') {
+                task.currentTarget += entry.amount;
+            }
+        }
+        
+        // Remove from point history
+        pointHistory = pointHistory.filter(h => h.id !== historyId);
+        
+        // If it was a missed task, remove it from the missed array so they can't compensate for an undone miss
+        if (entry.actionType === 'missed') {
+            missedTasks = missedTasks.filter(m => m.id !== historyId);
+        }
+
+        saveData(); render(); openHistory(); // Refresh modal
+    }
+}
+
 function openHistory() {
     document.getElementById('history-modal').style.display = 'block';
     const list = document.getElementById('history-list'); list.innerHTML = '';
@@ -275,11 +328,76 @@ function openHistory() {
         const date = new Date(item.timestamp).toLocaleString();
         const div = document.createElement('div');
         div.style = `background:var(--card); padding:15px; border-radius:10px; margin-bottom:10px; border-left: 5px solid ${item.points >= 0 ? 'var(--success)' : 'var(--danger)'}`;
-        div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.1rem;">${item.title}</strong><span style="color:${item.points >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:bold; font-size:1.2rem;">${item.points >= 0 ? '+' : ''}${item.points}</span></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${date}</div>`;
+        
+        let undoBtn = item.actionType ? `<button onclick="undoAction('${item.id}')" style="background:transparent; border:1px solid #aaa; padding:6px 12px; font-size:0.85rem; color:#ccc; margin:0; width:auto; border-radius:6px;">↩️ Undo</button>` : '';
+
+        div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.1rem; color:#fff;">${item.title}</strong><span style="color:${item.points >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:bold; font-size:1.2rem;">${item.points >= 0 ? '+' : ''}${item.points}</span></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px; margin-bottom:10px;">${date}</div>${undoBtn}`;
         list.appendChild(div);
     });
 }
 function closeHistory() { document.getElementById('history-modal').style.display = 'none'; }
+
+// ==========================================
+// MISSED TASKS & COMPENSATION TAB
+// ==========================================
+function renderMissed() {
+    const container = document.getElementById('missed-list-container'); container.innerHTML = '';
+    const pendingMissed = missedTasks.filter(m => !m.compensated);
+    
+    if (pendingMissed.length === 0) {
+        container.innerHTML = '<div style="text-align:center; padding:30px 10px; background:#1e1e1e; border-radius:12px;"><p style="color:var(--success); font-size:1.1rem; font-weight:bold;">🎉 No Pending Missed Tasks!</p><p style="color:#aaa; font-size:0.9rem;">You are all caught up.</p></div>'; return;
+    }
+
+    pendingMissed.forEach(missed => {
+        const dateStr = new Date(missed.dateMissed).toLocaleDateString();
+        const div = document.createElement('div');
+        div.className = 'task-item missed-log';
+        div.innerHTML = `
+            <div class="task-header">
+                <div>
+                    <div class="task-title" style="color:var(--missed);">${missed.title}</div>
+                    <div style="font-size:0.85rem; color:#aaa; margin-bottom:8px;">Missed on: ${dateStr}</div>
+                    <div class="task-badges"><span class="badge points negative">Loss: -${missed.pointsLost} pts</span></div>
+                </div>
+            </div>
+            <div class="task-action-row" style="margin-top:15px;">
+                <button class="btn-task-action compensate" onclick="compensate('${missed.id}')">✅ Complete Compensation</button>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+function compensate(missedId) {
+    const missed = missedTasks.find(m => m.id === missedId);
+    if (!missed) return;
+    
+    missed.compensated = true;
+    score += missed.pointsLost; // Give points back
+    pointHistory.push({ id: Date.now().toString(), taskId: missed.taskId, timestamp: Date.now(), points: missed.pointsLost, title: "Compensated: " + missed.title, actionType: 'compensate', amount: 1 });
+    
+    saveData(); render();
+    alert(`🎉 Awesome! You compensated for "${missed.title}" and earned back your ${missed.pointsLost} points.`);
+}
+
+// ==========================================
+// BACKGROUND REMINDER ENGINE
+// ==========================================
+setInterval(() => {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    const now = new Date();
+    const timeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+    
+    tasks.forEach(t => {
+        if (t.reminderTime === timeString && !t.isCompleted && t.currentTarget > 0) {
+            if (t.lastNotified !== timeString) {
+                new Notification("Hisab Reminder: " + t.title, { body: `You have ${t.currentTarget} pending units to complete!`, icon: "icon.png" });
+                t.lastNotified = timeString;
+                saveDataLocallyOnly();
+            }
+        }
+    });
+}, 60000); // Checks every minute
 
 // ==========================================
 // FINANCE & DUAL-PROXY LIVE SYNC
@@ -313,7 +431,6 @@ function renderInvestments() {
     plText.style.color = summaryColor;
 }
 
-// Fetch via YOUR Vercel Serverless Function
 async function fetchLivePrices() {
     const btn = document.getElementById('btn-refresh-prices'); if (!btn) return;
     btn.innerText = "⏳ Fetching from Custom Backend...";
@@ -321,7 +438,6 @@ async function fetchLivePrices() {
 
     for (let i = 0; i < investData.length; i++) {
         let symbol = investData[i].asset.toUpperCase().trim();
-        
         try {
             let response = await fetch(`/api/price?symbol=${encodeURIComponent(symbol)}`);
             if (response.ok) {
@@ -400,19 +516,24 @@ function getWeekNumber(d) { d = new Date(Date.UTC(d.getFullYear(), d.getMonth(),
 function getDynamicTargets() { let dailyBase = 0, weeklyBase = 0, monthlyBase = 0; tasks.forEach(t => { if (t.isPenalty || t.type === 'bad') return; const totalPoints = (t.baseTarget || 0) * (t.pointsPerUnit || 0); if (t.type === 'daily') dailyBase += totalPoints; if (t.type === 'weekly') weeklyBase += totalPoints; if (t.type === 'monthly') monthlyBase += totalPoints; }); const dailyGoal = dailyBase; const weeklyGoal = weeklyBase + (dailyBase * 7); const monthlyGoal = monthlyBase + (weeklyBase * 4) + (dailyBase * 30); const yearlyGoal = (monthlyBase * 12) + (weeklyBase * 52) + (dailyBase * 365); return { daily: { goal: dailyGoal, min: dailyGoal * 0.5 }, weekly: { goal: weeklyGoal, min: weeklyGoal * 0.5 }, monthly: { goal: monthlyGoal, min: monthlyGoal * 0.5 }, yearly: { goal: yearlyGoal, min: yearlyGoal * 0.5 } }; }
 
 function switchTab(tabName, element) {
-    localStorage.setItem('hisab_active_tab', tabName); document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); document.querySelectorAll('.nav-item').forEach(nav => { nav.classList.remove('active'); nav.classList.remove('active-deen'); nav.classList.remove('active-ledger'); });
+    localStorage.setItem('hisab_active_tab', tabName); document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); document.querySelectorAll('.nav-item').forEach(nav => { nav.classList.remove('active'); nav.classList.remove('active-missed'); nav.classList.remove('active-deen'); nav.classList.remove('active-ledger'); });
     document.getElementById(`tab-${tabName}`).classList.add('active');
-    if(tabName === 'deen') { element.classList.add('active-deen'); renderDeen(); } else if(tabName === 'ledger') { element.classList.add('active-ledger'); renderLedger(); renderInvestments(); } else { element.classList.add('active'); }
+    
+    if(tabName === 'deen') { element.classList.add('active-deen'); renderDeen(); } 
+    else if(tabName === 'missed') { element.classList.add('active-missed'); renderMissed(); }
+    else if(tabName === 'ledger') { element.classList.add('active-ledger'); renderLedger(); renderInvestments(); } 
+    else { element.classList.add('active'); }
+    
     if (tabName === 'dashboard') updateDashboard();
 }
 function processRollovers() { const now = new Date(); const todayMidnight = new Date(now.setHours(0,0,0,0)).getTime(); tasks.forEach(task => { if (task.type === 'bad' || task.isPenalty || task.type === 'one-time' || task.isCompleted) return; const lastCheckedMidnight = new Date(new Date(task.lastChecked).setHours(0,0,0,0)).getTime(); const diffDays = Math.floor((todayMidnight - lastCheckedMidnight) / 86400000); if (diffDays <= 0) return; if (task.type === 'daily') { task.currentTarget += (task.baseTarget * diffDays); } else if (task.type === 'weekly') { const weeksPassed = Math.floor(diffDays / 7); if (weeksPassed >= 1) task.currentTarget += (task.baseTarget * weeksPassed); } else if (task.type === 'monthly') { const last = new Date(task.lastChecked); const monthsPassed = (now.getFullYear() - last.getFullYear()) * 12 + (now.getMonth() - last.getMonth()); if (monthsPassed >= 1) task.currentTarget += (task.baseTarget * monthsPassed); } else if (task.type === 'fixed-period') { const start = new Date(task.startDate).setHours(0,0,0,0); const end = new Date(task.endDate).setHours(23,59,59,999); let validDays = 0; for (let i = 1; i <= diffDays; i++) { let checkDate = lastCheckedMidnight + (i * 86400000); if (checkDate >= start && checkDate <= end) validDays++; } task.currentTarget += (task.baseTarget * validDays); } task.lastChecked = new Date().toISOString(); }); saveDataLocallyOnly(); }
 function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }
 function toggleNotifications() { if (!("Notification" in window)) return alert("Browser does not support notifications."); if (Notification.permission === "granted") { alert("Notifications already enabled!"); } else if (Notification.permission !== "denied") { Notification.requestPermission().then(p => { if (p === "granted") { const btn = document.getElementById('btn-notifications'); btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }); } else { alert("Notifications blocked in device settings."); } }
 
-function render() { renderTasks(); renderPool(); renderDeen(); renderLedger(); renderInvestments(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
+function render() { renderTasks(); renderPool(); renderMissed(); renderDeen(); renderLedger(); renderInvestments(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
 
 // EXPORT TO WINDOW
-window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.toggleDateInputs = toggleDateInputs; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.punish = punish; window.addToPool = addToPool; window.removePoolItem = removePoolItem; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory;
+window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.toggleDateInputs = toggleDateInputs; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.punish = punish; window.undoAction = undoAction; window.compensate = compensate; window.addToPool = addToPool; window.removePoolItem = removePoolItem; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory;
 
 initNotifications(); processRollovers(); evaluatePerformance();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

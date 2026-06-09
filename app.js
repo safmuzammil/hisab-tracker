@@ -60,7 +60,7 @@ function showProfile(user) {
 let tasks = JSON.parse(localStorage.getItem('hisab_tasks')) || [];
 let score = parseFloat(localStorage.getItem('hisab_score')) || 0;
 let pointHistory = JSON.parse(localStorage.getItem('hisab_history')) || [];
-let missedTasks = JSON.parse(localStorage.getItem('hisab_missed')) || []; // NEW: Missed task ledger
+let missedTasks = JSON.parse(localStorage.getItem('hisab_missed')) || []; 
 let lastEvals = JSON.parse(localStorage.getItem('hisab_evals')) || { week: getWeekNumber(new Date()) };
 let penaltyPool = JSON.parse(localStorage.getItem('hisab_penalties')) || [{ title: "30 Min Intense Focus", points: 50 }];
 let deenData = JSON.parse(localStorage.getItem('hisab_deen')) || { quran: [], qada: { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 }, zakatInputs: { cash: 0, gold: 0, invest: 0 } };
@@ -166,6 +166,7 @@ function renderTasks() {
                         ${timeInfo}
                     </div>
                     <div class="task-controls">
+                        <button class="btn-icon" onclick="resetTask('${task.id}')" title="Restart Streak">🔄</button>
                         <button class="btn-icon" onclick="editTask('${task.id}')">✏️</button>
                         <button class="btn-icon" onclick="deleteTask('${task.id}')">🗑️</button>
                     </div>
@@ -183,7 +184,7 @@ function renderTasks() {
 }
 
 // ==========================================
-// TASKS LOGIC (WITH REMINDERS & UNDO)
+// TASKS LOGIC (WITH REMINDERS, UNDO, RESTART)
 // ==========================================
 function toggleDateInputs() {
     const type = document.getElementById('task-type').value;
@@ -238,6 +239,16 @@ function cancelEdit() {
 
 function deleteTask(id) { if (confirm("Delete this task?")) { tasks = tasks.filter(t => t.id !== id); saveData(); render(); } }
 
+function resetTask(id) {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    if (confirm(`Restart streak for "${task.title}"? This will reset pending units back to ${task.baseTarget}.`)) {
+        task.currentTarget = task.baseTarget;
+        task.lastChecked = new Date().toISOString();
+        saveData(); render();
+    }
+}
+
 function logProgress(id) {
     const task = tasks.find(t => t.id === id); 
     const amountDone = parseFloat(document.getElementById(`input-${id}`).value) || 0; 
@@ -246,7 +257,6 @@ function logProgress(id) {
     const pointsEarned = Math.round((amountDone * task.pointsPerUnit) * 100) / 100; 
     score += pointsEarned; 
     
-    // Create unique history entry that can be undone
     pointHistory.push({ id: Date.now().toString(), taskId: task.id, timestamp: Date.now(), points: pointsEarned, title: task.title, actionType: 'complete', amount: amountDone });
     
     if (task.isPenalty) { 
@@ -267,7 +277,6 @@ function markMissed(id) {
         const historyId = Date.now().toString();
         pointHistory.push({ id: historyId, taskId: task.id, timestamp: Date.now(), points: -task.pointsPerUnit, title: "Missed: " + task.title, actionType: 'missed', amount: 1 }); 
         
-        // Add to Missed/Compensation array
         missedTasks.push({ id: historyId, taskId: task.id, title: task.title, pointsLost: task.pointsPerUnit, dateMissed: new Date().getTime(), compensated: false });
 
         task.currentTarget -= 1; task.lastChecked = new Date().toISOString();
@@ -295,9 +304,8 @@ function undoAction(historyId) {
     if (!entry) return;
     
     if (confirm(`Undo "${entry.title}"? This will reverse the ${entry.points} points.`)) {
-        score -= entry.points; // Reverse the score
+        score -= entry.points; 
         
-        // Reverse the task target if the task still exists
         const task = tasks.find(t => t.id === entry.taskId);
         if (task) {
             if (entry.actionType === 'complete' || entry.actionType === 'missed') {
@@ -305,15 +313,13 @@ function undoAction(historyId) {
             }
         }
         
-        // Remove from point history
         pointHistory = pointHistory.filter(h => h.id !== historyId);
         
-        // If it was a missed task, remove it from the missed array so they can't compensate for an undone miss
         if (entry.actionType === 'missed') {
             missedTasks = missedTasks.filter(m => m.id !== historyId);
         }
 
-        saveData(); render(); openHistory(); // Refresh modal
+        saveData(); render(); openHistory(); 
     }
 }
 
@@ -373,7 +379,7 @@ function compensate(missedId) {
     if (!missed) return;
     
     missed.compensated = true;
-    score += missed.pointsLost; // Give points back
+    score += missed.pointsLost; 
     pointHistory.push({ id: Date.now().toString(), taskId: missed.taskId, timestamp: Date.now(), points: missed.pointsLost, title: "Compensated: " + missed.title, actionType: 'compensate', amount: 1 });
     
     saveData(); render();
@@ -397,7 +403,7 @@ setInterval(() => {
             }
         }
     });
-}, 60000); // Checks every minute
+}, 60000); 
 
 // ==========================================
 // FINANCE & DUAL-PROXY LIVE SYNC
@@ -533,7 +539,7 @@ function toggleNotifications() { if (!("Notification" in window)) return alert("
 function render() { renderTasks(); renderPool(); renderMissed(); renderDeen(); renderLedger(); renderInvestments(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
 
 // EXPORT TO WINDOW
-window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.toggleDateInputs = toggleDateInputs; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.punish = punish; window.undoAction = undoAction; window.compensate = compensate; window.addToPool = addToPool; window.removePoolItem = removePoolItem; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory;
+window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.toggleDateInputs = toggleDateInputs; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.resetTask = resetTask; window.logProgress = logProgress; window.markMissed = markMissed; window.punish = punish; window.undoAction = undoAction; window.compensate = compensate; window.addToPool = addToPool; window.removePoolItem = removePoolItem; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory;
 
 initNotifications(); processRollovers(); evaluatePerformance();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

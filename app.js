@@ -34,6 +34,7 @@ onAuthStateChanged(auth, async (user) => {
         currentUser = null;
         document.getElementById('login-prompt').style.display = 'block';
         document.getElementById('auth-container').style.display = 'none';
+        migrateLegacyTasks(); // Run migration locally if not logged in
         render();
     }
 });
@@ -67,7 +68,7 @@ let tasksProgressChart = null;
 let badHabitsChart = null;
 
 // ==========================================
-// CLOUD SYNC LOGIC
+// CLOUD SYNC & MIGRATION LOGIC
 // ==========================================
 function listenToFirebase() {
     if (!currentUser) return;
@@ -81,19 +82,42 @@ function listenToFirebase() {
             if (parsed.ledger) ledgerData = parsed.ledger; 
             if (parsed.invest) investData = parsed.invest;
             
-            // Safety check: ensure all tasks have a creation timestamp
-            let needsSave = false;
-            tasks.forEach(t => {
-                if (!t.createdAt) {
-                    t.createdAt = parseInt(t.id) || Date.now();
-                    needsSave = true;
-                }
-            });
-            if (needsSave) syncDataToFirebase();
+            // Fix old tasks instantly
+            if (migrateLegacyTasks()) {
+                syncDataToFirebase();
+            }
 
             saveDataLocallyOnly(); render();
-        } else { syncDataToFirebase(); }
+        } else { 
+            migrateLegacyTasks();
+            syncDataToFirebase(); 
+        }
     });
+}
+
+function migrateLegacyTasks() {
+    let needsSave = false;
+    tasks.forEach(t => {
+        // 1. Ensure it has a creation timestamp
+        if (!t.createdAt || isNaN(new Date(t.createdAt).getTime())) {
+            t.createdAt = parseInt(t.id) || Date.now();
+            needsSave = true;
+        }
+
+        // 2. Fix the "Remaining: 1" bug by calculating exact days left from today
+        if (!t.legacyMigrated) {
+            const periodsLeftToday = getPeriodsLeft(t.type || 'daily', Date.now());
+            
+            t.totalYearlyTarget = getPeriodsLeft(t.type || 'daily', t.createdAt) * (t.baseTarget || 1);
+            
+            // Reset their current target to what is remaining FROM TODAY 
+            t.currentTarget = periodsLeftToday * (t.baseTarget || 1);
+            t.legacyMigrated = true;
+            t.isCompleted = false;
+            needsSave = true;
+        }
+    });
+    return needsSave;
 }
 
 function saveDataLocallyOnly() { 
@@ -119,19 +143,28 @@ function saveData() { saveDataLocallyOnly(); syncDataToFirebase(); }
 // TASKS LOGIC (ANNUAL ALLOCATION - FIXED MATH)
 // ==========================================
 function getPeriodsLeft(type, dateObj) {
-    const start = new Date(dateObj);
-    start.setHours(0, 0, 0, 0); // Anchor to the exact start of the day it was created
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    let start = new Date(dateObj);
     
-    // Anchor to exactly midnight on Dec 31st of the creation year
-    const eoy = new Date(start.getFullYear(), 11, 31, 0, 0, 0); 
+    if (isNaN(start.getTime())) start = new Date(); 
     
-    // Using Math.round instead of floor safely bypasses 23/25 hour Daylight Saving Time anomalies
-    const daysLeft = Math.round((eoy.getTime() - start.getTime()) / 86400000) + 1; // +1 strictly includes the final day
+    // If the task was created in a previous year, it resets on Jan 1st of THIS year.
+    if (start.getFullYear() < currentYear) {
+        start = new Date(currentYear, 0, 1);
+    }
+    
+    start.setHours(0, 0, 0, 0); 
+    const eoy = new Date(currentYear, 11, 31, 23, 59, 59); 
+    
+    // Using Math.round to safely bypass 23/25 hour Daylight Saving Time anomalies
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const daysLeft = Math.round((eoy.getTime() - start.getTime()) / msPerDay);
 
     if (type === 'daily') return daysLeft;
     if (type === 'weekly') return Math.ceil(daysLeft / 7);
     if (type === 'monthly') return (12 - start.getMonth());
-    return 1; // 'once'
+    return 1; 
 }
 
 function saveTask() { 
@@ -147,15 +180,18 @@ function saveTask() {
         const task = tasks.find(t => t.id === id); 
         task.title = title; task.reminderTime = reminderTime;
         
-        // Recalculate targets using the original creation date, ensuring edits don't shrink the year!
-        const creationTime = task.createdAt || parseInt(task.id);
-        const newPeriodsLeft = getPeriodsLeft(task.type, creationTime);
+        // Recalculate targets based on the original creation date so edits don't shrink the year
+        const creationTime = task.createdAt || Date.now();
+        const newPeriodsLeft = getPeriodsLeft(type, creationTime);
         const newTotalYearly = newPeriodsLeft * baseTarget;
-        const targetDiff = newTotalYearly - task.totalYearlyTarget;
         
+        const targetDiff = newTotalYearly - (task.totalYearlyTarget || 0);
+        
+        task.type = type;
         task.baseTarget = baseTarget; 
         task.totalYearlyTarget = newTotalYearly;
-        task.currentTarget += targetDiff; 
+        task.currentTarget = Math.max(0, (task.currentTarget || 0) + targetDiff); 
+        task.isCompleted = task.currentTarget <= 0;
         
     } else { 
         const creationTime = Date.now();
@@ -171,7 +207,8 @@ function saveTask() {
             totalYearlyTarget,
             currentTarget: totalYearlyTarget, 
             reminderTime, 
-            isCompleted: false
+            isCompleted: false,
+            legacyMigrated: true 
         }); 
     } 
     cancelEdit(); saveData(); render(); 
@@ -366,7 +403,7 @@ setInterval(() => {
     tasks.forEach(t => {
         if (t.reminderTime === timeString && !t.isCompleted && t.currentTarget > 0) {
             if (t.lastNotified !== timeString) {
-                new Notification("Hisab Reminder: " + t.title, { body: `You have ${t.currentTarget} pending units to complete!`, icon: "icon.png" });
+                new Notification("Hisab Reminder: " + t.title, { body: `You have ${t.currentTarget} pending units!`, icon: "icon.png" });
                 t.lastNotified = timeString;
                 saveDataLocallyOnly();
             }
@@ -553,9 +590,9 @@ function toggleNotifications() { if (!("Notification" in window)) return alert("
 function render() { renderTasks(); renderBadHabits(); renderDeen(); renderLedger(); renderInvestments(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
 
 // ==========================================
-// EXPORTS
+// EXPORTS (CLEANED)
 // ==========================================
-window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.undoAction = undoAction; window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory; window.addBadHabit = addBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit; window.toggleDateInputs = toggleDateInputs;
+window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.undoAction = undoAction; window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory; window.addBadHabit = addBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

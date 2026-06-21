@@ -81,6 +81,16 @@ function listenToFirebase() {
             if (parsed.ledger) ledgerData = parsed.ledger; 
             if (parsed.invest) investData = parsed.invest;
             
+            // Safety check: ensure all tasks have a creation timestamp
+            let needsSave = false;
+            tasks.forEach(t => {
+                if (!t.createdAt) {
+                    t.createdAt = parseInt(t.id) || Date.now();
+                    needsSave = true;
+                }
+            });
+            if (needsSave) syncDataToFirebase();
+
             saveDataLocallyOnly(); render();
         } else { syncDataToFirebase(); }
     });
@@ -106,16 +116,21 @@ async function syncDataToFirebase() {
 function saveData() { saveDataLocallyOnly(); syncDataToFirebase(); }
 
 // ==========================================
-// TASKS LOGIC (ANNUAL ALLOCATION)
+// TASKS LOGIC (ANNUAL ALLOCATION - FIXED MATH)
 // ==========================================
-function getPeriodsLeft(type) {
-    const now = new Date();
-    const eoy = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
-    const daysLeft = Math.ceil((eoy.getTime() - now.getTime()) / (1000 * 3600 * 24));
+function getPeriodsLeft(type, dateObj) {
+    const start = new Date(dateObj);
+    start.setHours(0, 0, 0, 0); // Anchor to the exact start of the day it was created
     
+    // Anchor to exactly midnight on Dec 31st of the creation year
+    const eoy = new Date(start.getFullYear(), 11, 31, 0, 0, 0); 
+    
+    // Using Math.round instead of floor safely bypasses 23/25 hour Daylight Saving Time anomalies
+    const daysLeft = Math.round((eoy.getTime() - start.getTime()) / 86400000) + 1; // +1 strictly includes the final day
+
     if (type === 'daily') return daysLeft;
     if (type === 'weekly') return Math.ceil(daysLeft / 7);
-    if (type === 'monthly') return (11 - now.getMonth()) + 1;
+    if (type === 'monthly') return (12 - start.getMonth());
     return 1; // 'once'
 }
 
@@ -132,8 +147,9 @@ function saveTask() {
         const task = tasks.find(t => t.id === id); 
         task.title = title; task.reminderTime = reminderTime;
         
-        // Recalculate target differences safely if they change the baseTarget
-        const newPeriodsLeft = getPeriodsLeft(task.type);
+        // Recalculate targets using the original creation date, ensuring edits don't shrink the year!
+        const creationTime = task.createdAt || parseInt(task.id);
+        const newPeriodsLeft = getPeriodsLeft(task.type, creationTime);
         const newTotalYearly = newPeriodsLeft * baseTarget;
         const targetDiff = newTotalYearly - task.totalYearlyTarget;
         
@@ -142,11 +158,13 @@ function saveTask() {
         task.currentTarget += targetDiff; 
         
     } else { 
-        const periodsLeft = getPeriodsLeft(type);
+        const creationTime = Date.now();
+        const periodsLeft = getPeriodsLeft(type, creationTime);
         const totalYearlyTarget = periodsLeft * baseTarget;
         
         tasks.push({ 
-            id: Date.now().toString(), 
+            id: creationTime.toString(), 
+            createdAt: creationTime,
             title, 
             type, 
             baseTarget, 
@@ -348,7 +366,7 @@ setInterval(() => {
     tasks.forEach(t => {
         if (t.reminderTime === timeString && !t.isCompleted && t.currentTarget > 0) {
             if (t.lastNotified !== timeString) {
-                new Notification("Hisab Reminder: " + t.title, { body: `You have ${t.currentTarget} pending to complete!`, icon: "icon.png" });
+                new Notification("Hisab Reminder: " + t.title, { body: `You have ${t.currentTarget} pending units to complete!`, icon: "icon.png" });
                 t.lastNotified = timeString;
                 saveDataLocallyOnly();
             }

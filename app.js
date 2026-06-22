@@ -34,7 +34,7 @@ onAuthStateChanged(auth, async (user) => {
         currentUser = null;
         document.getElementById('login-prompt').style.display = 'block';
         document.getElementById('auth-container').style.display = 'none';
-        migrateLegacyTasks(); // Run migration locally if not logged in
+        migrateLegacyTasks(); 
         render();
     }
 });
@@ -60,6 +60,7 @@ function showProfile(user) {
 let tasks = JSON.parse(localStorage.getItem('hisab_tasks')) || [];
 let activityHistory = JSON.parse(localStorage.getItem('hisab_history')) || [];
 let badHabits = JSON.parse(localStorage.getItem('hisab_bad_habits')) || []; 
+let charityData = JSON.parse(localStorage.getItem('hisab_charity')) || { pending: 0, paid: 0 }; 
 let deenData = JSON.parse(localStorage.getItem('hisab_deen')) || { quran: [], qada: { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 }, zakatInputs: { cash: 0, gold: 0, invest: 0 }, dhikr: [] };
 let ledgerData = JSON.parse(localStorage.getItem('hisab_ledger')) || [];
 let investData = JSON.parse(localStorage.getItem('hisab_invest')) || []; 
@@ -68,7 +69,7 @@ let tasksProgressChart = null;
 let badHabitsChart = null;
 
 // ==========================================
-// CLOUD SYNC & MIGRATION LOGIC
+// CLOUD SYNC LOGIC
 // ==========================================
 function listenToFirebase() {
     if (!currentUser) return;
@@ -78,11 +79,11 @@ function listenToFirebase() {
             tasks = parsed.tasks || []; 
             activityHistory = parsed.history || []; 
             badHabits = parsed.badHabits || []; 
+            charityData = parsed.charity || charityData;
             if (parsed.deen) { deenData = parsed.deen; if(!deenData.dhikr) deenData.dhikr = []; } 
             if (parsed.ledger) ledgerData = parsed.ledger; 
             if (parsed.invest) investData = parsed.invest;
             
-            // Fix old tasks instantly
             if (migrateLegacyTasks()) {
                 syncDataToFirebase();
             }
@@ -98,19 +99,13 @@ function listenToFirebase() {
 function migrateLegacyTasks() {
     let needsSave = false;
     tasks.forEach(t => {
-        // 1. Ensure it has a creation timestamp
         if (!t.createdAt || isNaN(new Date(t.createdAt).getTime())) {
             t.createdAt = parseInt(t.id) || Date.now();
             needsSave = true;
         }
-
-        // 2. Fix the "Remaining: 1" bug by calculating exact days left from today
         if (!t.legacyMigrated) {
             const periodsLeftToday = getPeriodsLeft(t.type || 'daily', Date.now());
-            
             t.totalYearlyTarget = getPeriodsLeft(t.type || 'daily', t.createdAt) * (t.baseTarget || 1);
-            
-            // Reset their current target to what is remaining FROM TODAY 
             t.currentTarget = periodsLeftToday * (t.baseTarget || 1);
             t.legacyMigrated = true;
             t.isCompleted = false;
@@ -124,6 +119,7 @@ function saveDataLocallyOnly() {
     localStorage.setItem('hisab_tasks', JSON.stringify(tasks)); 
     localStorage.setItem('hisab_history', JSON.stringify(activityHistory)); 
     localStorage.setItem('hisab_bad_habits', JSON.stringify(badHabits)); 
+    localStorage.setItem('hisab_charity', JSON.stringify(charityData)); 
     localStorage.setItem('hisab_deen', JSON.stringify(deenData)); 
     localStorage.setItem('hisab_ledger', JSON.stringify(ledgerData)); 
     localStorage.setItem('hisab_invest', JSON.stringify(investData)); 
@@ -132,7 +128,7 @@ function saveDataLocallyOnly() {
 async function syncDataToFirebase() { 
     if (currentUser) { 
         try { 
-            await setDoc(doc(db, "users", currentUser.uid), { tasks, history: activityHistory, badHabits, deen: deenData, ledger: ledgerData, invest: investData }); 
+            await setDoc(doc(db, "users", currentUser.uid), { tasks, history: activityHistory, badHabits, charity: charityData, deen: deenData, ledger: ledgerData, invest: investData }); 
         } catch(e) { console.error("Firebase sync failed", e); } 
     } 
 }
@@ -140,7 +136,27 @@ async function syncDataToFirebase() {
 function saveData() { saveDataLocallyOnly(); syncDataToFirebase(); }
 
 // ==========================================
-// TASKS LOGIC (ANNUAL ALLOCATION - FIXED MATH)
+// CHARITY / SADAQAH LOGIC
+// ==========================================
+function payDonation() {
+    const input = document.getElementById('donation-pay-amount');
+    const amount = parseFloat(input.value) || 0;
+    
+    if (amount <= 0) return alert("Please enter a valid amount to pay.");
+    
+    charityData.pending -= amount;
+    if (charityData.pending < 0) charityData.pending = 0;
+    charityData.paid += amount;
+    
+    input.value = '';
+    saveData(); 
+    if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
+    
+    if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 80, origin: { y: 0.5 }, colors: ['#f48fb1', '#ffffff'] });
+}
+
+// ==========================================
+// TASKS LOGIC (ANNUAL ALLOCATION)
 // ==========================================
 function getPeriodsLeft(type, dateObj) {
     const now = new Date();
@@ -148,18 +164,12 @@ function getPeriodsLeft(type, dateObj) {
     let start = new Date(dateObj);
     
     if (isNaN(start.getTime())) start = new Date(); 
-    
-    // If the task was created in a previous year, it resets on Jan 1st of THIS year.
-    if (start.getFullYear() < currentYear) {
-        start = new Date(currentYear, 0, 1);
-    }
+    if (start.getFullYear() < currentYear) { start = new Date(currentYear, 0, 1); }
     
     start.setHours(0, 0, 0, 0); 
     const eoy = new Date(currentYear, 11, 31, 23, 59, 59); 
-    
-    // Using Math.round to safely bypass 23/25 hour Daylight Saving Time anomalies
     const msPerDay = 1000 * 60 * 60 * 24;
-    const daysLeft = Math.round((eoy.getTime() - start.getTime()) / msPerDay);
+    const daysLeft = Math.round((eoy.getTime() - start.getTime()) / msPerDay) + 1;
 
     if (type === 'daily') return daysLeft;
     if (type === 'weekly') return Math.ceil(daysLeft / 7);
@@ -172,6 +182,7 @@ function saveTask() {
     const title = document.getElementById('task-title').value.trim(); 
     const type = document.getElementById('task-type').value; 
     const baseTarget = parseFloat(document.getElementById('task-base-target').value) || 1; 
+    const donationPenalty = parseFloat(document.getElementById('task-donation').value) || 0; 
     const reminderTime = document.getElementById('task-reminder-time').value;
 
     if (!title) return alert('Enter a task name'); 
@@ -179,8 +190,8 @@ function saveTask() {
     if (id) { 
         const task = tasks.find(t => t.id === id); 
         task.title = title; task.reminderTime = reminderTime;
+        task.donationPenalty = donationPenalty;
         
-        // Recalculate targets based on the original creation date so edits don't shrink the year
         const creationTime = task.createdAt || Date.now();
         const newPeriodsLeft = getPeriodsLeft(type, creationTime);
         const newTotalYearly = newPeriodsLeft * baseTarget;
@@ -206,7 +217,8 @@ function saveTask() {
             baseTarget, 
             totalYearlyTarget,
             currentTarget: totalYearlyTarget, 
-            reminderTime, 
+            reminderTime,
+            donationPenalty,
             isCompleted: false,
             legacyMigrated: true 
         }); 
@@ -218,6 +230,7 @@ function editTask(id) {
     const task = tasks.find(t => t.id === id); if (!task) return; 
     document.getElementById('form-title').innerText = '✏️ Edit Task'; document.getElementById('btn-save-task').innerText = 'Save Changes'; document.getElementById('btn-cancel-edit').style.display = 'inline-block'; 
     document.getElementById('task-id').value = task.id; document.getElementById('task-title').value = task.title; document.getElementById('task-type').value = task.type || 'daily'; document.getElementById('task-base-target').value = task.baseTarget; 
+    document.getElementById('task-donation').value = task.donationPenalty || '';
     document.getElementById('task-reminder-time').value = task.reminderTime || '';
     window.scrollTo({ top: 0, behavior: 'smooth' }); 
 }
@@ -225,6 +238,7 @@ function editTask(id) {
 function cancelEdit() { 
     document.getElementById('form-title').innerText = '➕ Add New Task'; document.getElementById('btn-save-task').innerText = 'Add Task'; document.getElementById('btn-cancel-edit').style.display = 'none'; 
     document.getElementById('task-id').value = ''; document.getElementById('task-title').value = ''; document.getElementById('task-type').value = 'daily'; document.getElementById('task-base-target').value = '';
+    document.getElementById('task-donation').value = '';
     document.getElementById('task-reminder-time').value = '';
 }
 
@@ -235,12 +249,33 @@ function logProgress(id) {
     const amountDone = parseFloat(document.getElementById(`input-${id}`).value) || 0; 
     if (amountDone <= 0) return;
     
+    if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
+    
     activityHistory.push({ id: Date.now().toString(), taskId: task.id, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone });
     
     task.currentTarget -= amountDone; 
     if (task.currentTarget <= 0) task.isCompleted = true; 
     
     saveData(); render();
+}
+
+function markMissed(id) {
+    const task = tasks.find(t => t.id === id); if (!task) return;
+    if (confirm(`Mark "${task.title}" as missed?`)) {
+        
+        let addedPenalty = 0;
+        if (task.donationPenalty > 0) {
+            charityData.pending += task.donationPenalty;
+            addedPenalty = task.donationPenalty;
+            alert(`Added ${task.donationPenalty} to your pending charity donation.`);
+        }
+        
+        activityHistory.push({ id: Date.now().toString(), taskId: task.id, timestamp: Date.now(), title: "Missed: " + task.title, actionType: 'missed', amount: 1, donationAdded: addedPenalty });
+        
+        task.currentTarget -= 1; 
+        if (task.currentTarget <= 0) task.isCompleted = true;
+        saveData(); render();
+    }
 }
 
 function renderTasks() {
@@ -267,7 +302,9 @@ function renderTasks() {
             
             let statusHTML = isAhead ? `<span class="badge done-badge">✅ Completed for the Year!</span>` : `<span class="badge target">Remaining in year: ${task.currentTarget}</span>`;
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
+            let donationHtml = task.donationPenalty ? `<span class="badge donation">💖 Penalty: ${task.donationPenalty}</span>` : ``;
 
+            // MATCHES THE NEW FLEX CSS FROM INDEX.HTML EXACTLY
             div.innerHTML = `
             <div class="task-header">
                 <div>
@@ -276,6 +313,7 @@ function renderTasks() {
                         <span class="badge" style="background:#333; color:#ccc;">Target: ${task.baseTarget} / ${task.type}</span>
                         ${statusHTML}
                         ${reminderHtml}
+                        ${donationHtml}
                     </div>
                 </div>
                 <div class="task-controls">
@@ -285,6 +323,7 @@ function renderTasks() {
             </div>
             ${!isAhead ? `
             <div class="task-action-row">
+                ${task.donationPenalty ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}')">❌ Missed</button>` : ''}
                 <div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div>
                 <button class="btn-task-action done" onclick="logProgress('${task.id}')">Complete</button>
             </div>` : ''}`;
@@ -299,9 +338,11 @@ function renderTasks() {
 // ==========================================
 function addBadHabit() {
     const title = document.getElementById('bad-habit-title').value.trim();
+    const donationPenalty = parseFloat(document.getElementById('bad-habit-donation').value) || 0;
     if (!title) return alert("Enter a habit name.");
-    badHabits.push({ id: Date.now().toString(), title, annualCount: 0 });
+    badHabits.push({ id: Date.now().toString(), title, donationPenalty, annualCount: 0 });
     document.getElementById('bad-habit-title').value = '';
+    document.getElementById('bad-habit-donation').value = '';
     saveData(); renderBadHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
 
@@ -309,8 +350,15 @@ function logBadHabit(id) {
     const habit = badHabits.find(h => h.id === id);
     if (!habit) return;
     
+    let addedPenalty = 0;
+    if (habit.donationPenalty > 0) {
+        charityData.pending += habit.donationPenalty;
+        addedPenalty = habit.donationPenalty;
+        alert(`Added ${habit.donationPenalty} to your pending charity donation.`);
+    }
+    
     habit.annualCount++;
-    activityHistory.push({ id: Date.now().toString(), taskId: habit.id, timestamp: Date.now(), title: "Logged Habit: " + habit.title, actionType: 'bad', amount: 1 });
+    activityHistory.push({ id: Date.now().toString(), taskId: habit.id, timestamp: Date.now(), title: "Logged Habit: " + habit.title, actionType: 'bad', amount: 1, donationAdded: addedPenalty });
     
     saveData(); renderBadHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
@@ -332,11 +380,18 @@ function renderBadHabits() {
     badHabits.forEach(habit => {
         const div = document.createElement('div');
         div.className = 'task-item bad-log';
+        
+        let donationHtml = habit.donationPenalty ? `<span class="badge donation">💖 Penalty: ${habit.donationPenalty}</span>` : ``;
+
+        // MATCHES THE NEW FLEX CSS FROM INDEX.HTML EXACTLY
         div.innerHTML = `
             <div class="task-header">
                 <div>
                     <div class="task-title" style="color:var(--bad);">${habit.title}</div>
-                    <div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span></div>
+                    <div class="task-badges">
+                        <span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span>
+                        ${donationHtml}
+                    </div>
                 </div>
                 <div class="task-controls">
                     <button class="btn-icon" onclick="deleteBadHabit('${habit.id}')">🗑️</button>
@@ -359,12 +414,18 @@ function undoAction(historyId) {
     
     if (confirm(`Undo "${entry.title}"?`)) {
         
-        if (entry.actionType === 'complete') {
+        if (entry.actionType === 'complete' || entry.actionType === 'missed') {
             const task = tasks.find(t => t.id === entry.taskId);
             if (task) { task.currentTarget += entry.amount; task.isCompleted = false; }
-        } else if (entry.actionType === 'bad') {
+        } 
+        else if (entry.actionType === 'bad') {
             const habit = badHabits.find(h => h.id === entry.taskId);
             if (habit) { habit.annualCount -= entry.amount; }
+        }
+        
+        if (entry.donationAdded) {
+            charityData.pending -= entry.donationAdded;
+            if (charityData.pending < 0) charityData.pending = 0;
         }
         
         activityHistory = activityHistory.filter(h => h.id !== historyId);
@@ -382,11 +443,12 @@ function openHistory() {
     sorted.forEach(item => {
         const date = new Date(item.timestamp).toLocaleString();
         const div = document.createElement('div');
-        div.style = `background:var(--card); padding:15px; border-radius:10px; margin-bottom:10px; border-left: 5px solid ${item.actionType === 'bad' ? 'var(--bad)' : 'var(--success)'}`;
+        div.style = `background:var(--card); padding:15px; border-radius:10px; margin-bottom:10px; border-left: 5px solid ${item.actionType === 'bad' || item.actionType === 'missed' ? 'var(--bad)' : 'var(--success)'}`;
         
         let undoBtn = `<button onclick="undoAction('${item.id}')" style="background:transparent; border:1px solid #aaa; padding:6px 12px; font-size:0.85rem; color:#ccc; margin:0; width:auto; border-radius:6px;">↩️ Undo</button>`;
+        let donationText = item.donationAdded ? `<div style="color:var(--charity); font-size:0.85rem; margin-top:4px;">💖 Added penalty: ${item.donationAdded}</div>` : '';
 
-        div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.1rem; color:#fff;">${item.title}</strong></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px; margin-bottom:10px;">${date}</div>${undoBtn}`;
+        div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.1rem; color:#fff;">${item.title}</strong></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${date}</div>${donationText}<div style="margin-top:10px;">${undoBtn}</div>`;
         list.appendChild(div);
     });
 }
@@ -415,7 +477,10 @@ setInterval(() => {
 // DASHBOARD & DUAL CHARTS
 // ==========================================
 function updateDashboard() { 
-    // Chart 1: Tasks Progress (Annual)
+    
+    document.getElementById('donation-pending').innerText = charityData.pending.toLocaleString();
+    document.getElementById('donation-paid').innerText = charityData.paid.toLocaleString();
+
     let dTotal = 0, dCurr = 0, wTotal = 0, wCurr = 0, mTotal = 0, mCurr = 0, oTotal = 0, oCurr = 0;
     tasks.forEach(t => {
         if(t.type === 'daily') { dTotal += t.totalYearlyTarget; dCurr += Math.max(0, t.currentTarget); }
@@ -443,7 +508,6 @@ function updateDashboard() {
         }); 
     }
 
-    // Chart 2: Bad Habits (Annual Counts)
     const bCanvas = document.getElementById('badHabitsChart');
     if (bCanvas && badHabits.length > 0) {
         const labels = badHabits.map(h => h.title);
@@ -590,9 +654,9 @@ function toggleNotifications() { if (!("Notification" in window)) return alert("
 function render() { renderTasks(); renderBadHabits(); renderDeen(); renderLedger(); renderInvestments(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
 
 // ==========================================
-// EXPORTS (CLEANED)
+// EXPORTS
 // ==========================================
-window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.undoAction = undoAction; window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory; window.addBadHabit = addBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
+window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.undoAction = undoAction; window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory; window.addBadHabit = addBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit; window.payDonation = payDonation; window.toggleDateInputs = toggleDateInputs;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

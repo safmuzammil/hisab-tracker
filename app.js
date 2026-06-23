@@ -57,11 +57,19 @@ function showProfile(user) {
 // ==========================================
 // APP STATE & STORAGE
 // ==========================================
+let lastModifiedLocal = parseInt(localStorage.getItem('hisab_last_modified')) || 0; // NEW: Timestamp tracker
+
 let tasks = JSON.parse(localStorage.getItem('hisab_tasks')) || [];
 let activityHistory = JSON.parse(localStorage.getItem('hisab_history')) || [];
 let badHabits = JSON.parse(localStorage.getItem('hisab_bad_habits')) || []; 
 let charityData = JSON.parse(localStorage.getItem('hisab_charity')) || { pending: 0, paid: 0 }; 
-let deenData = JSON.parse(localStorage.getItem('hisab_deen')) || { quran: [], qada: { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 }, zakatInputs: { cash: 0, gold: 0, invest: 0 }, dhikr: [] };
+
+let deenData = JSON.parse(localStorage.getItem('hisab_deen')) || {};
+if (!deenData.qada) deenData.qada = { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 };
+if (!deenData.zakatInputs) deenData.zakatInputs = { cash: 0, gold: 0, invest: 0 };
+if (!deenData.quran) deenData.quran = [];
+if (!deenData.dhikr) deenData.dhikr = [];
+
 let ledgerData = JSON.parse(localStorage.getItem('hisab_ledger')) || [];
 let investData = JSON.parse(localStorage.getItem('hisab_invest')) || []; 
 
@@ -69,29 +77,48 @@ let tasksProgressChart = null;
 let badHabitsChart = null;
 
 // ==========================================
-// CLOUD SYNC LOGIC
+// CLOUD SYNC & BULLETPROOF TIMESTAMP LOGIC
 // ==========================================
 function listenToFirebase() {
     if (!currentUser) return;
     onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
         if (docSnap.exists()) {
             const parsed = docSnap.data();
+            const cloudModified = parsed.lastModified || 0;
+
+            // If local data is newer (because an offline save or fast click happened), push to cloud and ignore stale cloud data.
+            if (lastModifiedLocal > cloudModified && lastModifiedLocal > 0) {
+                syncDataToFirebase();
+                return;
+            }
+
+            // Otherwise, safely accept the cloud data updates
             tasks = parsed.tasks || []; 
             activityHistory = parsed.history || []; 
             badHabits = parsed.badHabits || []; 
             charityData = parsed.charity || charityData;
-            if (parsed.deen) { deenData = parsed.deen; if(!deenData.dhikr) deenData.dhikr = []; } 
+            
+            if (parsed.deen) { 
+                deenData = parsed.deen; 
+                if (!deenData.qada) deenData.qada = { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 };
+                if (!deenData.zakatInputs) deenData.zakatInputs = { cash: 0, gold: 0, invest: 0 };
+                if (!deenData.quran) deenData.quran = [];
+                if (!deenData.dhikr) deenData.dhikr = [];
+            } 
+            
             if (parsed.ledger) ledgerData = parsed.ledger; 
             if (parsed.invest) investData = parsed.invest;
-            
-            if (migrateLegacyTasks()) {
-                syncDataToFirebase();
-            }
 
-            saveDataLocallyOnly(); render();
+            // Sync the timestamps
+            lastModifiedLocal = cloudModified;
+            localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString());
+            
+            migrateLegacyTasks();
+            saveDataLocallyOnly(); 
+            render();
         } else { 
             migrateLegacyTasks();
-            syncDataToFirebase(); 
+            saveData(); 
         }
     });
 }
@@ -112,7 +139,7 @@ function migrateLegacyTasks() {
             needsSave = true;
         }
     });
-    return needsSave;
+    if (needsSave) saveData();
 }
 
 function saveDataLocallyOnly() { 
@@ -128,12 +155,21 @@ function saveDataLocallyOnly() {
 async function syncDataToFirebase() { 
     if (currentUser) { 
         try { 
-            await setDoc(doc(db, "users", currentUser.uid), { tasks, history: activityHistory, badHabits, charity: charityData, deen: deenData, ledger: ledgerData, invest: investData }); 
+            await setDoc(doc(db, "users", currentUser.uid), { 
+                tasks, history: activityHistory, badHabits, charity: charityData, deen: deenData, ledger: ledgerData, invest: investData,
+                lastModified: lastModifiedLocal // Cloud now respects the exact millisecond this was saved
+            }); 
         } catch(e) { console.error("Firebase sync failed", e); } 
     } 
 }
 
-function saveData() { saveDataLocallyOnly(); syncDataToFirebase(); }
+// Any action the user takes routes through here to update the Timestamp
+function saveData() { 
+    lastModifiedLocal = Date.now();
+    localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString());
+    saveDataLocallyOnly(); 
+    syncDataToFirebase(); 
+}
 
 // ==========================================
 // CHARITY / SADAQAH LOGIC
@@ -151,8 +187,6 @@ function payDonation() {
     input.value = '';
     saveData(); 
     if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
-    
-    if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 80, origin: { y: 0.5 }, colors: ['#f48fb1', '#ffffff'] });
 }
 
 // ==========================================
@@ -249,8 +283,6 @@ function logProgress(id) {
     const amountDone = parseFloat(document.getElementById(`input-${id}`).value) || 0; 
     if (amountDone <= 0) return;
     
-    if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
-    
     activityHistory.push({ id: Date.now().toString(), taskId: task.id, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone });
     
     task.currentTarget -= amountDone; 
@@ -304,7 +336,6 @@ function renderTasks() {
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💖 Penalty: ${task.donationPenalty}</span>` : ``;
 
-            // MATCHES THE NEW FLEX CSS FROM INDEX.HTML EXACTLY
             div.innerHTML = `
             <div class="task-header">
                 <div>
@@ -383,7 +414,6 @@ function renderBadHabits() {
         
         let donationHtml = habit.donationPenalty ? `<span class="badge donation">💖 Penalty: ${habit.donationPenalty}</span>` : ``;
 
-        // MATCHES THE NEW FLEX CSS FROM INDEX.HTML EXACTLY
         div.innerHTML = `
             <div class="task-header">
                 <div>
@@ -481,18 +511,44 @@ function updateDashboard() {
     document.getElementById('donation-pending').innerText = charityData.pending.toLocaleString();
     document.getElementById('donation-paid').innerText = charityData.paid.toLocaleString();
 
-    let dTotal = 0, dCurr = 0, wTotal = 0, wCurr = 0, mTotal = 0, mCurr = 0, oTotal = 0, oCurr = 0;
+    let dTotal = 0, dComp = 0, wTotal = 0, wComp = 0, mTotal = 0, mComp = 0, oTotal = 0, oComp = 0;
+    
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay() + 1)).getTime();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
+
+    let dayPts = 0, weekPts = 0, monthPts = 0, yearPts = 0; 
+    activityHistory.forEach(r => { 
+        if (r.actionType === 'complete') {
+            if (r.timestamp >= startOfDay) dayPts += r.amount; 
+            if (r.timestamp >= startOfWeek) weekPts += r.amount; 
+            if (r.timestamp >= startOfMonth) monthPts += r.amount; 
+            if (r.timestamp >= startOfYear) yearPts += r.amount; 
+        }
+    }); 
+    
+    document.getElementById('day-completed').innerText = Math.round(dayPts*100)/100; 
+    document.getElementById('week-completed').innerText = Math.round(weekPts*100)/100; 
+    document.getElementById('month-completed').innerText = Math.round(monthPts*100)/100; 
+    document.getElementById('year-completed').innerText = Math.round(yearPts*100)/100; 
+
     tasks.forEach(t => {
-        if(t.type === 'daily') { dTotal += t.totalYearlyTarget; dCurr += Math.max(0, t.currentTarget); }
-        if(t.type === 'weekly') { wTotal += t.totalYearlyTarget; wCurr += Math.max(0, t.currentTarget); }
-        if(t.type === 'monthly') { mTotal += t.totalYearlyTarget; mCurr += Math.max(0, t.currentTarget); }
-        if(t.type === 'once') { oTotal += t.totalYearlyTarget; oCurr += Math.max(0, t.currentTarget); }
+        let total = t.totalYearlyTarget || 1;
+        let pending = Math.max(0, t.currentTarget || 0);
+        let completed = Math.max(0, Math.min(total, total - pending)); 
+
+        if(t.type === 'daily') { dTotal += total; dComp += completed; }
+        if(t.type === 'weekly') { wTotal += total; wComp += completed; }
+        if(t.type === 'monthly') { mTotal += total; mComp += completed; }
+        if(t.type === 'once') { oTotal += total; oComp += completed; }
     });
     
-    const dPct = dTotal > 0 ? ((dTotal - dCurr) / dTotal) * 100 : 0;
-    const wPct = wTotal > 0 ? ((wTotal - wCurr) / wTotal) * 100 : 0;
-    const mPct = mTotal > 0 ? ((mTotal - mCurr) / mTotal) * 100 : 0;
-    const oPct = oTotal > 0 ? ((oTotal - oCurr) / oTotal) * 100 : 0;
+    const dPct = dTotal > 0 ? parseFloat(((dComp / dTotal) * 100).toFixed(1)) : 0;
+    const wPct = wTotal > 0 ? parseFloat(((wComp / wTotal) * 100).toFixed(1)) : 0;
+    const mPct = mTotal > 0 ? parseFloat(((mComp / mTotal) * 100).toFixed(1)) : 0;
+    const oPct = oTotal > 0 ? parseFloat(((oComp / oTotal) * 100).toFixed(1)) : 0;
 
     const tCanvas = document.getElementById('tasksProgressChart'); 
     if (tCanvas) {
@@ -621,6 +677,13 @@ function renderDeen() {
     const select = document.getElementById('juz-select'); if(select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } const juzContainer = document.getElementById('juz-list-container'); juzContainer.innerHTML = ''; deenData.quran.forEach((q, index) => { const div = document.createElement('div'); div.className = 'quran-item'; div.style.opacity = q.completed ? '0.5' : '1'; div.style.flexDirection = 'column'; div.style.gap = '10px'; let intentionText = q.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-top:4px;"><em>" ${q.intention} "</em></div>` : ''; div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 5px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">Complete</button><button onclick="editJuz(${index})" style="background:var(--warning); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`; juzContainer.appendChild(div); }); const qadaContainer = document.getElementById('qada-container'); qadaContainer.innerHTML = ''; ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr'].forEach(p => { const count = deenData.qada[p]; const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div style="font-weight:bold;">${p}</div><div class="qada-controls"><span style="font-family:monospace; font-size:1.2rem; min-width:30px; text-align:center; color:${count > 0 ? 'var(--danger)' : 'var(--success)'}">${count}</span><button class="qada-btn minus" onclick="updateQada('${p}', -1)" title="Prayed Qada">✔️</button><button class="qada-btn" onclick="updateQada('${p}', 1)" title="Missed Prayer">➕</button></div>`; qadaContainer.appendChild(div); }); document.getElementById('zakat-cash').value = deenData.zakatInputs.cash; document.getElementById('zakat-gold').value = deenData.zakatInputs.gold; document.getElementById('zakat-invest').value = deenData.zakatInputs.invest; calculateZakat(); 
 }
 
+function updateQada(prayer, amount) { 
+    deenData.qada[prayer] += amount; 
+    if(deenData.qada[prayer] < 0) deenData.qada[prayer] = 0; 
+    saveData(); 
+    renderDeen(); 
+}
+
 function addDhikr() { const name = document.getElementById('dhikr-name').value.trim(); const target = parseInt(document.getElementById('dhikr-target').value); const intention = document.getElementById('dhikr-intention').value.trim(); const deadline = document.getElementById('dhikr-deadline').value; if (!name || !target || target <= 0) return alert("Please provide a valid Dhikr name and target number."); deenData.dhikr.push({ name, target, current: 0, intention, deadline, completed: false }); document.getElementById('dhikr-name').value = ''; document.getElementById('dhikr-target').value = ''; document.getElementById('dhikr-intention').value = ''; document.getElementById('dhikr-deadline').value = ''; saveData(); renderDeen(); }
 function logDhikr(index) { const amount = parseInt(document.getElementById(`dhikr-input-${index}`).value) || 0; if (amount <= 0) return; deenData.dhikr[index].current += amount; if (deenData.dhikr[index].current >= deenData.dhikr[index].target) { deenData.dhikr[index].current = deenData.dhikr[index].target; deenData.dhikr[index].completed = true; } saveData(); renderDeen(); }
 function deleteDhikr(index) { if (confirm("Delete this committed Dhikr?")) { deenData.dhikr.splice(index, 1); saveData(); renderDeen(); } }
@@ -628,7 +691,6 @@ function addJuzIntention() { const val = document.getElementById('juz-select').v
 function completeJuz(index) { deenData.quran[index].completed = true; saveData(); renderDeen(); }
 function editJuz(index) { const q = deenData.quran[index]; const newIntention = prompt(`Edit your intention for Juz ${q.juz}:`, q.intention); if (newIntention !== null) { deenData.quran[index].intention = newIntention.trim(); saveData(); renderDeen(); } }
 function deleteJuz(index) { deenData.quran.splice(index, 1); saveData(); renderDeen(); }
-function updateQada(prayer, amount) { deenData.qada[prayer] += amount; if(deenData.qada[prayer] < 0) deenData.qada[prayer] = 0; saveData(); renderDeen(); }
 function calculateZakat() { const cash = parseFloat(document.getElementById('zakat-cash').value) || 0; const gold = parseFloat(document.getElementById('zakat-gold').value) || 0; const invest = parseFloat(document.getElementById('zakat-invest').value) || 0; deenData.zakatInputs = { cash, gold, invest }; saveDataLocallyOnly(); const zakatDue = (cash + gold + invest) * 0.025; document.getElementById('zakat-due').innerText = zakatDue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
 
 function renderLedger() { const oweContainer = document.getElementById('ledger-owe-container'); const lentContainer = document.getElementById('ledger-lent-container'); oweContainer.innerHTML = ''; lentContainer.innerHTML = ''; const oweData = ledgerData.filter(l => l.type === 'owe' && l.remaining > 0); const lentData = ledgerData.filter(l => l.type === 'lent' && l.remaining > 0); if (oweData.length === 0) oweContainer.innerHTML = '<p style="color:#aaa; font-size:0.9rem;">You are debt-free! 🎉</p>'; if (lentData.length === 0) lentContainer.innerHTML = '<p style="color:#aaa; font-size:0.9rem;">Nobody owes you money currently.</p>'; ledgerData.forEach((entry, index) => { if(entry.remaining <= 0) return; const div = document.createElement('div'); div.className = `ledger-item ${entry.type}`; let titleText = entry.type === 'owe' ? `Owed to: ${entry.person}` : `Owed by: ${entry.person}`; let colorClass = entry.type === 'owe' ? 'var(--danger)' : 'var(--success)'; div.innerHTML = `<div style="display:flex; justify-content:space-between;"><span style="color:#aaa; font-size:0.8rem;">${titleText}</span><button onclick="deleteLedgerEntry(${index})" style="background:transparent; color:#888; border:none; padding:0; margin:0; width:auto; font-size:1.2rem;">×</button></div><div class="ledger-amount" style="color:${colorClass}">${entry.remaining.toLocaleString()}</div><div style="font-size:0.85rem; color:#aaa;">Original Amount: ${entry.amount.toLocaleString()} <br> ${entry.desc}</div><div class="ledger-action"><input type="number" step="any" id="pay-input-${index}" placeholder="Amount paid"><button style="background:${colorClass}; color:#000;" onclick="logLedgerPayment(${index})">Log Payment</button></div>`; if (entry.type === 'owe') oweContainer.appendChild(div); else lentContainer.appendChild(div); }); }
@@ -654,9 +716,9 @@ function toggleNotifications() { if (!("Notification" in window)) return alert("
 function render() { renderTasks(); renderBadHabits(); renderDeen(); renderLedger(); renderInvestments(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
 
 // ==========================================
-// EXPORTS
+// EXPORTS (CLEANED)
 // ==========================================
-window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.undoAction = undoAction; window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory; window.addBadHabit = addBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit; window.payDonation = payDonation; window.toggleDateInputs = toggleDateInputs;
+window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.undoAction = undoAction; window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat; window.addLedgerEntry = addLedgerEntry; window.logLedgerPayment = logLedgerPayment; window.deleteLedgerEntry = deleteLedgerEntry; window.fetchLivePrices = fetchLivePrices; window.searchAsset = searchAsset; window.addInvestment = addInvestment; window.updateInvestmentPrice = updateInvestmentPrice; window.deleteInvestment = deleteInvestment; window.toggleNotifications = toggleNotifications; window.renderTasks = renderTasks; window.renderInvestments = renderInvestments; window.openHistory = openHistory; window.closeHistory = closeHistory; window.addBadHabit = addBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit; window.payDonation = payDonation;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

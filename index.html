@@ -10,7 +10,6 @@
     <link rel="apple-touch-icon" href="icon.png">
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --text: #ffffff; --primary: #bb86fc; --danger: #cf6679; --success: #03dac6; --warning: #f6e58d; --deen: #4db6ac; --ledger: #ffb74d; --bad: #e53935; --charity: #f48fb1; }
@@ -25,7 +24,6 @@
         .card { background: var(--card); padding: 18px; border-radius: 14px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
         .card h3 { margin-top: 0; margin-bottom: 15px; font-size: 1.15rem; display: flex; align-items: center; gap: 8px; }
         
-        /* Fixed Input global behaviors */
         input[type="text"], input[type="number"], input[type="date"], input[type="time"], select, button { width: 100%; padding: 14px; margin-top: 8px; border-radius: 8px; border: 1px solid #333; box-sizing: border-box; background: #2c2c2c; color: #fff; font-size: 1rem; appearance: none; font-family: inherit; }
         input:focus, select:focus { outline: 2px solid var(--primary); border-color: transparent; }
         
@@ -43,7 +41,6 @@
         
         .chart-container { position: relative; height: 220px; width: 100%; margin-top: 15px; }
 
-        /* TASK UI FIXES */
         .task-item { background: #1e1e1e; padding: 16px 18px; border-radius: 12px; margin-bottom: 15px; border-left: 6px solid var(--primary); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
         .task-item.banked { border-left-color: var(--success); opacity: 0.7; }
         .task-item.bad-log { border-left-color: var(--bad); background: linear-gradient(145deg, #2c1a1a, #1e1212); }
@@ -59,20 +56,16 @@
         .badge.donation { background: rgba(244, 143, 177, 0.15); color: var(--charity); }
         
         .task-controls { display: flex; gap: 6px; }
-        .btn-icon { background: transparent; border: 1px solid #444; color: #fff; padding: 8px 10px; border-radius: 8px; margin: 0; font-size: 0.9rem; width: auto;}
+        .btn-icon { background: transparent; border: 1px solid #444; color: #fff; padding: 8px 10px; border-radius: 8px; margin: 0; font-size: 0.9rem; width: auto; height: auto;}
         
-        /* ACTION ROW FLEXBOX ALIGNMENT FIX */
-        .task-action-row { display: flex; gap: 10px; align-items: center; margin-top: 12px; width: 100%; }
-        
-        .task-input-box { flex: 0 0 65px; height: 45px; }
+        /* STRICTLY LOCKED ACTION BUTTON ROW CSS */
+        .task-action-row { display: flex; gap: 10px; align-items: stretch; margin-top: 15px; height: 48px; width: 100%; flex-wrap: nowrap; }
+        .task-input-box { flex: 0 0 70px; height: 100%; }
         .task-input-box input { margin: 0; text-align: center; font-weight: bold; padding: 0; height: 100%; border: 1px solid #444; background: #252525; border-radius: 8px; width: 100%; font-size: 1.1rem; color: #fff; }
-        
-        .btn-task-action { margin: 0; height: 45px; border-radius: 8px; font-size: 1rem; font-weight: bold; border: none; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s; min-width: 0; padding: 0 10px; }
-        .btn-task-action:active { opacity: 0.8; }
-        
+        .btn-task-action { margin: 0; border-radius: 8px; font-size: 1rem; font-weight: bold; border: none; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s; height: 100%; cursor: pointer;}
         .btn-task-action.done { flex: 1; background: var(--success); color: #000; }
+        .btn-task-action.bad { flex: 1; background: var(--bad); color: #fff; }
         .btn-task-action.missed { flex: 1; background: rgba(207, 102, 121, 0.1); border: 1px solid var(--danger); color: var(--danger); }
-        .btn-task-action.bad { flex: 1; background: rgba(229, 57, 53, 0.1); border: 1px solid var(--bad); color: var(--bad); }
 
         .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(24, 24, 24, 0.95); display: flex; justify-content: space-around; padding-bottom: env(safe-area-inset-bottom); z-index: 1000; border-top: 1px solid #333;}
         .nav-item { flex: 1; text-align: center; padding: 12px 0 16px 0; color: #666; font-weight: 600; cursor: pointer; font-size: 0.7rem; display: flex; flex-direction: column; align-items: center; gap: 4px; }
@@ -102,7 +95,6 @@
 
     <div class="container">
 
-        <!-- AUTH -->
         <div id="auth-container" class="profile-header" style="display: none;"></div>
         <div id="login-prompt" class="card" style="text-align: center;">
             <h3>👋 Welcome to Hisab</h3>
@@ -110,14 +102,12 @@
             <div id="google-signin-button"></div>
         </div>
 
-        <!-- TAB 1: DASHBOARD -->
         <div id="tab-dashboard" class="tab-content active">
             
             <button id="btn-notifications" class="btn-notify full-width" onclick="toggleNotifications()">🔔 Enable Reminder Notifications</button>
 
             <button onclick="openHistory()" style="background:transparent; border:1px solid var(--primary); color:var(--primary); width:100%; margin-bottom:15px; padding:18px; border-radius:12px;">📜 View Activity History (Undo Actions)</button>
 
-            <!-- CHARITY / PENALTIES PANEL -->
             <div class="card" style="border: 1px solid var(--charity);">
                 <h3 style="color: var(--charity);">💖 Charity Penalties (Sadaqah)</h3>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -125,7 +115,6 @@
                     <span style="font-size: 1.6rem; font-weight: bold; color: var(--danger);" id="donation-pending">0</span>
                 </div>
                 
-                <!-- ALIGNMENT FIX FOR CHARITY INPUT/BUTTON -->
                 <div style="display: flex; gap: 10px; width: 100%; align-items: center;">
                     <input type="number" id="donation-pay-amount" placeholder="Amount paying now..." style="margin:0; flex: 1; min-width: 0;">
                     <button style="margin:0; background: var(--success); width: 120px; flex-shrink: 0;" onclick="payDonation()">Mark Paid</button>
@@ -136,14 +125,12 @@
                 </div>
             </div>
 
-            <!-- ANNUAL TASKS PROGRESS -->
             <div class="card">
                 <h3 style="color: var(--success);">📈 Annual Task Completion</h3>
                 <p style="font-size:0.8rem; color:#aaa; margin-top:-10px;">Your completion rate for the entire year.</p>
                 <div class="chart-container"><canvas id="tasksProgressChart"></canvas></div>
             </div>
 
-            <!-- BAD HABITS TRACKER -->
             <div class="card" style="border: 1px solid var(--bad);">
                 <h3 style="color: var(--bad);">🛑 Bad Habits (Annual)</h3>
                 <p style="font-size:0.8rem; color:#aaa; margin-top:-10px;">Total occurrences logged this year.</p>
@@ -151,7 +138,6 @@
             </div>
         </div>
 
-        <!-- TAB 2: TASKS (ANNUAL SYSTEM) -->
         <div id="tab-tasks" class="tab-content">
             <div class="card" id="task-form-card" style="border: 1px solid var(--primary);">
                 <h3 id="form-title" style="color: var(--primary);">➕ Add New Task</h3>
@@ -171,7 +157,7 @@
                 </div>
 
                 <div class="input-grid">
-                    <input type="number" step="any" id="task-base-target" placeholder="Target per day/week/month">
+                    <input type="number" step="any" id="task-base-target" placeholder="Target per period">
                     <input type="number" step="any" id="task-donation" placeholder="Donation Penalty if Missed (Optional)">
                 </div>
                 
@@ -190,11 +176,10 @@
             <div id="task-list-container"></div>
         </div>
 
-        <!-- TAB 3: BAD HABITS / VICES -->
         <div id="tab-bad-habits" class="tab-content">
             <div class="card" style="border: 1px solid var(--bad);">
                 <h3 style="color: var(--bad);">🛑 Track Bad Habits</h3>
-                <p style="font-size: 0.85rem; color: #aaa; margin-bottom: 15px;">Log negative actions (e.g. lying, complaining). You can optionally assign a donation penalty for every time you slip up.</p>
+                <p style="font-size: 0.85rem; color: #aaa; margin-bottom: 15px;">Log negative actions. You can optionally assign a donation penalty for every time you slip up.</p>
                 
                 <input type="text" id="bad-habit-title" placeholder="Name of bad habit...">
                 <input type="number" step="any" id="bad-habit-donation" placeholder="Donation Penalty Amount (Optional)">
@@ -205,7 +190,6 @@
             <div id="bad-habit-list-container"></div>
         </div>
 
-        <!-- TAB 4: WORSHIP (DEEN) -->
         <div id="tab-deen" class="tab-content">
             <div class="card" style="border: 1px solid var(--deen);">
                 <h3 style="color: var(--deen);">📿 Special Committed Dhikr</h3>
@@ -247,7 +231,6 @@
             </div>
         </div>
 
-        <!-- TAB 5: LEDGER -->
         <div id="tab-ledger" class="tab-content">
             <div class="card" style="border: 1px solid var(--ledger);">
                 <h3 style="color: var(--ledger);">📝 Record a Debt</h3>
@@ -293,7 +276,6 @@
 
     </div>
 
-    <!-- HISTORY MODAL -->
     <div id="history-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg); z-index:2000; overflow-y:auto; padding:20px; box-sizing:border-box; padding-bottom:100px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid #333; padding-bottom:10px;">
             <h2 style="margin:0; color:var(--primary);">📜 Activity History</h2>
@@ -303,7 +285,6 @@
         <div id="history-list" style="margin-top:20px;"></div>
     </div>
 
-    <!-- BOTTOM NAV -->
     <nav class="bottom-nav">
         <div id="nav-dashboard" class="nav-item active" onclick="switchTab('dashboard', this)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg><span>Dash</span>

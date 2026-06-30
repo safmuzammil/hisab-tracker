@@ -57,12 +57,15 @@ function showProfile(user) {
 // ==========================================
 // APP STATE & STORAGE
 // ==========================================
-let lastModifiedLocal = parseInt(localStorage.getItem('hisab_last_modified')) || 0; // NEW: Timestamp tracker
+let lastModifiedLocal = parseInt(localStorage.getItem('hisab_last_modified')) || 0; 
 
 let tasks = JSON.parse(localStorage.getItem('hisab_tasks')) || [];
 let activityHistory = JSON.parse(localStorage.getItem('hisab_history')) || [];
 let badHabits = JSON.parse(localStorage.getItem('hisab_bad_habits')) || []; 
 let charityData = JSON.parse(localStorage.getItem('hisab_charity')) || { pending: 0, paid: 0 }; 
+
+if (isNaN(charityData.pending) || charityData.pending == null) charityData.pending = 0;
+if (isNaN(charityData.paid) || charityData.paid == null) charityData.paid = 0;
 
 let deenData = JSON.parse(localStorage.getItem('hisab_deen')) || {};
 if (!deenData.qada) deenData.qada = { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 };
@@ -77,7 +80,7 @@ let tasksProgressChart = null;
 let badHabitsChart = null;
 
 // ==========================================
-// CLOUD SYNC & BULLETPROOF TIMESTAMP LOGIC
+// CLOUD SYNC LOGIC
 // ==========================================
 function listenToFirebase() {
     if (!currentUser) return;
@@ -86,18 +89,19 @@ function listenToFirebase() {
             const parsed = docSnap.data();
             const cloudModified = parsed.lastModified || 0;
 
-            // If local data is newer (because an offline save or fast click happened), push to cloud and ignore stale cloud data.
             if (lastModifiedLocal > cloudModified && lastModifiedLocal > 0) {
                 syncDataToFirebase();
                 return;
             }
 
-            // Otherwise, safely accept the cloud data updates
             tasks = parsed.tasks || []; 
             activityHistory = parsed.history || []; 
             badHabits = parsed.badHabits || []; 
             charityData = parsed.charity || charityData;
             
+            if (isNaN(charityData.pending) || charityData.pending == null) charityData.pending = 0;
+            if (isNaN(charityData.paid) || charityData.paid == null) charityData.paid = 0;
+
             if (parsed.deen) { 
                 deenData = parsed.deen; 
                 if (!deenData.qada) deenData.qada = { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 };
@@ -109,7 +113,6 @@ function listenToFirebase() {
             if (parsed.ledger) ledgerData = parsed.ledger; 
             if (parsed.invest) investData = parsed.invest;
 
-            // Sync the timestamps
             lastModifiedLocal = cloudModified;
             localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString());
             
@@ -157,19 +160,49 @@ async function syncDataToFirebase() {
         try { 
             await setDoc(doc(db, "users", currentUser.uid), { 
                 tasks, history: activityHistory, badHabits, charity: charityData, deen: deenData, ledger: ledgerData, invest: investData,
-                lastModified: lastModifiedLocal // Cloud now respects the exact millisecond this was saved
+                lastModified: lastModifiedLocal 
             }); 
         } catch(e) { console.error("Firebase sync failed", e); } 
     } 
 }
 
-// Any action the user takes routes through here to update the Timestamp
 function saveData() { 
     lastModifiedLocal = Date.now();
     localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString());
     saveDataLocallyOnly(); 
     syncDataToFirebase(); 
 }
+
+// ==========================================
+// VISUAL EFFECTS ENGINE (SAD/ANGRY PENALTY)
+// ==========================================
+function triggerSadEffect(event) {
+    if (!event) return;
+    
+    // 1. Shake the button deeply
+    const btn = event.target.closest('button');
+    if (btn) {
+        btn.classList.add('shake-angry');
+        setTimeout(() => btn.classList.remove('shake-angry'), 400);
+    }
+
+    // 2. Spawn a floating sad/angry emoji at the exact tap coordinates
+    const emojis = ['😡', '😞', '📉', '💸'];
+    const icon = emojis[Math.floor(Math.random() * emojis.length)];
+    
+    const floatEl = document.createElement('div');
+    floatEl.className = 'floating-emoji';
+    floatEl.innerText = icon;
+    floatEl.style.left = (event.clientX - 20) + 'px';
+    floatEl.style.top = (event.clientY - 20) + 'px';
+    document.body.appendChild(floatEl);
+    
+    // 3. Heavy Haptic feedback
+    if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
+
+    setTimeout(() => floatEl.remove(), 1200);
+}
+
 
 // ==========================================
 // CHARITY / SADAQAH LOGIC
@@ -187,6 +220,8 @@ function payDonation() {
     input.value = '';
     saveData(); 
     if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
+    
+    if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 80, origin: { y: 0.5 }, colors: ['#f6e58d', '#03dac6', '#ffffff'] });
 }
 
 // ==========================================
@@ -203,7 +238,7 @@ function getPeriodsLeft(type, dateObj) {
     start.setHours(0, 0, 0, 0); 
     const eoy = new Date(currentYear, 11, 31, 23, 59, 59); 
     const msPerDay = 1000 * 60 * 60 * 24;
-    const daysLeft = Math.round((eoy.getTime() - start.getTime()) / msPerDay) + 1;
+    const daysLeft = Math.round((eoy.getTime() - start.getTime()) / msPerDay) + 1; 
 
     if (type === 'daily') return daysLeft;
     if (type === 'weekly') return Math.ceil(daysLeft / 7);
@@ -283,6 +318,8 @@ function logProgress(id) {
     const amountDone = parseFloat(document.getElementById(`input-${id}`).value) || 0; 
     if (amountDone <= 0) return;
     
+    if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
+    
     activityHistory.push({ id: Date.now().toString(), taskId: task.id, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone });
     
     task.currentTarget -= amountDone; 
@@ -291,15 +328,16 @@ function logProgress(id) {
     saveData(); render();
 }
 
-function markMissed(id) {
+function markMissed(id, event) {
     const task = tasks.find(t => t.id === id); if (!task) return;
     if (confirm(`Mark "${task.title}" as missed?`)) {
+        
+        triggerSadEffect(event);
         
         let addedPenalty = 0;
         if (task.donationPenalty > 0) {
             charityData.pending += task.donationPenalty;
             addedPenalty = task.donationPenalty;
-            alert(`Added ${task.donationPenalty} to your pending charity donation.`);
         }
         
         activityHistory.push({ id: Date.now().toString(), taskId: task.id, timestamp: Date.now(), title: "Missed: " + task.title, actionType: 'missed', amount: 1, donationAdded: addedPenalty });
@@ -334,7 +372,7 @@ function renderTasks() {
             
             let statusHTML = isAhead ? `<span class="badge done-badge">✅ Completed for the Year!</span>` : `<span class="badge target">Remaining in year: ${task.currentTarget}</span>`;
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
-            let donationHtml = task.donationPenalty ? `<span class="badge donation">💖 Penalty: ${task.donationPenalty}</span>` : ``;
+            let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ${task.donationPenalty}</span>` : ``;
 
             div.innerHTML = `
             <div class="task-header">
@@ -354,7 +392,7 @@ function renderTasks() {
             </div>
             ${!isAhead ? `
             <div class="task-action-row">
-                ${task.donationPenalty ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}')">❌ Missed</button>` : ''}
+                ${task.donationPenalty ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}
                 <div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div>
                 <button class="btn-task-action done" onclick="logProgress('${task.id}')">Complete</button>
             </div>` : ''}`;
@@ -377,15 +415,16 @@ function addBadHabit() {
     saveData(); renderBadHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
 
-function logBadHabit(id) {
+function logBadHabit(id, event) {
     const habit = badHabits.find(h => h.id === id);
     if (!habit) return;
+    
+    triggerSadEffect(event);
     
     let addedPenalty = 0;
     if (habit.donationPenalty > 0) {
         charityData.pending += habit.donationPenalty;
         addedPenalty = habit.donationPenalty;
-        alert(`Added ${habit.donationPenalty} to your pending charity donation.`);
     }
     
     habit.annualCount++;
@@ -412,7 +451,7 @@ function renderBadHabits() {
         const div = document.createElement('div');
         div.className = 'task-item bad-log';
         
-        let donationHtml = habit.donationPenalty ? `<span class="badge donation">💖 Penalty: ${habit.donationPenalty}</span>` : ``;
+        let donationHtml = habit.donationPenalty ? `<span class="badge donation">💸 Penalty: ${habit.donationPenalty}</span>` : ``;
 
         div.innerHTML = `
             <div class="task-header">
@@ -428,7 +467,7 @@ function renderBadHabits() {
                 </div>
             </div>
             <div class="task-action-row">
-                <button class="btn-task-action bad" onclick="logBadHabit('${habit.id}')">+1 Log Occurrence</button>
+                <button class="btn-task-action bad" onclick="logBadHabit('${habit.id}', event)">+1 Log Occurrence</button>
             </div>
         `;
         container.appendChild(div);
@@ -476,7 +515,7 @@ function openHistory() {
         div.style = `background:var(--card); padding:15px; border-radius:10px; margin-bottom:10px; border-left: 5px solid ${item.actionType === 'bad' || item.actionType === 'missed' ? 'var(--bad)' : 'var(--success)'}`;
         
         let undoBtn = `<button onclick="undoAction('${item.id}')" style="background:transparent; border:1px solid #aaa; padding:6px 12px; font-size:0.85rem; color:#ccc; margin:0; width:auto; border-radius:6px;">↩️ Undo</button>`;
-        let donationText = item.donationAdded ? `<div style="color:var(--charity); font-size:0.85rem; margin-top:4px;">💖 Added penalty: ${item.donationAdded}</div>` : '';
+        let donationText = item.donationAdded ? `<div style="color:var(--charity); font-size:0.85rem; margin-top:4px;">💸 Added penalty: ${item.donationAdded}</div>` : '';
 
         div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.1rem; color:#fff;">${item.title}</strong></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${date}</div>${donationText}<div style="margin-top:10px;">${undoBtn}</div>`;
         list.appendChild(div);
@@ -515,7 +554,9 @@ function updateDashboard() {
     
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay() + 1)).getTime();
+    
+    const startOfWeek = new Date(now.getTime() - now.getDay() * 86400000).setHours(0,0,0,0);
+    
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
 
@@ -529,10 +570,14 @@ function updateDashboard() {
         }
     }); 
     
-    document.getElementById('day-completed').innerText = Math.round(dayPts*100)/100; 
-    document.getElementById('week-completed').innerText = Math.round(weekPts*100)/100; 
-    document.getElementById('month-completed').innerText = Math.round(monthPts*100)/100; 
-    document.getElementById('year-completed').innerText = Math.round(yearPts*100)/100; 
+    const elDay = document.getElementById('day-completed');
+    if (elDay) elDay.innerText = Math.round(dayPts*100)/100; 
+    const elWeek = document.getElementById('week-completed');
+    if (elWeek) elWeek.innerText = Math.round(weekPts*100)/100; 
+    const elMonth = document.getElementById('month-completed');
+    if (elMonth) elMonth.innerText = Math.round(monthPts*100)/100; 
+    const elYear = document.getElementById('year-completed');
+    if (elYear) elYear.innerText = Math.round(yearPts*100)/100; 
 
     tasks.forEach(t => {
         let total = t.totalYearlyTarget || 1;

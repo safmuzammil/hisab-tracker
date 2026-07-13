@@ -34,7 +34,8 @@ onAuthStateChanged(auth, async (user) => {
         currentUser = null;
         document.getElementById('login-prompt').style.display = 'block';
         document.getElementById('auth-container').style.display = 'none';
-        migrateLegacyTasks(); 
+        migrateLegacyTasks();
+        processAutomaticPenalties(); 
         render();
     }
 });
@@ -78,6 +79,7 @@ let investData = JSON.parse(localStorage.getItem('hisab_invest')) || [];
 
 let tasksProgressChart = null;
 let badHabitsChart = null;
+let showAllQada = false;
 
 // ==========================================
 // CLOUD SYNC LOGIC
@@ -116,11 +118,19 @@ function listenToFirebase() {
             lastModifiedLocal = cloudModified;
             localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString());
             
-            migrateLegacyTasks();
+            let legacyChanged = migrateLegacyTasks();
+            let autoChanged = processAutomaticPenalties(); 
+            
+            if (legacyChanged || autoChanged) {
+                saveDataLocallyOnly();
+                syncDataToFirebase(); 
+            }
+            
             saveDataLocallyOnly(); 
             render();
         } else { 
             migrateLegacyTasks();
+            processAutomaticPenalties();
             saveData(); 
         }
     });
@@ -142,7 +152,50 @@ function migrateLegacyTasks() {
             needsSave = true;
         }
     });
-    if (needsSave) saveData();
+    return needsSave;
+}
+
+// AUTOMATIC BACKGROUND PENALTY ENGINE
+function processAutomaticPenalties() {
+    let needsSave = false;
+    let penaltyAdded = 0;
+    const todayStr = new Date().toDateString();
+
+    tasks.forEach(t => {
+        if (t.isMaxOnceDaily) {
+            if (!t.penaltyCheckDate) {
+                t.penaltyCheckDate = todayStr; // initialize
+                needsSave = true;
+            }
+
+            // Catch up on any past days the app was not opened
+            while (t.penaltyCheckDate !== todayStr) {
+                let pDate = new Date(t.penaltyCheckDate);
+                pDate.setDate(pDate.getDate() + 1);
+                let nextDateStr = pDate.toDateString();
+
+                // If evaluating a strictly past day
+                if (new Date(nextDateStr).getTime() <= new Date(todayStr).getTime()) {
+                    if (t.lastCompletedDay !== t.penaltyCheckDate) {
+                        t.missedCount = (t.missedCount || 0) + 1;
+                        if (t.missedCount >= 5) {
+                            charityData.pending += 50;
+                            penaltyAdded += 50;
+                            t.missedCount = 0; 
+                        }
+                        needsSave = true;
+                    }
+                }
+                t.penaltyCheckDate = nextDateStr;
+                needsSave = true;
+            }
+        }
+    });
+
+    if (penaltyAdded > 0) {
+        alert(`⚠️ You missed a strict daily task for 5 days! ₹${penaltyAdded} added to your charity penalties.`);
+    }
+    return needsSave;
 }
 
 function saveDataLocallyOnly() { 
@@ -174,19 +227,15 @@ function saveData() {
 }
 
 // ==========================================
-// VISUAL EFFECTS ENGINE (SAD/ANGRY PENALTY)
+// VISUAL EFFECTS ENGINE
 // ==========================================
 function triggerSadEffect(event) {
     if (!event) return;
-    
-    // 1. Shake the button deeply
     const btn = event.target.closest('button');
     if (btn) {
         btn.classList.add('shake-angry');
         setTimeout(() => btn.classList.remove('shake-angry'), 400);
     }
-
-    // 2. Spawn a floating sad/angry emoji at the exact tap coordinates
     const emojis = ['😡', '😞', '📉', '💸'];
     const icon = emojis[Math.floor(Math.random() * emojis.length)];
     
@@ -197,12 +246,9 @@ function triggerSadEffect(event) {
     floatEl.style.top = (event.clientY - 20) + 'px';
     document.body.appendChild(floatEl);
     
-    // 3. Heavy Haptic feedback
     if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
-
     setTimeout(() => floatEl.remove(), 1200);
 }
-
 
 // ==========================================
 // CHARITY / SADAQAH LOGIC
@@ -253,6 +299,7 @@ function saveTask() {
     const baseTarget = parseFloat(document.getElementById('task-base-target').value) || 1; 
     const donationPenalty = parseFloat(document.getElementById('task-donation').value) || 0; 
     const reminderTime = document.getElementById('task-reminder-time').value;
+    const isMaxOnceDaily = document.getElementById('task-is-max-once').checked;
 
     if (!title) return alert('Enter a task name'); 
 
@@ -260,6 +307,7 @@ function saveTask() {
         const task = tasks.find(t => t.id === id); 
         task.title = title; task.reminderTime = reminderTime;
         task.donationPenalty = donationPenalty;
+        task.isMaxOnceDaily = isMaxOnceDaily;
         
         const creationTime = task.createdAt || Date.now();
         const newPeriodsLeft = getPeriodsLeft(type, creationTime);
@@ -288,6 +336,9 @@ function saveTask() {
             currentTarget: totalYearlyTarget, 
             reminderTime,
             donationPenalty,
+            isMaxOnceDaily,
+            missedCount: 0,
+            penaltyCheckDate: new Date().toDateString(),
             isCompleted: false,
             legacyMigrated: true 
         }); 
@@ -301,6 +352,7 @@ function editTask(id) {
     document.getElementById('task-id').value = task.id; document.getElementById('task-title').value = task.title; document.getElementById('task-type').value = task.type || 'daily'; document.getElementById('task-base-target').value = task.baseTarget; 
     document.getElementById('task-donation').value = task.donationPenalty || '';
     document.getElementById('task-reminder-time').value = task.reminderTime || '';
+    document.getElementById('task-is-max-once').checked = task.isMaxOnceDaily || false;
     window.scrollTo({ top: 0, behavior: 'smooth' }); 
 }
 
@@ -309,6 +361,7 @@ function cancelEdit() {
     document.getElementById('task-id').value = ''; document.getElementById('task-title').value = ''; document.getElementById('task-type').value = 'daily'; document.getElementById('task-base-target').value = '';
     document.getElementById('task-donation').value = '';
     document.getElementById('task-reminder-time').value = '';
+    document.getElementById('task-is-max-once').checked = false;
 }
 
 function deleteTask(id) { if (confirm("Delete this task?")) { tasks = tasks.filter(t => t.id !== id); saveData(); render(); } }
@@ -318,8 +371,12 @@ function logProgress(id) {
     const amountDone = parseFloat(document.getElementById(`input-${id}`).value) || 0; 
     if (amountDone <= 0) return;
     
+    const todayStr = new Date().toDateString();
+
     if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
     
+    task.lastCompletedDay = todayStr;
+
     activityHistory.push({ id: Date.now().toString(), taskId: task.id, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone });
     
     task.currentTarget -= amountDone; 
@@ -330,14 +387,14 @@ function logProgress(id) {
 
 function markMissed(id, event) {
     const task = tasks.find(t => t.id === id); if (!task) return;
-    if (confirm(`Mark "${task.title}" as missed?`)) {
+    if (confirm(`Mark "${task.title}" as missed manually?`)) {
         
         triggerSadEffect(event);
-        
         let addedPenalty = 0;
+        
         if (task.donationPenalty > 0) {
             charityData.pending += task.donationPenalty;
-            addedPenalty = task.donationPenalty;
+            addedPenalty += task.donationPenalty;
         }
         
         activityHistory.push({ id: Date.now().toString(), taskId: task.id, timestamp: Date.now(), title: "Missed: " + task.title, actionType: 'missed', amount: 1, donationAdded: addedPenalty });
@@ -370,9 +427,13 @@ function renderTasks() {
             const isAhead = task.currentTarget <= 0; 
             div.className = `task-item ${isAhead ? 'banked' : ''}`;
             
+            const todayStr = new Date().toDateString();
+
             let statusHTML = isAhead ? `<span class="badge done-badge">✅ Completed for the Year!</span>` : `<span class="badge target">Remaining in year: ${task.currentTarget}</span>`;
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ${task.donationPenalty}</span>` : ``;
+            let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#333; color:#ccc;">Missed: ${task.missedCount || 0}/5</span>` : '';
+            let doneTodayHtml = (task.lastCompletedDay === todayStr) ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ Done Today</span>` : '';
 
             div.innerHTML = `
             <div class="task-header">
@@ -383,6 +444,8 @@ function renderTasks() {
                         ${statusHTML}
                         ${reminderHtml}
                         ${donationHtml}
+                        ${strictHtml}
+                        ${doneTodayHtml}
                     </div>
                 </div>
                 <div class="task-controls">
@@ -392,7 +455,7 @@ function renderTasks() {
             </div>
             ${!isAhead ? `
             <div class="task-action-row">
-                ${task.donationPenalty ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}
+                ${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}
                 <div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div>
                 <button class="btn-task-action done" onclick="logProgress('${task.id}')">Complete</button>
             </div>` : ''}`;
@@ -485,7 +548,13 @@ function undoAction(historyId) {
         
         if (entry.actionType === 'complete' || entry.actionType === 'missed') {
             const task = tasks.find(t => t.id === entry.taskId);
-            if (task) { task.currentTarget += entry.amount; task.isCompleted = false; }
+            if (task) { 
+                task.currentTarget += entry.amount; 
+                task.isCompleted = false; 
+                if (entry.actionType === 'complete' && task.isMaxOnceDaily) {
+                    task.lastCompletedDay = ''; 
+                }
+            }
         } 
         else if (entry.actionType === 'bad') {
             const habit = badHabits.find(h => h.id === entry.taskId);
@@ -540,6 +609,11 @@ setInterval(() => {
             }
         }
     });
+
+    if (processAutomaticPenalties()) {
+        saveData();
+        render();
+    }
 }, 60000); 
 
 // ==========================================
@@ -554,9 +628,7 @@ function updateDashboard() {
     
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    
     const startOfWeek = new Date(now.getTime() - now.getDay() * 86400000).setHours(0,0,0,0);
-    
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
 
@@ -719,7 +791,30 @@ function renderDeen() {
         dhikrContainer.appendChild(div);
     });
 
-    const select = document.getElementById('juz-select'); if(select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } const juzContainer = document.getElementById('juz-list-container'); juzContainer.innerHTML = ''; deenData.quran.forEach((q, index) => { const div = document.createElement('div'); div.className = 'quran-item'; div.style.opacity = q.completed ? '0.5' : '1'; div.style.flexDirection = 'column'; div.style.gap = '10px'; let intentionText = q.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-top:4px;"><em>" ${q.intention} "</em></div>` : ''; div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 5px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">Complete</button><button onclick="editJuz(${index})" style="background:var(--warning); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`; juzContainer.appendChild(div); }); const qadaContainer = document.getElementById('qada-container'); qadaContainer.innerHTML = ''; ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr'].forEach(p => { const count = deenData.qada[p]; const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div style="font-weight:bold;">${p}</div><div class="qada-controls"><span style="font-family:monospace; font-size:1.2rem; min-width:30px; text-align:center; color:${count > 0 ? 'var(--danger)' : 'var(--success)'}">${count}</span><button class="qada-btn minus" onclick="updateQada('${p}', -1)" title="Prayed Qada">✔️</button><button class="qada-btn" onclick="updateQada('${p}', 1)" title="Missed Prayer">➕</button></div>`; qadaContainer.appendChild(div); }); document.getElementById('zakat-cash').value = deenData.zakatInputs.cash; document.getElementById('zakat-gold').value = deenData.zakatInputs.gold; document.getElementById('zakat-invest').value = deenData.zakatInputs.invest; calculateZakat(); 
+    const select = document.getElementById('juz-select'); if(select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } const juzContainer = document.getElementById('juz-list-container'); juzContainer.innerHTML = ''; deenData.quran.forEach((q, index) => { const div = document.createElement('div'); div.className = 'quran-item'; div.style.opacity = q.completed ? '0.5' : '1'; div.style.flexDirection = 'column'; div.style.gap = '10px'; let intentionText = q.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-top:4px;"><em>" ${q.intention} "</em></div>` : ''; div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 5px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">Complete</button><button onclick="editJuz(${index})" style="background:var(--warning); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`; juzContainer.appendChild(div); }); 
+
+    const qadaContainer = document.getElementById('qada-container'); qadaContainer.innerHTML = ''; 
+    const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr'];
+    let totalQada = prayers.reduce((acc, p) => acc + deenData.qada[p], 0);
+
+    if (totalQada === 0 && !showAllQada) {
+        qadaContainer.innerHTML = `<div style="text-align:center; color:#aaa; font-size:0.9rem; margin-bottom:10px;">🎉 All missed prayers are caught up!</div>`;
+    }
+
+    prayers.forEach(p => { 
+        const count = deenData.qada[p]; 
+        if (!showAllQada && count === 0) return; 
+
+        const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div style="font-weight:bold;">${p}</div><div class="qada-controls"><span style="font-family:monospace; font-size:1.2rem; min-width:30px; text-align:center; color:${count > 0 ? 'var(--danger)' : 'var(--success)'}">${count}</span><button class="qada-btn minus" onclick="updateQada('${p}', -1)" title="Prayed Qada">✔️</button><button class="qada-btn" onclick="updateQada('${p}', 1)" title="Missed Prayer">➕</button></div>`; qadaContainer.appendChild(div); 
+    }); 
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.style = "background:transparent; border:1px solid var(--deen); color:var(--deen); padding:8px; margin-top:10px; width:100%; border-radius:8px;";
+    toggleBtn.innerText = showAllQada ? "⬆️ Hide Caught Up Prayers" : "⬇️ Reveal All Prayers";
+    toggleBtn.onclick = function() { showAllQada = !showAllQada; renderDeen(); };
+    qadaContainer.appendChild(toggleBtn);
+
+    document.getElementById('zakat-cash').value = deenData.zakatInputs.cash; document.getElementById('zakat-gold').value = deenData.zakatInputs.gold; document.getElementById('zakat-invest').value = deenData.zakatInputs.invest; calculateZakat(); 
 }
 
 function updateQada(prayer, amount) { 

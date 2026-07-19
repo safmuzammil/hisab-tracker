@@ -3,355 +3,406 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hisab</title>
-    
-    <link rel="manifest" href="manifest.json">
-    <link rel="icon" href="icon.png">
-    <link rel="apple-touch-icon" href="icon.png">
-    
+    <title>Hisab - Ultimate Life Tracker</title>
+    <!-- Chart.js & Confetti -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-
+    
     <style>
-        :root { --bg: #121212; --card: #1e1e1e; --text: #ffffff; --primary: #bb86fc; --danger: #cf6679; --success: #03dac6; --warning: #f6e58d; --deen: #4db6ac; --ledger: #ffb74d; --bad: #e53935; --charity: #f48fb1; }
-        
-        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 0; margin: 0; padding-bottom: 90px; -webkit-font-smoothing: antialiased; }
-        .container { padding: 15px; max-width: 600px; margin: 0 auto; }
-        
-        .tab-content { display: none; animation: fadeIn 0.3s; }
-        .tab-content.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        :root {
+            --bg: #121212;
+            --card: #1e1e1e;
+            --primary: #bb86fc;
+            --success: #03dac6;
+            --bad: #cf6679;
+            --warning: #f6e58d;
+            --danger: #ff5252;
+            --deen: #4db6ac;
+            --charity: #ffb142;
+        }
 
-        .card { background: var(--card); padding: 18px; border-radius: 14px; margin-bottom: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
-        .card h3 { margin-top: 0; margin-bottom: 15px; font-size: 1.15rem; display: flex; align-items: center; gap: 8px; }
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         
-        input[type="text"], input[type="number"], input[type="date"], input[type="time"], select, button { width: 100%; padding: 14px; margin-top: 8px; border-radius: 8px; border: 1px solid #333; box-sizing: border-box; background: #2c2c2c; color: #fff; font-size: 1rem; appearance: none; font-family: inherit; }
-        input:focus, select:focus { outline: 2px solid var(--primary); border-color: transparent; }
+        body { background: var(--bg); color: #fff; margin: 0; padding: 0; padding-bottom: 80px; }
         
-        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; border: none; padding: 16px; margin-top: 15px; transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1), filter 0.1s; font-size: 1rem; }
-        button:active { transform: scale(0.94) !important; filter: brightness(0.85); }
-        .btn-secondary { background: #444; color: #fff; }
+        header { background: #000; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 100; }
+        header h1 { margin: 0; font-size: 1.5rem; color: var(--primary); }
         
-        .input-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-        .full-width { grid-column: span 2; }
-
-        .profile-header { display: flex; align-items: center; gap: 15px; background: #2c2c2c; padding: 15px; border-radius: 12px; margin-bottom: 15px; }
-        .profile-pic { width: 50px; height: 50px; border-radius: 50%; border: 2px solid var(--primary); }
+        .container { padding: 20px; max-width: 800px; margin: auto; }
         
-        .btn-notify { width: auto; margin: 0; background: transparent; border: 1px solid var(--warning); color: var(--warning); padding: 8px 12px; border-radius: 8px; font-size: 0.85rem; display: block; margin-bottom: 15px; text-align: center; }
+        /* Auth & Top Bar */
+        .auth-box { background: var(--card); padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
+        .profile-info { text-align: left; margin-left: 10px; }
+        .profile-info h3 { margin: 0; font-size: 1rem; }
+        .profile-info p { margin: 0; font-size: 0.8rem; color: #aaa; }
+        .profile-pic { width: 40px; height: 40px; border-radius: 50%; }
         
-        .chart-container { position: relative; height: 220px; width: 100%; margin-top: 15px; }
-
-        .task-item { background: #1e1e1e; padding: 16px 18px; border-radius: 12px; margin-bottom: 15px; border-left: 6px solid var(--primary); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
-        .task-item.banked { border-left-color: var(--success); opacity: 0.7; }
-        .task-item.bad-log { border-left-color: var(--bad); background: linear-gradient(145deg, #2c1a1a, #1e1212); }
-        
-        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; }
-        .task-title { font-size: 1.25rem; font-weight: bold; margin-bottom: 8px; color: #fff; }
-        
-        .task-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-        .badge { display: inline-flex; align-items: center; padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; }
-        .badge.target { background: #2c2c2c; color: #ccc; }
-        .badge.done-badge { background: rgba(3, 218, 198, 0.15); color: var(--success); }
-        .badge.reminder { background: rgba(246, 229, 141, 0.15); color: var(--warning); }
-        .badge.donation { background: rgba(244, 143, 177, 0.15); color: var(--charity); }
-        
-        .task-controls { display: flex; gap: 6px; }
-        .btn-icon { background: transparent; border: 1px solid #444; color: #fff; padding: 8px 10px; border-radius: 8px; margin: 0; font-size: 0.9rem; width: auto; height: auto; transition: transform 0.1s, filter 0.1s; }
-        .btn-icon:active { transform: scale(0.85) !important; filter: brightness(0.7); }
-        
-        .task-action-row { display: flex; gap: 10px; align-items: stretch; margin-top: 15px; height: 48px; width: 100%; flex-wrap: nowrap; }
-        .task-input-box { flex: 0 0 70px; height: 100%; }
-        .task-input-box input { margin: 0; text-align: center; font-weight: bold; padding: 0; height: 100%; border: 1px solid #444; background: #252525; border-radius: 8px; width: 100%; font-size: 1.1rem; color: #fff; }
-        
-        .btn-task-action { margin: 0; border-radius: 8px; font-size: 1rem; font-weight: bold; border: none; display: flex; align-items: center; justify-content: center; transition: transform 0.1s, filter 0.1s; height: 100%; cursor: pointer;}
-        .btn-task-action:active { transform: scale(0.92) !important; filter: brightness(0.8); }
-        .btn-task-action.done { flex: 1; background: var(--success); color: #000; }
-        .btn-task-action.bad { flex: 1; background: var(--bad); color: #fff; }
-        .btn-task-action.missed { flex: 1; background: rgba(207, 102, 121, 0.1); border: 1px solid var(--danger); color: var(--danger); }
-
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(24, 24, 24, 0.95); display: flex; justify-content: space-around; padding-bottom: env(safe-area-inset-bottom); z-index: 1000; border-top: 1px solid #333;}
-        .nav-item { flex: 1; text-align: center; padding: 12px 0 16px 0; color: #666; font-weight: 600; cursor: pointer; font-size: 0.7rem; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-        .nav-item svg { width: 22px; height: 22px; }
+        /* Navigation (Bottom Bar) */
+        nav { display: flex; justify-content: space-around; background: #000; padding: 10px 0; position: fixed; bottom: 0; width: 100%; border-top: 1px solid #333; z-index: 100; }
+        .nav-item { background: none; border: none; color: #888; font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; flex: 1; padding: 5px; }
         .nav-item.active { color: var(--primary); }
         .nav-item.active-bad { color: var(--bad); }
         .nav-item.active-deen { color: var(--deen); }
-        .nav-item.active-ledger { color: var(--ledger); }
-        
-        .qada-row { display: flex; justify-content: space-between; align-items: center; background: #2c2c2c; padding: 12px 16px; border-radius: 10px; margin-bottom: 10px; border-left: 4px solid var(--deen); }
-        .qada-controls { display: flex; gap: 12px; align-items: center; }
-        
-        .qada-btn { background: #444; color: #fff; width: 40px; height: 40px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; margin: 0; transition: transform 0.1s, filter 0.1s; }
-        .qada-btn:active { transform: scale(0.85) !important; filter: brightness(0.7); }
-        .qada-btn.minus { background: var(--deen); color: #000; }
-        
-        .quran-item { display: flex; justify-content: space-between; background: #2c2c2c; padding: 15px; margin-top: 8px; border-radius: 10px; border-left: 4px solid var(--deen); }
-        .zakat-total { font-size: 2.2rem; color: var(--deen); font-weight: bold; text-align: center; margin: 15px 0 5px 0; }
-        
-        .ledger-item { background: #2c2c2c; padding: 16px; border-radius: 12px; margin-bottom: 12px; }
-        .ledger-item.owe { border-left: 6px solid var(--danger); }
-        .ledger-item.lent { border-left: 6px solid var(--success); }
-        .ledger-amount { font-size: 1.8rem; font-weight: bold; margin: 8px 0; }
-        .autocomplete-container { position: relative; width: 100%; margin: 0; }
-        .autocomplete-list { position: absolute; background-color: var(--card); border: 1px solid #444; border-radius: 8px; z-index: 999; top: 100%; left: 0; right: 0; max-height: 250px; overflow-y: auto; display: none; }
-        .autocomplete-item { padding: 14px 12px; cursor: pointer; border-bottom: 1px solid #333; }
+        .nav-item.active-ledger { color: var(--success); }
+        .nav-icon { font-size: 1.5rem; }
 
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px; }
-        .stat-box { background: var(--card); padding: 15px 10px; border-radius: 12px; text-align: center; border: 1px solid #2c2c2c; }
-        .stat-box strong { color: #aaa; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 5px; }
-        .stat-values { font-size: 1.25rem; font-weight: bold; color: var(--success); }
-
-        @keyframes shake-angry {
-            0%, 100% { transform: translateX(0); }
-            20%, 60% { transform: translateX(-6px) rotate(-2deg); background-color: #600000; }
-            40%, 80% { transform: translateX(6px) rotate(2deg); background-color: #600000; }
-        }
-        .shake-angry { animation: shake-angry 0.4s ease-in-out; }
-
-        @keyframes float-up-fade {
-            0% { opacity: 1; transform: translateY(0) scale(0.8); }
-            15% { transform: translateY(-15px) scale(1.3); }
-            100% { opacity: 0; transform: translateY(-80px) scale(1); }
-        }
-        .floating-emoji { position: fixed; font-size: 3rem; pointer-events: none; z-index: 9999; animation: float-up-fade 1.2s forwards; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5)); }
+        /* Tabs */
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
         
-        .checkbox-container { display: flex; align-items: center; gap: 10px; margin-top: 12px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; border: 1px solid #333; }
-        .checkbox-container input[type="checkbox"] { width: 22px; height: 22px; margin: 0; padding: 0; cursor: pointer; }
+        /* Forms & Inputs */
+        input, select, button { width: 100%; padding: 12px; margin-bottom: 10px; border: none; border-radius: 8px; font-size: 1rem; }
+        input, select { background: #2c2c2c; color: #fff; }
+        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:active { transform: scale(0.98); }
+        
+        /* Badges & Elements */
+        .badge { font-size: 0.75rem; padding: 4px 8px; border-radius: 12px; margin-right: 5px; display: inline-block; margin-top: 5px; }
+        .badge.target { background: rgba(187, 134, 252, 0.2); color: var(--primary); }
+        .badge.reminder { background: rgba(246, 229, 141, 0.2); color: var(--warning); }
+        .badge.donation { background: rgba(255, 82, 82, 0.2); color: var(--danger); }
+        .badge.done-badge { background: rgba(3, 218, 198, 0.2); color: var(--success); }
+        
+        /* Task/Item Cards */
+        .task-item { background: var(--card); padding: 15px; border-radius: 10px; margin-bottom: 15px; border-left: 5px solid var(--primary); }
+        .task-item.bad-log { border-left-color: var(--bad); }
+        .task-item.banked { opacity: 0.6; border-left-color: var(--success); }
+        
+        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; }
+        .task-title { font-size: 1.2rem; font-weight: bold; }
+        
+        .task-action-row { display: flex; gap: 10px; align-items: center; }
+        .task-input-box { width: 70px; }
+        .task-input-box input { margin: 0; padding: 8px; text-align: center; }
+        .btn-task-action { margin: 0; padding: 10px; flex: 1; }
+        .btn-task-action.done { background: var(--success); }
+        .btn-task-action.bad { background: var(--bad); color: #fff; }
+        .btn-task-action.missed { background: transparent; border: 1px solid var(--danger); color: var(--danger); flex: 0.5; }
+        
+        /* Utility */
+        hr { border-color: #333; margin: 30px 0; }
+        .btn-icon { background: transparent; padding: 5px; width: auto; margin: 0; font-size: 1.2rem; }
+        .floating-emoji { position: fixed; font-size: 2rem; pointer-events: none; animation: floatUp 1s ease-out forwards; z-index: 1000; }
+        
+        @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-50px) scale(1.5); } }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        .shake-angry { animation: shake 0.4s ease-in-out; background: #ff0000 !important; }
+
+        /* History Modal */
+        #history-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 200; overflow-y: auto; padding: 20px; }
+        
+        /* Auto-complete */
+        #asset-suggestions { position: absolute; background: #2c2c2c; width: 100%; max-height: 150px; overflow-y: auto; border-radius: 8px; margin-top: -10px; display: none; z-index: 10; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        .autocomplete-item { padding: 10px; border-bottom: 1px solid #444; cursor: pointer; }
+        .autocomplete-item:hover { background: #333; }
+        
+        /* Qada Grid */
+        .qada-row { display: flex; justify-content: space-between; align-items: center; background: #2c2c2c; padding: 10px 15px; margin-bottom: 5px; border-radius: 8px; }
+        .qada-controls { display: flex; gap: 10px; align-items: center; }
+        .qada-btn { width: 35px; height: 35px; padding: 0; margin: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; background: rgba(255,255,255,0.1); color: #fff; }
+        .qada-btn.minus { background: rgba(3, 218, 198, 0.2); color: var(--success); }
     </style>
 </head>
 <body>
 
-    <div class="container">
+    <header>
+        <h1>HISAB</h1>
+        <div style="display:flex; gap:15px; align-items:center;">
+            <button id="btn-notifications" onclick="toggleNotifications()" style="background:transparent; border:1px solid #aaa; color:#aaa; padding:5px 10px; margin:0; font-size:0.8rem; width:auto;">🔕 Alerts Off</button>
+            <button onclick="openHistory()" style="background:transparent; font-size:1.5rem; padding:0; margin:0; width:auto; border:none;">📜</button>
+        </div>
+    </header>
 
-        <!-- AUTH -->
-        <div id="auth-container" class="profile-header" style="display: none;"></div>
-        <div id="login-prompt" class="card" style="text-align: center;">
-            <h3>👋 Welcome to Hisab</h3>
-            <p style="color: #aaa; font-size: 0.9rem;">Sign in to sync your data securely.</p>
+    <div class="container">
+        
+        <!-- Auth Section -->
+        <div class="auth-box" id="login-prompt">
+            <h2>Cloud Sync & Backup</h2>
+            <p style="color:#aaa; font-size:0.9rem; margin-bottom:15px;">Sign in to sync your data across devices.</p>
             <div id="google-signin-button"></div>
         </div>
+        
+        <div class="auth-box" id="auth-container" style="display:none; align-items:center;"></div>
 
-        <!-- TAB 1: DASHBOARD -->
+        <!-- ========================================== -->
+        <!-- DASHBOARD TAB -->
+        <!-- ========================================== -->
         <div id="tab-dashboard" class="tab-content active">
+            <h2>Dashboard</h2>
             
-            <button id="btn-notifications" class="btn-notify full-width" onclick="toggleNotifications()">🔔 Enable Reminder Notifications</button>
-
-            <!-- CHARITY / PENALTIES PANEL -->
-            <div class="card" style="border: 1px solid var(--charity);">
-                <h3 style="color: var(--charity);">💸 Charity Penalties (Sadaqah)</h3>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                    <span style="font-size: 1rem; color:#ccc;">Pending Donation:</span>
-                    <span style="font-size: 1.6rem; font-weight: bold; color: var(--danger);" id="donation-pending">0</span>
-                </div>
-                
-                <div style="display: flex; gap: 10px; width: 100%; align-items: center;">
-                    <input type="number" id="donation-pay-amount" placeholder="Amount paying now..." style="margin:0; flex: 1; min-width: 0;">
-                    <button style="margin:0; background: var(--success); width: 120px; flex-shrink: 0;" onclick="payDonation()">Mark Paid</button>
-                </div>
-                
-                <div style="text-align: center; font-size: 0.85rem; color: #aaa; margin-top: 15px;">
-                    Total Donated Lifetime: <span id="donation-paid" style="color: var(--charity); font-weight: bold; font-size:1rem;">0</span>
+            <div style="background:var(--card); padding:20px; border-radius:15px; text-align:center; margin-bottom:20px; border:1px solid var(--charity);">
+                <h3 style="color:var(--charity); margin-top:0;">⚖️ Pending Charity Penalty</h3>
+                <div style="font-size:3rem; font-weight:bold; color:#fff; margin:10px 0;">₹<span id="donation-pending">0</span></div>
+                <div style="color:#aaa; font-size:0.9rem; margin-bottom:15px;">Total Paid: ₹<span id="donation-paid">0</span></div>
+                <div style="display:flex; gap:10px;">
+                    <input type="number" id="donation-pay-amount" placeholder="Amount paid..." style="margin:0;">
+                    <button onclick="payDonation()" style="background:var(--charity); color:#000; margin:0;">Log Payment</button>
                 </div>
             </div>
 
-            <div class="stats-grid">
-                <div class="stat-box"><strong>Tasks Today</strong><div class="stat-values" id="day-completed">0</div></div>
-                <div class="stat-box"><strong>This Week</strong><div class="stat-values" id="week-completed">0</div></div>
-                <div class="stat-box"><strong>This Month</strong><div class="stat-values" id="month-completed">0</div></div>
-                <div class="stat-box"><strong>This Year</strong><div class="stat-values" id="year-completed">0</div></div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
+                    <div style="color:#aaa; font-size:0.9rem;">Done Today</div>
+                    <div style="font-size:1.5rem; color:var(--primary); font-weight:bold;" id="day-completed">0</div>
+                </div>
+                <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
+                    <div style="color:#aaa; font-size:0.9rem;">Done This Week</div>
+                    <div style="font-size:1.5rem; color:var(--primary); font-weight:bold;" id="week-completed">0</div>
+                </div>
+                <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
+                    <div style="color:#aaa; font-size:0.9rem;">Done This Month</div>
+                    <div style="font-size:1.5rem; color:var(--primary); font-weight:bold;" id="month-completed">0</div>
+                </div>
+                <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
+                    <div style="color:#aaa; font-size:0.9rem;">Done This Year</div>
+                    <div style="font-size:1.5rem; color:var(--success); font-weight:bold;" id="year-completed">0</div>
+                </div>
             </div>
 
-            <button onclick="openHistory()" style="background:transparent; border:1px solid var(--primary); color:var(--primary); width:100%; margin-bottom:15px; padding:18px; border-radius:12px;">📜 View Activity History (Undo Actions)</button>
-
-            <!-- ANNUAL TASKS PROGRESS -->
-            <div class="card">
-                <h3 style="color: var(--success);">📈 Annual Task Completion</h3>
-                <p style="font-size:0.8rem; color:#aaa; margin-top:-10px;">Your completion rate for the entire year.</p>
-                <div class="chart-container"><canvas id="tasksProgressChart"></canvas></div>
+            <div style="background:var(--card); padding:15px; border-radius:10px; margin-bottom:20px;">
+                <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Task Categories (Annual Pacing)</h3>
+                <div style="height: 250px;"><canvas id="tasksProgressChart"></canvas></div>
             </div>
 
-            <!-- BAD HABITS TRACKER -->
-            <div class="card" style="border: 1px solid var(--bad);">
-                <h3 style="color: var(--bad);">🛑 Bad Habits (Annual)</h3>
-                <p style="font-size:0.8rem; color:#aaa; margin-top:-10px;">Total occurrences logged this year.</p>
-                <div class="chart-container"><canvas id="badHabitsChart"></canvas></div>
+            <div style="background:var(--card); padding:15px; border-radius:10px;">
+                <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Vice Triggers (This Year)</h3>
+                <div style="height: 200px;"><canvas id="badHabitsChart"></canvas></div>
             </div>
         </div>
 
-        <!-- TAB 2: TASKS (ANNUAL SYSTEM) -->
+        <!-- ========================================== -->
+        <!-- TASKS TAB -->
+        <!-- ========================================== -->
         <div id="tab-tasks" class="tab-content">
-            <div class="card" id="task-form-card" style="border: 1px solid var(--primary);">
-                <h3 id="form-title" style="color: var(--primary);">➕ Add New Task</h3>
-                <p style="font-size:0.8rem; color:#aaa; margin-top:-10px;">Calculates total targets remaining from today to Dec 31st.</p>
+            <h2 id="form-title">➕ Add New Task</h2>
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:30px;">
                 <input type="hidden" id="task-id">
+                <input type="text" id="task-title" placeholder="Task Name (e.g., Pushups, Read Pages)">
                 
-                <input type="text" id="task-title" placeholder="Task Name (e.g., Read pages)">
-                
-                <div class="input-grid">
-                    <select id="task-type">
-                        <option value="daily">Daily Task</option>
-                        <option value="weekly">Weekly Task</option>
-                        <option value="monthly">Monthly Task</option>
-                        <option value="once">Only Once</option>
+                <div style="display:flex; gap:10px;">
+                    <select id="task-type" style="flex:1;">
+                        <option value="daily">Daily Target</option>
+                        <option value="weekly">Weekly Target</option>
+                        <option value="monthly">Monthly Target</option>
+                        <option value="once">One-Time Project</option>
                     </select>
-                    <input type="time" id="task-reminder-time">
+                    <input type="number" id="task-base-target" placeholder="Target per period" style="flex:1;" step="any">
                 </div>
 
-                <div class="input-grid">
-                    <input type="number" step="any" id="task-base-target" placeholder="Target per period">
-                    <input type="number" step="any" id="task-donation" placeholder="Donation Penalty if Missed (Optional)">
+                <div style="display:flex; gap:10px;">
+                    <input type="number" id="task-donation" placeholder="Penalty if missed (₹)" style="flex:1;">
+                    <input type="time" id="task-reminder-time" style="flex:1;">
                 </div>
 
-                <div class="checkbox-container">
-                    <input type="checkbox" id="task-is-max-once">
-                    <label for="task-is-max-once" style="font-size: 0.85rem; color: #ccc;">Max once a day (Auto-adds ₹50 penalty every 5 days missed)</label>
+                <label style="display:flex; align-items:center; gap:10px; margin-bottom:15px; color:#aaa; font-size:0.9rem;">
+                    <input type="checkbox" id="task-is-max-once" style="width:auto; margin:0;"> 
+                    Strict: If missed for 5 consecutive days, add ₹50 penalty.
+                </label>
+
+                <div style="display:flex; gap:10px;">
+                    <button id="btn-save-task" onclick="saveTask()" style="flex:2;">Add Task</button>
+                    <button id="btn-cancel-edit" onclick="cancelEdit()" style="display:none; flex:1; background:#333; color:#fff;">Cancel</button>
                 </div>
-                
-                <button id="btn-save-task" onclick="saveTask()">Add Task</button>
-                <button id="btn-cancel-edit" class="btn-secondary" style="display: none;" onclick="cancelEdit()">Cancel Edit</button>
             </div>
 
-            <select id="task-view-filter" onchange="renderTasks()" style="margin-bottom: 15px; background: #333; border: 1px solid var(--primary);">
-                <option value="all">Show All Tasks</option>
-                <option value="daily">Show Daily Tasks</option>
-                <option value="weekly">Show Weekly Tasks</option>
-                <option value="monthly">Show Monthly Tasks</option>
-                <option value="once">Show One-Time Tasks</option>
-            </select>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h2 style="margin:0;">Your Tasks</h2>
+                <select id="task-view-filter" style="width:auto; margin:0; padding:5px 10px;" onchange="renderTasks()">
+                    <option value="all">View All</option>
+                    <option value="daily">Daily Tasks</option>
+                    <option value="weekly">Weekly Tasks</option>
+                    <option value="monthly">Monthly Tasks</option>
+                    <option value="once">One-Time Tasks</option>
+                </select>
+            </div>
 
             <div id="task-list-container"></div>
         </div>
 
-        <!-- TAB 3: BAD HABITS / VICES -->
+        <!-- ========================================== -->
+        <!-- HABITS TAB (GOOD & BAD) -->
+        <!-- ========================================== -->
         <div id="tab-bad-habits" class="tab-content">
-            <div class="card" style="border: 1px solid var(--bad);">
-                <h3 style="color: var(--bad);">🛑 Track Bad Habits</h3>
-                <p style="font-size: 0.85rem; color: #aaa; margin-bottom: 15px;">Log negative actions. You can optionally assign a donation penalty for every time you slip up.</p>
-                
-                <input type="text" id="bad-habit-title" placeholder="Name of bad habit...">
-                <input type="number" step="any" id="bad-habit-donation" placeholder="Donation Penalty Amount (Optional)">
-                
-                <button class="full-width" style="background:var(--bad); color:#fff;" onclick="addBadHabit()">Add Habit Tracker</button>
+            <h2 style="margin-bottom: 20px;">Habits & Vices</h2>
+
+            <!-- GOOD HABITS SECTION -->
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--success);">
+                <h3 style="margin-top:0; color:#fff; display:flex; justify-content:space-between; align-items:center;">
+                    <span>🌟 Good Habits</span>
+                    <span style="color:var(--success); font-size:1rem; background:rgba(3, 218, 198, 0.1); padding:5px 10px; border-radius:8px;">
+                        🏆 Points: <span id="display-bonus-points" style="font-weight:bold;">0</span>
+                    </span>
+                </h3>
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <input type="text" id="good-habit-title" placeholder="e.g., Read 10 pages, Gym" style="flex:1;">
+                </div>
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <select id="good-habit-reward-type" style="flex:1; padding:12px; border-radius:8px; background:#1e1e1e; color:#fff; border:1px solid #333;">
+                        <option value="points">Add Bonus Points</option>
+                        <option value="reduce">Reduce Penalty (₹)</option>
+                    </select>
+                    <input type="number" id="good-habit-reward-value" placeholder="Reward Value" style="flex:1;" min="1">
+                </div>
+                <button onclick="addGoodHabit()" style="width:100%; background:var(--success); color:#000;">➕ Add Good Habit</button>
             </div>
             
+            <div id="good-habit-list-container" style="margin-bottom: 30px;"></div>
+
+            <hr style="border-color:#333; margin: 30px 0;">
+
+            <!-- BAD HABITS SECTION -->
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--bad);">
+                <h3 style="margin-top:0; color:var(--bad);">🚫 Bad Habits</h3>
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <input type="text" id="bad-habit-title" placeholder="e.g., Junk Food, Smoking" style="flex:1;">
+                    <input type="number" id="bad-habit-donation" placeholder="Penalty ₹" style="width:100px;">
+                </div>
+                <button onclick="addBadHabit()" style="width:100%; background:#333; color:var(--bad);">➕ Add Bad Habit</button>
+            </div>
+
             <div id="bad-habit-list-container"></div>
         </div>
 
-        <!-- TAB 4: WORSHIP (DEEN) -->
+        <!-- ========================================== -->
+        <!-- DEEN TAB -->
+        <!-- ========================================== -->
         <div id="tab-deen" class="tab-content">
-            <div class="card" style="border: 1px solid var(--deen);">
-                <h3 style="color: var(--deen);">📿 Special Committed Dhikr</h3>
-                <p style="font-size:0.85rem; color:#aaa; margin-top:-10px;">For specific intentions (e.g., 100 Salawat for healing).</p>
-                <div class="input-grid">
-                    <input type="text" id="dhikr-name" placeholder="Dhikr (e.g., 100 Salawat)">
-                    <input type="number" id="dhikr-target" placeholder="Target Number">
-                    <input class="full-width" type="text" id="dhikr-intention" placeholder="Intention (e.g., Healing for Kareem)">
-                    <div class="full-width">
-                        <label style="font-size:0.8rem; color:#aaa;">Optional Deadline:</label>
-                        <input type="date" id="dhikr-deadline" style="margin-top:4px;">
-                    </div>
-                    <button class="full-width" style="background: var(--deen); color: #000;" onclick="addDhikr()">Add Intention</button>
+            <h2>Deen Tracker</h2>
+
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--deen);">
+                <h3 style="margin-top:0; color:var(--deen);">📿 Daily Dhikr & Salawat</h3>
+                <input type="text" id="dhikr-name" placeholder="Name of Dhikr (e.g., Istighfar)">
+                <input type="text" id="dhikr-intention" placeholder="Intention (Optional)">
+                <div style="display:flex; gap:10px;">
+                    <input type="number" id="dhikr-target" placeholder="Target Count" style="flex:1;">
+                    <input type="time" id="dhikr-deadline" style="flex:1;">
                 </div>
-                <div id="dhikr-list-container" style="margin-top: 20px;"></div>
+                <button onclick="addDhikr()" style="background:var(--deen); color:#000;">➕ Commit to Dhikr</button>
+            </div>
+            <div id="dhikr-list-container" style="margin-bottom:30px;"></div>
+
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
+                <h3 style="margin-top:0; color:var(--deen);">🕌 Qada Prayers (Catch Up)</h3>
+                <div id="qada-container"></div>
             </div>
 
-            <div class="card" style="border: 1px solid var(--deen);">
-                <h3 style="color: var(--deen);">📖 Quran Juz Tracker</h3>
-                <div class="input-grid">
-                    <select class="full-width" id="juz-select"><option value="">Select Juz (1-30)</option></select>
-                    <input class="full-width" type="text" id="juz-intention" placeholder="Intention (e.g., For parents...)">
-                    <button class="full-width" style="background: var(--deen); color: #000;" onclick="addJuzIntention()">Add Intention</button>
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
+                <h3 style="margin-top:0; color:var(--deen);">📖 Quran Tracker</h3>
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <select id="juz-select" style="flex:1;"><option value="">Select Juz</option></select>
                 </div>
-                <div id="juz-list-container" style="margin-top: 20px;"></div>
+                <input type="text" id="juz-intention" placeholder="Intention / Dedication (Optional)">
+                <button onclick="addJuzIntention()" style="background:var(--deen); color:#000;">Set Intention to Read</button>
+                <div id="juz-list-container" style="margin-top:15px; display:flex; flex-direction:column; gap:10px;"></div>
             </div>
 
-            <div class="card" style="border: 1px solid var(--deen);">
-                <h3 style="color: var(--deen);">🕌 Qada (Missed Prayers)</h3>
-                <div id="qada-container" style="margin-top: 15px;"></div>
-            </div>
-
-            <div class="card" style="border: 1px solid var(--deen);">
-                <h3 style="color: var(--deen);">💰 Zakat Calculator</h3>
-                <div style="margin-top: 15px;"><label style="font-size: 0.85rem; color: #aaa;">Cash & Bank:</label><input type="number" id="zakat-cash" value="0" oninput="calculateZakat()"></div>
-                <div style="margin-top: 15px;"><label style="font-size: 0.85rem; color: #aaa;">Gold & Silver:</label><input type="number" id="zakat-gold" value="0" oninput="calculateZakat()"></div>
-                <div style="margin-top: 15px;"><label style="font-size: 0.85rem; color: #aaa;">Investments:</label><input type="number" id="zakat-invest" value="0" oninput="calculateZakat()"></div>
-                <div style="margin-top: 25px; text-align: center; border-top: 1px solid #444; padding-top: 20px;"><span style="color: #aaa; text-transform: uppercase; font-size: 0.9rem;">Total Zakat Due</span><div class="zakat-total" id="zakat-due">0.00</div></div>
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
+                <h3 style="margin-top:0; color:var(--deen);">💰 Zakat Calculator (2.5%)</h3>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:15px;">
+                    <div><label style="color:#aaa; font-size:0.8rem;">Cash / Bank</label><input type="number" id="zakat-cash" oninput="calculateZakat()" value="0"></div>
+                    <div><label style="color:#aaa; font-size:0.8rem;">Gold Value</label><input type="number" id="zakat-gold" oninput="calculateZakat()" value="0"></div>
+                    <div style="grid-column: span 2;"><label style="color:#aaa; font-size:0.8rem;">Investments (Subject to Zakat)</label><input type="number" id="zakat-invest" oninput="calculateZakat()" value="0"></div>
+                </div>
+                <div style="text-align:center; padding:15px; background:rgba(77, 182, 172, 0.1); border-radius:8px;">
+                    <div style="color:var(--deen);">Estimated Zakat Due</div>
+                    <div style="font-size:2rem; font-weight:bold; color:var(--deen);">₹<span id="zakat-due">0.00</span></div>
+                </div>
             </div>
         </div>
 
-        <!-- TAB 5: LEDGER -->
+        <!-- ========================================== -->
+        <!-- LEDGER / FINANCE TAB -->
+        <!-- ========================================== -->
         <div id="tab-ledger" class="tab-content">
-            <div class="card" style="border: 1px solid var(--ledger);">
-                <h3 style="color: var(--ledger);">📝 Record a Debt</h3>
-                <select id="ledger-type"><option value="owe">🔴 I Owe Them</option><option value="lent">🟢 They Owe Me</option></select>
-                <div class="input-grid">
-                    <input class="full-width" type="text" id="ledger-person" placeholder="Person's Name">
-                    <input type="number" step="any" id="ledger-amount" placeholder="Amount">
-                    <input type="text" id="ledger-desc" placeholder="Reason (Optional)">
-                    <button class="full-width" style="background: var(--ledger); color:#000;" onclick="addLedgerEntry()">Add Record</button>
+            <h2>Finance & Ledger</h2>
+
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:30px;">
+                <h3 style="margin-top:0; color:var(--success);">🤝 Debt Ledger</h3>
+                <div style="display:flex; gap:10px;">
+                    <select id="ledger-type" style="flex:1;">
+                        <option value="owe">I Owe Money</option>
+                        <option value="lent">Someone Owes Me</option>
+                    </select>
+                    <input type="text" id="ledger-person" placeholder="Person's Name" style="flex:2;">
+                </div>
+                <input type="number" id="ledger-amount" placeholder="Amount">
+                <input type="text" id="ledger-desc" placeholder="Reason / Description">
+                <button onclick="addLedgerEntry()" style="background:var(--success); color:#000;">Add Record</button>
+            </div>
+
+            <div style="display:flex; gap:20px;">
+                <div style="flex:1;">
+                    <h4 style="color:var(--danger); border-bottom:1px solid #333; padding-bottom:10px;">I Owe (Debt)</h4>
+                    <div id="ledger-owe-container"></div>
+                </div>
+                <div style="flex:1;">
+                    <h4 style="color:var(--success); border-bottom:1px solid #333; padding-bottom:10px;">They Owe Me</h4>
+                    <div id="ledger-lent-container"></div>
                 </div>
             </div>
 
-            <h3 style="color: var(--ledger); font-size: 1.1rem; margin: 25px 0 10px 0;">🔴 Monies I Owe</h3>
-            <div id="ledger-owe-container"></div>
-            <h3 style="color: var(--ledger); font-size: 1.1rem; margin: 25px 0 10px 0;">🟢 Monies Owed To Me</h3>
-            <div id="ledger-lent-container"></div>
+            <hr style="border-color:#333; margin: 40px 0;">
 
-            <div class="card" style="border: 1px solid var(--invest); margin-top: 35px;">
-                <h3 style="color: var(--invest);">📈 Investment Portfolio</h3>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <span style="font-size:0.9rem; color:#aaa;">Display Currency:</span>
-                    <select id="currency-toggle" onchange="renderInvestments()" style="width: auto; margin: 0; padding: 8px;"><option value="INR">₹ INR</option><option value="USD">$ USD</option></select>
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin-top:0; color:var(--primary);">📈 Investment Portfolio</h3>
+                    <select id="currency-toggle" onchange="renderInvestments()" style="width:auto; padding:5px; margin:0; background:#333;">
+                        <option value="INR">INR (₹)</option>
+                        <option value="USD">USD ($)</option>
+                    </select>
                 </div>
-                <div class="stats-grid">
-                    <div class="stat-box"><strong>Total Invested</strong><div class="stat-values" id="inv-total-invested" style="font-size:1.1rem;">0</div></div>
-                    <div class="stat-box"><strong>Current Value</strong><div class="stat-values" id="inv-current-value" style="font-size:1.1rem;">0</div></div>
-                </div>
-                <div style="text-align: center; margin: 20px 0; font-size: 1.4rem; font-weight: bold;" id="inv-total-pl">Net P/L: 0 (0%)</div>
-                <button id="btn-refresh-prices" onclick="fetchLivePrices()" style="background: rgba(100, 181, 246, 0.1); border: 1px solid var(--invest); color: var(--invest); margin-bottom: 25px;">🔄 Auto-Update Live Market Prices</button>
                 
-                <div style="border-top: 1px solid #333; padding-top: 20px;">
-                    <h4 style="margin: 0 0 10px 0; font-size: 1rem; color: #fff;">Add New Asset</h4>
-                    <div class="input-grid">
-                        <div class="autocomplete-container full-width"><input type="text" id="inv-asset" placeholder="Search Asset (e.g. BTC, RELIANCE.NS)" oninput="searchAsset(this.value)" autocomplete="off"><div id="asset-suggestions" class="autocomplete-list"></div></div>
-                        <input type="number" step="any" id="inv-qty" placeholder="Quantity">
-                        <input type="number" step="any" id="inv-buy" placeholder="Avg Buy Price">
-                        <button class="full-width" style="background: var(--invest); color:#000;" onclick="addInvestment()">Add to Portfolio</button>
-                    </div>
+                <div style="display:flex; gap:10px; justify-content:space-between; background:#111; padding:15px; border-radius:10px; margin-bottom:20px;">
+                    <div><div style="color:#aaa; font-size:0.8rem;">Invested</div><div id="inv-total-invested" style="font-weight:bold; font-size:1.1rem;">₹0.00</div></div>
+                    <div><div style="color:#aaa; font-size:0.8rem;">Current</div><div id="inv-current-value" style="font-weight:bold; font-size:1.1rem;">₹0.00</div></div>
+                    <div style="text-align:right;"><div style="color:#aaa; font-size:0.8rem;">Total P/L</div><div id="inv-total-pl" style="font-weight:bold; font-size:1.1rem;">₹0.00 (0%)</div></div>
                 </div>
-                <div id="invest-container" style="margin-top: 25px;"></div>
+
+                <div style="position:relative;">
+                    <input type="text" id="inv-asset" placeholder="Search Ticker (e.g., RELIANCE.NS, AAPL)" onkeyup="searchAsset(this.value)">
+                    <div id="asset-suggestions"></div>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <input type="number" id="inv-qty" placeholder="Quantity" step="any">
+                    <input type="number" id="inv-buy" placeholder="Buy Price" step="any">
+                </div>
+                <button onclick="addInvestment()">➕ Add Holding</button>
             </div>
+
+            <button id="btn-refresh-prices" onclick="fetchLivePrices()" style="background:#333; color:#fff; margin-bottom:20px;">🔄 Auto-Update Live Market Prices</button>
+            <div id="invest-container"></div>
         </div>
 
     </div>
 
-    <!-- HISTORY MODAL -->
-    <div id="history-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg); z-index:2000; overflow-y:auto; padding:20px; box-sizing:border-box; padding-bottom:100px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid #333; padding-bottom:10px;">
-            <h2 style="margin:0; color:var(--primary);">📜 Activity History</h2>
-            <button onclick="closeHistory()" style="background:transparent; color:#aaa; font-size:2rem; width:auto; margin:0; padding:0; line-height:1;">&times;</button>
+    <!-- History Modal -->
+    <div id="history-modal">
+        <div style="max-width:500px; margin:50px auto; background:var(--bg); padding:20px; border-radius:15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                <h2 style="margin:0;">Activity History</h2>
+                <button onclick="closeHistory()" style="background:transparent; color:#fff; border:none; font-size:1.5rem; padding:0; margin:0; width:auto;">×</button>
+            </div>
+            <div id="history-list"></div>
         </div>
-        <p style="color:#aaa; font-size:0.9rem;">Click "Undo" to reverse accidental logs and erase their associated charity penalties.</p>
-        <div id="history-list" style="margin-top:20px;"></div>
     </div>
 
-    <!-- BOTTOM NAV -->
-    <nav class="bottom-nav">
-        <div id="nav-dashboard" class="nav-item active" onclick="switchTab('dashboard', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg><span>Dash</span>
-        </div>
-        <div id="nav-tasks" class="nav-item" onclick="switchTab('tasks', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Tasks</span>
-        </div>
-        <div id="nav-bad-habits" class="nav-item" onclick="switchTab('bad-habits', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Habits</span>
-        </div>
-        <div id="nav-deen" class="nav-item" onclick="switchTab('deen', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg><span>Deen</span>
-        </div>
-        <div id="nav-ledger" class="nav-item" onclick="switchTab('ledger', this)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><span>Ledger</span>
-        </div>
+    <!-- Navigation Bar -->
+    <nav>
+        <button class="nav-item active" id="nav-dashboard" onclick="switchTab('dashboard', this)">
+            <span class="nav-icon">📊</span> <span>Dashboard</span>
+        </button>
+        <button class="nav-item" id="nav-tasks" onclick="switchTab('tasks', this)">
+            <span class="nav-icon">✅</span> <span>Tasks</span>
+        </button>
+        <button class="nav-item" id="nav-bad-habits" onclick="switchTab('bad-habits', this)">
+            <span class="nav-icon">🚭</span> <span>Habits</span>
+        </button>
+        <button class="nav-item" id="nav-deen" onclick="switchTab('deen', this)">
+            <span class="nav-icon">🕌</span> <span>Deen</span>
+        </button>
+        <button class="nav-item" id="nav-ledger" onclick="switchTab('ledger', this)">
+            <span class="nav-icon">💳</span> <span>Finance</span>
+        </button>
     </nav>
 
     <script type="module" src="app.js"></script>

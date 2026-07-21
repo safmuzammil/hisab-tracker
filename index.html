@@ -4,389 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Hisab - Ultimate Life Tracker</title>
-    <!-- Chart.js & Confetti -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
-    
-    <style>
-        :root {
-            --bg: #121212;
-            --card: #1e1e1e;
-            --primary: #bb86fc;
-            --success: #03dac6;
-            --bad: #cf6679;
-            --warning: #f6e58d;
-            --danger: #ff5252;
-            --deen: #4db6ac;
-            --charity: #ffb142;
-            --budget: #4fc3f7;
-            --backlog: #ff8a65;
-        }
-
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        
-        body { background: var(--bg); color: #fff; margin: 0; padding: 0; padding-bottom: 80px; }
-        
-        header { background: #000; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 100; }
-        header h1 { margin: 0; font-size: 1.5rem; color: var(--primary); }
-        
-        .container { padding: 20px; max-width: 800px; margin: auto; }
-        
-        /* Auth & Top Bar */
-        .auth-box { background: var(--card); padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
-        .profile-info { text-align: left; margin-left: 10px; }
-        .profile-info h3 { margin: 0; font-size: 1rem; }
-        .profile-info p { margin: 0; font-size: 0.8rem; color: #aaa; }
-        .profile-pic { width: 40px; height: 40px; border-radius: 50%; }
-        
-        /* Navigation (Bottom Bar) */
-        nav { display: flex; justify-content: space-around; background: #000; padding: 5px 0; position: fixed; bottom: 0; width: 100%; border-top: 1px solid #333; z-index: 100; }
-        .nav-item { background: none; border: none; color: #888; font-size: 0.75rem; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; flex: 1; padding: 5px; }
-        .nav-item.active { color: var(--primary); }
-        .nav-item.active-bad { color: var(--bad); }
-        .nav-item.active-deen { color: var(--deen); }
-        .nav-item.active-budget { color: var(--budget); }
-        .nav-item.active-backlog { color: var(--backlog); }
-        .nav-icon { font-size: 1.3rem; }
-
-        /* Tabs */
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        
-        /* Forms & Inputs */
-        input, select, button, textarea { width: 100%; padding: 12px; margin-bottom: 10px; border: none; border-radius: 8px; font-size: 1rem; }
-        input, select, textarea { background: #2c2c2c; color: #fff; }
-        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        button:active { transform: scale(0.98); }
-        
-        /* Badges & Elements */
-        .badge { font-size: 0.75rem; padding: 4px 8px; border-radius: 12px; margin-right: 5px; display: inline-block; margin-top: 5px; }
-        .badge.target { background: rgba(187, 134, 252, 0.2); color: var(--primary); }
-        .badge.reminder { background: rgba(246, 229, 141, 0.2); color: var(--warning); }
-        .badge.donation { background: rgba(255, 82, 82, 0.2); color: var(--danger); }
-        .badge.done-badge { background: rgba(3, 218, 198, 0.2); color: var(--success); }
-        
-        /* Task/Item Cards */
-        .task-item { background: var(--card); padding: 15px; border-radius: 10px; margin-bottom: 15px; border-left: 5px solid var(--primary); }
-        .task-item.bad-log { border-left-color: var(--bad); }
-        .task-item.banked { opacity: 0.6; border-left-color: var(--success); }
-        
-        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; }
-        .task-title { font-size: 1.2rem; font-weight: bold; }
-        
-        .task-action-row { display: flex; gap: 10px; align-items: center; }
-        .task-input-box { width: 70px; }
-        .task-input-box input { margin: 0; padding: 8px; text-align: center; }
-        .btn-task-action { margin: 0; padding: 10px; flex: 1; }
-        .btn-task-action.done { background: var(--success); }
-        .btn-task-action.bad { background: var(--bad); color: #fff; }
-        .btn-task-action.missed { background: transparent; border: 1px solid var(--danger); color: var(--danger); flex: 0.5; }
-        
-        /* Utility */
-        hr { border-color: #333; margin: 30px 0; }
-        .btn-icon { background: transparent; padding: 5px; width: auto; margin: 0; font-size: 1.2rem; }
-        
-        /* Qada Grid */
-        .qada-row { display: flex; justify-content: space-between; align-items: center; background: #2c2c2c; padding: 10px 15px; margin-bottom: 5px; border-radius: 8px; }
-        .qada-controls { display: flex; gap: 10px; align-items: center; }
-        .qada-btn { width: 35px; height: 35px; padding: 0; margin: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; background: rgba(255,255,255,0.1); color: #fff; }
-        .qada-btn.minus { background: rgba(3, 218, 198, 0.2); color: var(--success); }
-
-        /* Budget Progress */
-        .progress-bar-container { background: #333; height: 20px; border-radius: 10px; overflow: hidden; margin: 15px 0; }
-        .progress-bar-fill { height: 100%; background: var(--budget); transition: width 0.3s; }
-    </style>
-</head>
-<body>
-
-    <header>
-        <h1>HISAB</h1>
-        <div style="display:flex; gap:15px; align-items:center;">
-            <button id="btn-notifications" onclick="toggleNotifications()" style="background:transparent; border:1px solid #aaa; color:#aaa; padding:5px 10px; margin:0; font-size:0.8rem; width:auto;">🔕 Alerts Off</button>
-            <button onclick="openHistory()" style="background:transparent; font-size:1.5rem; padding:0; margin:0; width:auto; border:none;">📜</button>
-        </div>
-    </header>
-
-    <div class="container">
-        
-        <div class="auth-box" id="login-prompt">
-            <h2>Cloud Sync & Backup</h2>
-            <p style="color:#aaa; font-size:0.9rem; margin-bottom:15px;">Sign in to sync your data across devices.</p>
-            <div id="google-signin-button"></div>
-        </div>
-        
-        <div class="auth-box" id="auth-container" style="display:none; align-items:center;"></div>
-
-        <!-- ========================================== -->
-        <!-- DASHBOARD TAB -->
-        <!-- ========================================== -->
-        <div id="tab-dashboard" class="tab-content active">
-            <h2>Dashboard</h2>
-            
-            <div style="background:var(--card); padding:20px; border-radius:15px; text-align:center; margin-bottom:20px; border:1px solid var(--charity);">
-                <h3 style="color:var(--charity); margin-top:0;">⚖️ Pending Charity Penalty</h3>
-                <div style="font-size:3rem; font-weight:bold; color:#fff; margin:10px 0;">₹<span id="donation-pending">0</span></div>
-                <div style="color:#aaa; font-size:0.9rem; margin-bottom:15px;">Total Paid: ₹<span id="donation-paid">0</span></div>
-                <div style="display:flex; gap:10px;">
-                    <input type="number" id="donation-pay-amount" placeholder="Amount paid..." style="margin:0;">
-                    <button onclick="payDonation()" style="background:var(--charity); color:#000; margin:0;">Log Payment</button>
-                </div>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
-                    <div style="color:#aaa; font-size:0.9rem;">Done Today</div>
-                    <div style="font-size:1.5rem; color:var(--primary); font-weight:bold;" id="day-completed">0</div>
-                </div>
-                <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
-                    <div style="color:#aaa; font-size:0.9rem;">Done This Week</div>
-                    <div style="font-size:1.5rem; color:var(--primary); font-weight:bold;" id="week-completed">0</div>
-                </div>
-            </div>
-
-            <div style="background:var(--card); padding:15px; border-radius:10px; margin-bottom:20px;">
-                <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Task Categories (Annual Pacing)</h3>
-                <div style="height: 250px;"><canvas id="tasksProgressChart"></canvas></div>
-            </div>
-        </div>
-
-        <!-- ========================================== -->
-        <!-- TASKS TAB -->
-        <!-- ========================================== -->
-        <div id="tab-tasks" class="tab-content">
-            <h2 id="form-title">➕ Add New Task</h2>
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:30px;">
-                <input type="hidden" id="task-id">
-                <input type="text" id="task-title" placeholder="Task Name (e.g., Pushups, Read Pages)">
-                
-                <div style="display:flex; gap:10px;">
-                    <select id="task-type" style="flex:1;">
-                        <option value="daily">Daily Target</option>
-                        <option value="weekly">Weekly Target</option>
-                        <option value="monthly">Monthly Target</option>
-                        <option value="once">One-Time Project</option>
-                    </select>
-                    <input type="number" id="task-base-target" placeholder="Target per period" style="flex:1;" step="any">
-                </div>
-
-                <div style="display:flex; gap:10px;">
-                    <input type="number" id="task-donation" placeholder="Penalty if missed (₹)" style="flex:1;">
-                    <input type="time" id="task-reminder-time" style="flex:1;">
-                </div>
-
-                <label style="display:flex; align-items:center; gap:10px; margin-bottom:15px; color:#aaa; font-size:0.9rem;">
-                    <input type="checkbox" id="task-is-max-once" style="width:auto; margin:0;"> 
-                    Strict: If missed for 5 consecutive days, add ₹50 penalty.
-                </label>
-
-                <div style="display:flex; gap:10px;">
-                    <button id="btn-save-task" onclick="saveTask()" style="flex:2;">Add Task</button>
-                    <button id="btn-cancel-edit" onclick="cancelEdit()" style="display:none; flex:1; background:#333; color:#fff;">Cancel</button>
-                </div>
-            </div>
-
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                <h2 style="margin:0;">Your Tasks</h2>
-                <select id="task-view-filter" style="width:auto; margin:0; padding:5px 10px;" onchange="renderTasks()">
-                    <option value="all">View All</option>
-                    <option value="daily">Daily Tasks</option>
-                    <option value="weekly">Weekly Tasks</option>
-                    <option value="monthly">Monthly Tasks</option>
-                    <option value="once">One-Time Tasks</option>
-                </select>
-            </div>
-
-            <div id="task-list-container"></div>
-        </div>
-
-        <!-- ========================================== -->
-        <!-- HABITS TAB (GOOD & BAD) -->
-        <!-- ========================================== -->
-        <div id="tab-bad-habits" class="tab-content">
-            <h2 style="margin-bottom: 20px;">Habits & Vices</h2>
-            <!-- Good Habits Box -->
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--success);">
-                <h3 style="margin-top:0; color:#fff; display:flex; justify-content:space-between; align-items:center;">
-                    <span>🌟 Good Habits</span>
-                    <span style="color:var(--success); font-size:1rem; background:rgba(3, 218, 198, 0.1); padding:5px 10px; border-radius:8px;">
-                        🏆 Points: <span id="display-bonus-points" style="font-weight:bold;">0</span>
-                    </span>
-                </h3>
-                <div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <input type="text" id="good-habit-title" placeholder="e.g., Read 10 pages, Gym" style="flex:1;">
-                </div>
-                <div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <select id="good-habit-reward-type" style="flex:1; padding:12px; border-radius:8px; background:#1e1e1e; color:#fff; border:1px solid #333;">
-                        <option value="points">Add Bonus Points</option>
-                        <option value="reduce">Reduce Penalty (₹)</option>
-                    </select>
-                    <input type="number" id="good-habit-reward-value" placeholder="Reward Value" style="flex:1;" min="1">
-                </div>
-                <button onclick="addGoodHabit()" style="width:100%; background:var(--success); color:#000;">➕ Add Good Habit</button>
-            </div>
-            <div id="good-habit-list-container" style="margin-bottom: 30px;"></div>
-
-            <!-- Bad Habits Box -->
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--bad);">
-                <h3 style="margin-top:0; color:var(--bad);">🚫 Bad Habits</h3>
-                <div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <input type="text" id="bad-habit-title" placeholder="e.g., Junk Food, Smoking" style="flex:1;">
-                    <input type="number" id="bad-habit-donation" placeholder="Penalty ₹" style="width:100px;">
-                </div>
-                <button onclick="addBadHabit()" style="width:100%; background:#333; color:var(--bad);">➕ Add Bad Habit</button>
-            </div>
-            <div id="bad-habit-list-container"></div>
-        </div>
-
-        <!-- ========================================== -->
-        <!-- DEEN TAB -->
-        <!-- ========================================== -->
-        <div id="tab-deen" class="tab-content">
-            <h2>Deen Tracker</h2>
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--deen);">
-                <h3 style="margin-top:0; color:var(--deen);">📿 Daily Dhikr & Salawat</h3>
-                <input type="text" id="dhikr-name" placeholder="Name of Dhikr (e.g., Istighfar)">
-                <input type="text" id="dhikr-intention" placeholder="Intention (Optional)">
-                <div style="display:flex; gap:10px;">
-                    <input type="number" id="dhikr-target" placeholder="Target Count" style="flex:1;">
-                </div>
-                <button onclick="addDhikr()" style="background:var(--deen); color:#000;">➕ Commit to Dhikr</button>
-            </div>
-            <div id="dhikr-list-container" style="margin-bottom:30px;"></div>
-
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
-                <h3 style="margin-top:0; color:var(--deen);">🕌 Qada Prayers (Catch Up)</h3>
-                <div id="qada-container"></div>
-            </div>
-        </div>
-
-        <!-- ========================================== -->
-        <!-- BUDGET & EXPENSES TAB -->
-        <!-- ========================================== -->
-        <div id="tab-budget" class="tab-content">
-            <h2>Monthly Budget</h2>
-            
-            <!-- Budget Status Dashboard -->
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--budget);">
-                <div style="display:flex; justify-content:space-between; align-items:flex-end;">
-                    <div>
-                        <h3 style="margin:0; color:#fff;" id="budget-month-title">This Month</h3>
-                        <div style="color:#aaa; font-size:0.9rem;">Limit: ₹<span id="budget-limit-display">0</span></div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-size:1.8rem; font-weight:bold; color:var(--budget);">₹<span id="budget-spent">0</span></div>
-                        <div style="color:#aaa; font-size:0.8rem;">Spent</div>
-                    </div>
-                </div>
-                
-                <div class="progress-bar-container">
-                    <div id="budget-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
-                </div>
-                <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#888;">
-                    <span>0</span>
-                    <span id="budget-remaining-text">₹0 Remaining</span>
-                </div>
-                
-                <hr style="border-color:#333; margin: 15px 0;">
-                
-                <div style="display:flex; gap:10px;">
-                    <input type="number" id="budget-set-limit" placeholder="Set Monthly Limit (₹)" style="margin:0; flex:1;">
-                    <button onclick="setBudgetLimit()" style="background:#333; color:#fff; margin:0; flex:0.5;">Update Limit</button>
-                </div>
-            </div>
-
-            <!-- Add Expense -->
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:30px;">
-                <h3 style="margin-top:0; color:var(--danger);">📉 Add Expense</h3>
-                <div style="display:flex; gap:10px;">
-                    <input type="text" id="expense-desc" placeholder="What did you buy? (e.g., Groceries)" style="flex:2;">
-                    <input type="number" id="expense-amount" placeholder="₹ Amount" style="flex:1;">
-                </div>
-                <input type="date" id="expense-date">
-                <button onclick="addExpense()" style="background:var(--danger); color:#fff;">Log Expense</button>
-            </div>
-
-            <h3 style="border-bottom:1px solid #333; padding-bottom:10px;">This Month's Expenses</h3>
-            <div id="expense-list-container"></div>
-        </div>
-
-        <!-- ========================================== -->
-        <!-- WATCH/READ LATER (BACKLOG) TAB -->
-        <!-- ========================================== -->
-        <div id="tab-backlog" class="tab-content">
-            <h2>Watch & Read Later</h2>
-
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--backlog);">
-                <h3 style="margin-top:0; color:var(--backlog);">📌 Add to Backlog</h3>
-                <input type="text" id="backlog-title" placeholder="Title (e.g., KAS Study Material, One Piece, Market Video)">
-                <input type="url" id="backlog-link" placeholder="Link / URL (Optional)">
-                <div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <select id="backlog-type" style="flex:1;">
-                        <option value="video">📺 Video / Movie / Anime</option>
-                        <option value="article">📰 Article / Blog</option>
-                        <option value="book">📚 Book / Document / PDF</option>
-                        <option value="other">🔖 Other</option>
-                    </select>
-                </div>
-                <textarea id="backlog-notes" placeholder="Notes (Optional)" rows="2"></textarea>
-                <button onclick="addBacklogItem()" style="background:var(--backlog); color:#000;">Add to Library</button>
-            </div>
-
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                <h3 style="margin:0;">Your Library</h3>
-                <select id="backlog-filter" style="width:auto; margin:0; padding:5px 10px;" onchange="renderBacklog()">
-                    <option value="all">All Items</option>
-                    <option value="pending">Pending</option>
-                    <option value="completed">Completed</option>
-                </select>
-            </div>
-
-            <div id="backlog-list-container"></div>
-        </div>
-
-    </div>
-
-    <!-- History Modal (Hidden by Default) -->
-    <div id="history-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 200; overflow-y: auto; padding: 20px;">
-        <div style="max-width:500px; margin:50px auto; background:var(--bg); padding:20px; border-radius:15px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                <h2 style="margin:0;">Activity History</h2>
-                <button onclick="closeHistory()" style="background:transparent; color:#fff; border:none; font-size:1.5rem; padding:0; margin:0; width:auto;">×</button>
-            </div>
-            <div id="history-list"></div>
-        </div>
-    </div>
-
-    <!-- Navigation Bar -->
-    <nav>
-        <button class="nav-item active" id="nav-dashboard" onclick="switchTab('dashboard', this)">
-            <span class="nav-icon">📊</span> <span>Dash</span>
-        </button>
-        <button class="nav-item" id="nav-tasks" onclick="switchTab('tasks', this)">
-            <span class="nav-icon">✅</span> <span>Tasks</span>
-        </button>
-        <button class="nav-item" id="nav-bad-habits" onclick="switchTab('bad-habits', this)">
-            <span class="nav-icon">🚭</span> <span>Habits</span>
-        </button>
-        <button class="nav-item" id="nav-deen" onclick="switchTab('deen', this)">
-            <span class="nav-icon">🕌</span> <span>Deen</span>
-        </button>
-        <button class="nav-item" id="nav-budget" onclick="switchTab('budget', this)">
-            <span class="nav-icon">💳</span> <span>Budget</span>
-        </button>
-        <button class="nav-item" id="nav-backlog" onclick="switchTab('backlog', this)">
-            <span class="nav-icon">🔖</span> <span>Saved</span>
-        </button>
-    </nav>
-
-    <script type="module" src="app.js"></script>
-</body>
-</html><!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hisab - Ultimate Life Tracker</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     
@@ -600,13 +217,15 @@
         <div id="tab-bad-habits" class="tab-content">
             <h2 style="margin-bottom: 20px;">Habits & Vices</h2>
             
+            <!-- GOOD HABITS -->
             <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--success);">
                 <h3 style="margin-top:0; color:#fff; display:flex; justify-content:space-between; align-items:center;">
-                    <span>🌟 Good Habits</span>
+                    <span id="good-habit-form-title">🌟 Add Good Habit</span>
                     <span style="color:var(--success); font-size:1rem; background:rgba(3, 218, 198, 0.1); padding:5px 10px; border-radius:8px;">
                         🏆 Points: <span id="display-bonus-points" style="font-weight:bold;">0</span>
                     </span>
                 </h3>
+                <input type="hidden" id="good-habit-id">
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <input type="text" id="good-habit-title" placeholder="e.g., Read 10 pages, Gym" style="flex:1;">
                 </div>
@@ -617,19 +236,27 @@
                     </select>
                     <input type="number" id="good-habit-reward-value" placeholder="Reward Value" style="flex:1;" min="1">
                 </div>
-                <button onclick="addGoodHabit()" style="width:100%; background:var(--success); color:#000;">➕ Add Good Habit</button>
+                <div style="display:flex; gap:10px;">
+                    <button id="btn-save-good-habit" onclick="addGoodHabit()" style="flex:2; background:var(--success); color:#000;">➕ Add Good Habit</button>
+                    <button id="btn-cancel-edit-good-habit" onclick="cancelEditGoodHabit()" style="display:none; flex:1; background:#333; color:#fff;">Cancel</button>
+                </div>
             </div>
             <div id="good-habit-list-container" style="margin-bottom: 30px;"></div>
 
             <hr style="border-color:#333; margin: 30px 0;">
 
+            <!-- BAD HABITS -->
             <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--bad);">
-                <h3 style="margin-top:0; color:var(--bad);">🚫 Bad Habits</h3>
+                <h3 id="bad-habit-form-title" style="margin-top:0; color:var(--bad);">🚫 Add Bad Habit</h3>
+                <input type="hidden" id="bad-habit-id">
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <input type="text" id="bad-habit-title" placeholder="e.g., Junk Food, Smoking" style="flex:1;">
                     <input type="number" id="bad-habit-donation" placeholder="Penalty ₹" style="width:100px;">
                 </div>
-                <button onclick="addBadHabit()" style="width:100%; background:#333; color:var(--bad);">➕ Add Bad Habit</button>
+                <div style="display:flex; gap:10px;">
+                    <button id="btn-save-bad-habit" onclick="addBadHabit()" style="flex:2; background:#333; color:var(--bad);">➕ Add Bad Habit</button>
+                    <button id="btn-cancel-edit-bad-habit" onclick="cancelEditBadHabit()" style="display:none; flex:1; background:#111; color:#fff;">Cancel</button>
+                </div>
             </div>
             <div id="bad-habit-list-container"></div>
         </div>

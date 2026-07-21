@@ -313,15 +313,52 @@ function renderTasks() {
 // GOOD HABITS / REWARDS LOGIC
 // ==========================================
 function addGoodHabit() {
+    const id = document.getElementById('good-habit-id').value;
     const title = document.getElementById('good-habit-title').value.trim();
     const rewardType = document.getElementById('good-habit-reward-type').value; 
     const rewardValue = parseFloat(document.getElementById('good-habit-reward-value').value) || 0;
+    
     if (!title) return alert("Enter a good habit name.");
     if (rewardValue <= 0) return alert("Enter a valid reward value.");
 
-    goodHabits.push({ id: Date.now().toString(), title, rewardType, rewardValue, annualCount: 0 });
-    document.getElementById('good-habit-title').value = ''; document.getElementById('good-habit-reward-value').value = '';
-    saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
+    if (id) {
+        const habit = goodHabits.find(h => h.id === id);
+        if (habit) {
+            habit.title = title;
+            habit.rewardType = rewardType;
+            habit.rewardValue = rewardValue;
+        }
+    } else {
+        goodHabits.push({ id: Date.now().toString(), title, rewardType, rewardValue, annualCount: 0 });
+    }
+    
+    cancelEditGoodHabit();
+    saveData(); renderHabits(); 
+    if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
+}
+
+function editGoodHabit(id) {
+    const habit = goodHabits.find(h => h.id === id);
+    if (!habit) return;
+    document.getElementById('good-habit-form-title').innerText = '✏️ Edit Good Habit';
+    document.getElementById('good-habit-id').value = habit.id;
+    document.getElementById('good-habit-title').value = habit.title;
+    document.getElementById('good-habit-reward-type').value = habit.rewardType || 'points';
+    document.getElementById('good-habit-reward-value').value = habit.rewardValue || '';
+    
+    document.getElementById('btn-save-good-habit').innerText = 'Save Changes';
+    document.getElementById('btn-cancel-edit-good-habit').style.display = 'block';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelEditGoodHabit() {
+    document.getElementById('good-habit-form-title').innerText = '🌟 Add Good Habit';
+    document.getElementById('good-habit-id').value = '';
+    document.getElementById('good-habit-title').value = '';
+    document.getElementById('good-habit-reward-type').value = 'points';
+    document.getElementById('good-habit-reward-value').value = '';
+    document.getElementById('btn-save-good-habit').innerHTML = '➕ Add Good Habit';
+    document.getElementById('btn-cancel-edit-good-habit').style.display = 'none';
 }
 
 function logGoodHabit(id, event) {
@@ -367,7 +404,10 @@ function renderGoodHabits() {
                     <div class="task-title" style="color:var(--success);">${habit.title}</div>
                     <div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span><span class="badge" style="background:rgba(3, 218, 198, 0.1); color:var(--success);">${rewardText}</span></div>
                 </div>
-                <div class="task-controls"><button class="btn-icon" onclick="deleteGoodHabit('${habit.id}')">🗑️</button></div>
+                <div class="task-controls">
+                    <button class="btn-icon" onclick="editGoodHabit('${habit.id}')">✏️</button>
+                    <button class="btn-icon" onclick="deleteGoodHabit('${habit.id}')">🗑️</button>
+                </div>
             </div>
             <div class="task-action-row"><button class="btn-task-action" style="background:var(--success); color:#000;" onclick="logGoodHabit('${habit.id}', event)">+1 Log Good Habit</button></div>
         `;
@@ -379,11 +419,47 @@ function renderGoodHabits() {
 // BAD HABITS / VICES LOGIC
 // ==========================================
 function addBadHabit() {
-    const title = document.getElementById('bad-habit-title').value.trim(); const donationPenalty = parseFloat(document.getElementById('bad-habit-donation').value) || 0;
+    const id = document.getElementById('bad-habit-id').value;
+    const title = document.getElementById('bad-habit-title').value.trim(); 
+    const donationPenalty = parseFloat(document.getElementById('bad-habit-donation').value) || 0;
+    
     if (!title) return alert("Enter a habit name.");
-    badHabits.push({ id: Date.now().toString(), title, donationPenalty, annualCount: 0 });
-    document.getElementById('bad-habit-title').value = ''; document.getElementById('bad-habit-donation').value = '';
-    saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
+    
+    if (id) {
+        const habit = badHabits.find(h => h.id === id);
+        if (habit) {
+            habit.title = title;
+            habit.donationPenalty = donationPenalty;
+        }
+    } else {
+        badHabits.push({ id: Date.now().toString(), title, donationPenalty, annualCount: 0 });
+    }
+
+    cancelEditBadHabit();
+    saveData(); renderHabits(); 
+    if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
+}
+
+function editBadHabit(id) {
+    const habit = badHabits.find(h => h.id === id);
+    if (!habit) return;
+    document.getElementById('bad-habit-form-title').innerText = '✏️ Edit Bad Habit';
+    document.getElementById('bad-habit-id').value = habit.id;
+    document.getElementById('bad-habit-title').value = habit.title;
+    document.getElementById('bad-habit-donation').value = habit.donationPenalty || '';
+    
+    document.getElementById('btn-save-bad-habit').innerText = 'Save Changes';
+    document.getElementById('btn-cancel-edit-bad-habit').style.display = 'block';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelEditBadHabit() {
+    document.getElementById('bad-habit-form-title').innerText = '🚫 Add Bad Habit';
+    document.getElementById('bad-habit-id').value = '';
+    document.getElementById('bad-habit-title').value = '';
+    document.getElementById('bad-habit-donation').value = '';
+    document.getElementById('btn-save-bad-habit').innerHTML = '➕ Add Bad Habit';
+    document.getElementById('btn-cancel-edit-bad-habit').style.display = 'none';
 }
 
 function logBadHabit(id, event) {
@@ -406,7 +482,7 @@ function renderBadHabits() {
     badHabits.forEach(habit => {
         const div = document.createElement('div'); div.className = 'task-item bad-log';
         let donationHtml = habit.donationPenalty ? `<span class="badge donation">💸 Penalty: ${habit.donationPenalty}</span>` : ``;
-        div.innerHTML = `<div class="task-header"><div><div class="task-title" style="color:var(--bad);">${habit.title}</div><div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span>${donationHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="deleteBadHabit('${habit.id}')">🗑️</button></div></div><div class="task-action-row"><button class="btn-task-action bad" onclick="logBadHabit('${habit.id}', event)">+1 Log Occurrence</button></div>`;
+        div.innerHTML = `<div class="task-header"><div><div class="task-title" style="color:var(--bad);">${habit.title}</div><div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span>${donationHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="editBadHabit('${habit.id}')">✏️</button><button class="btn-icon" onclick="deleteBadHabit('${habit.id}')">🗑️</button></div></div><div class="task-action-row"><button class="btn-task-action bad" onclick="logBadHabit('${habit.id}', event)">+1 Log Occurrence</button></div>`;
         container.appendChild(div);
     });
 }
@@ -777,7 +853,9 @@ function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget();
 // Exports
 window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; 
 window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.undoAction = undoAction; window.openHistory = openHistory; window.closeHistory = closeHistory;
-window.payDonation = payDonation; window.addGoodHabit = addGoodHabit; window.logGoodHabit = logGoodHabit; window.deleteGoodHabit = deleteGoodHabit; window.addBadHabit = addBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
+window.payDonation = payDonation; 
+window.addGoodHabit = addGoodHabit; window.editGoodHabit = editGoodHabit; window.cancelEditGoodHabit = cancelEditGoodHabit; window.logGoodHabit = logGoodHabit; window.deleteGoodHabit = deleteGoodHabit; 
+window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.cancelEditBadHabit = cancelEditBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense;
 window.addBacklogItem = addBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications;

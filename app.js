@@ -69,7 +69,8 @@ if (!deenData.zakatInputs) deenData.zakatInputs = { cash: 0, gold: 0, invest: 0 
 if (!deenData.quran) deenData.quran = [];
 if (!deenData.dhikr) deenData.dhikr = [];
 
-let budgetData = JSON.parse(localStorage.getItem('hisab_budget')) || { limit: 0, expenses: [] };
+let budgetData = JSON.parse(localStorage.getItem('hisab_budget')) || { limit: 0, expenses: [], debts: [] };
+if (!budgetData.debts) budgetData.debts = []; // Fallback for existing data
 let backlogData = JSON.parse(localStorage.getItem('hisab_backlog')) || [];
 
 let tasksProgressChart = null;
@@ -98,6 +99,7 @@ function listenToFirebase() {
             bonusPoints = parsed.bonusPoints || 0;
             charityData = parsed.charity || charityData;
             budgetData = parsed.budget || budgetData;
+            if (!budgetData.debts) budgetData.debts = [];
             backlogData = parsed.backlog || backlogData;
             
             if (parsed.deen) { 
@@ -280,6 +282,8 @@ function renderTasks() {
     const filterView = document.getElementById('task-view-filter') ? document.getElementById('task-view-filter').value : 'all';
     const categories = [ { id: 'daily', title: '📅 Daily Tasks', filter: t => t.type === 'daily' }, { id: 'weekly', title: '📆 Weekly Tasks', filter: t => t.type === 'weekly' }, { id: 'monthly', title: '🗓️ Monthly Tasks', filter: t => t.type === 'monthly' }, { id: 'once', title: '🎯 One-Time Tasks', filter: t => t.type === 'once' } ];
 
+    const startOfDay = new Date().setHours(0,0,0,0); // Get start of today
+
     categories.forEach(cat => {
         if (filterView !== 'all' && cat.id !== filterView) return;
         const filteredTasks = tasks.filter(cat.filter); if (filteredTasks.length === 0) return;
@@ -287,12 +291,18 @@ function renderTasks() {
         
         filteredTasks.forEach(task => {
             const div = document.createElement('div'); const isAhead = task.currentTarget <= 0; div.className = `task-item ${isAhead ? 'banked' : ''}`;
-            const todayStr = new Date().toDateString();
+            
+            // Calculate exact amount done today by checking the history log
+            const todayLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && h.timestamp >= startOfDay);
+            const amountDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
+
             let statusHTML = isAhead ? `<span class="badge done-badge">✅ Completed for the Year!</span>` : `<span class="badge target">Remaining in year: ${task.currentTarget}</span>`;
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ${task.donationPenalty}</span>` : ``;
             let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#333; color:#ccc;">Missed: ${task.missedCount || 0}/5</span>` : '';
-            let doneTodayHtml = (task.lastCompletedDay === todayStr) ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ Done Today</span>` : '';
+            
+            // Generate the dynamic Done Today badge
+            let doneTodayHtml = amountDoneToday > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ Done Today: ${amountDoneToday}</span>` : '';
 
             div.innerHTML = `
             <div class="task-header">
@@ -394,15 +404,22 @@ function renderGoodHabits() {
     container.innerHTML = '';
     if (goodHabits.length === 0) { container.innerHTML = '<p style="color:#aaa; text-align:center;">No good habits tracked yet.</p>'; return; }
 
+    const startOfDay = new Date().setHours(0,0,0,0);
+
     goodHabits.forEach(habit => {
         const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--success)';
         let rewardText = habit.rewardType === 'points' ? `🏆 +${habit.rewardValue} Points` : `💸 -₹${habit.rewardValue} Penalty`;
         
+        // Count times logged today
+        const todayLogs = activityHistory.filter(h => h.taskId === habit.id && h.actionType === 'good' && h.timestamp >= startOfDay);
+        const timesDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
+        let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ Done Today: ${timesDoneToday}</span>` : '';
+
         div.innerHTML = `
             <div class="task-header">
                 <div>
                     <div class="task-title" style="color:var(--success);">${habit.title}</div>
-                    <div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span><span class="badge" style="background:rgba(3, 218, 198, 0.1); color:var(--success);">${rewardText}</span></div>
+                    <div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span><span class="badge" style="background:rgba(3, 218, 198, 0.1); color:var(--success);">${rewardText}</span>${doneTodayHtml}</div>
                 </div>
                 <div class="task-controls">
                     <button class="btn-icon" onclick="editGoodHabit('${habit.id}')">✏️</button>
@@ -478,11 +495,19 @@ function deleteBadHabit(id) {
 function renderBadHabits() {
     const container = document.getElementById('bad-habit-list-container'); if (!container) return; container.innerHTML = '';
     if (badHabits.length === 0) { container.innerHTML = '<p style="color:#aaa; text-align:center;">No bad habits tracked yet.</p>'; return; }
+    
+    const startOfDay = new Date().setHours(0,0,0,0);
 
     badHabits.forEach(habit => {
         const div = document.createElement('div'); div.className = 'task-item bad-log';
         let donationHtml = habit.donationPenalty ? `<span class="badge donation">💸 Penalty: ${habit.donationPenalty}</span>` : ``;
-        div.innerHTML = `<div class="task-header"><div><div class="task-title" style="color:var(--bad);">${habit.title}</div><div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span>${donationHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="editBadHabit('${habit.id}')">✏️</button><button class="btn-icon" onclick="deleteBadHabit('${habit.id}')">🗑️</button></div></div><div class="task-action-row"><button class="btn-task-action bad" onclick="logBadHabit('${habit.id}', event)">+1 Log Occurrence</button></div>`;
+        
+        // Count times logged today
+        const todayLogs = activityHistory.filter(h => h.taskId === habit.id && h.actionType === 'bad' && h.timestamp >= startOfDay);
+        const timesDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
+        let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge" style="background:rgba(255, 82, 82, 0.2); color:var(--danger);">⚠️ Logged Today: ${timesDoneToday}</span>` : '';
+
+        div.innerHTML = `<div class="task-header"><div><div class="task-title" style="color:var(--bad);">${habit.title}</div><div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span>${donationHtml}${doneTodayHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="editBadHabit('${habit.id}')">✏️</button><button class="btn-icon" onclick="deleteBadHabit('${habit.id}')">🗑️</button></div></div><div class="task-action-row"><button class="btn-task-action bad" onclick="logBadHabit('${habit.id}', event)">+1 Log Occurrence</button></div>`;
         container.appendChild(div);
     });
 }
@@ -496,22 +521,32 @@ function undoAction(historyId) {
     const entry = activityHistory.find(h => h.id === historyId); if (!entry) return;
     
     if (confirm(`Undo "${entry.title}"?`)) {
+        // Handle Regular Tasks
         if (entry.actionType === 'complete' || entry.actionType === 'missed') {
             const task = tasks.find(t => t.id === entry.taskId);
-            if (task) { task.currentTarget += entry.amount; task.isCompleted = false; if (entry.actionType === 'complete' && task.isMaxOnceDaily) { task.lastCompletedDay = ''; } }
+            if (task) { 
+                task.currentTarget += entry.amount; 
+                task.isCompleted = task.currentTarget <= 0; // Accurately revert completion status
+                if (entry.actionType === 'complete' && task.isMaxOnceDaily) { task.lastCompletedDay = ''; } 
+            }
         } 
+        // Handle Bad Habits
         else if (entry.actionType === 'bad') {
             const habit = badHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount -= entry.amount; }
         }
+        // Handle Good Habits & Rewards
         else if (entry.actionType === 'good') {
             const habit = goodHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount -= entry.amount; }
-            if (entry.pointsAdded) bonusPoints -= entry.pointsAdded;
-            if (entry.penaltyReduced) charityData.pending += entry.penaltyReduced;
+            if (entry.pointsAdded) bonusPoints -= entry.pointsAdded; // Deduct the reward points back
+            if (entry.penaltyReduced) charityData.pending += entry.penaltyReduced; // Add the penalty back
         }
         
+        // Handle Donations
         if (entry.donationAdded) { charityData.pending -= entry.donationAdded; if (charityData.pending < 0) charityData.pending = 0; }
         
+        // Remove from history (this will automatically lower the "Done Today" count)
         activityHistory = activityHistory.filter(h => h.id !== historyId);
+        
         saveData(); render(); openHistory(); 
     }
 }
@@ -626,6 +661,76 @@ function setBudgetLimit() {
         saveData(); renderBudget();
     } else { alert("Please enter a valid amount."); }
 }
+async function pickContact() {
+    if (!('contacts' in navigator && 'ContactsManager' in window)) {
+        alert("Contact picker is only supported on mobile browsers. Please type the name manually.");
+        return;
+    }
+    try {
+        const props = ['name'];
+        const contacts = await navigator.contacts.select(props, { multiple: false });
+        if (contacts.length > 0 && contacts[0].name.length > 0) {
+            document.getElementById('debt-desc').value = contacts[0].name[0];
+        }
+    } catch (ex) {
+        console.error("Contact selection failed:", ex);
+    }
+}
+
+function repayDebt(id) {
+    const debt = budgetData.debts.find(d => d.id === id);
+    if (!debt) return;
+    
+    let pending = debt.amount - (debt.repaid || 0);
+    if (pending <= 0) return alert("This is already fully settled!");
+
+    let input = prompt(`How much was returned? (Pending: ₹${pending}):`);
+    if (input === null || input.trim() === '') return; 
+    
+    let repayAmount = parseFloat(input);
+    if (isNaN(repayAmount) || repayAmount <= 0) return alert("Invalid amount entered.");
+    
+    // Prevent over-paying
+    if (repayAmount > pending) repayAmount = pending; 
+    
+    debt.repaid = (debt.repaid || 0) + repayAmount;
+    
+    if (debt.amount - debt.repaid <= 0) {
+        if (confirm(`₹${repayAmount} logged. This debt is now fully settled! Do you want to remove it from the list entirely?`)) {
+            budgetData.debts = budgetData.debts.filter(d => d.id !== id);
+        }
+    } else {
+        alert(`₹${repayAmount} logged successfully. ₹${debt.amount - debt.repaid} still pending.`);
+    }
+    
+    saveData();
+    renderBudget();
+}
+
+function addDebt() {
+    const desc = document.getElementById('debt-desc').value.trim();
+    const amount = parseFloat(document.getElementById('debt-amount').value);
+    const type = document.getElementById('debt-type').value;
+    const dateInput = document.getElementById('debt-date').value;
+    
+    if (!desc || isNaN(amount) || amount <= 0) return alert("Please enter a valid description and amount.");
+    
+    const debtDate = dateInput ? new Date(dateInput).getTime() : Date.now();
+    budgetData.debts.push({ id: Date.now().toString(), desc, amount, type, date: debtDate });
+    
+    document.getElementById('debt-desc').value = ''; 
+    document.getElementById('debt-amount').value = ''; 
+    document.getElementById('debt-date').value = '';
+    
+    saveData(); renderBudget();
+}
+
+function deleteDebt(id) {
+    if (confirm("Delete this debt record?")) {
+        budgetData.debts = budgetData.debts.filter(d => d.id !== id);
+        saveData(); renderBudget();
+    }
+}
 
 function addExpense() {
     const desc = document.getElementById('expense-desc').value.trim();
@@ -717,8 +822,64 @@ function renderBudget() {
         fillEl.style.width = '0%';
         remainingText.innerText = 'Limit not set';
     }
-}
 
+// --- DEBTS & LOANS RENDERING ---
+    let totalBorrowed = 0;
+    let totalLent = 0;
+    const borrowedContainer = document.getElementById('borrowed-list-container');
+    const lentContainer = document.getElementById('lent-list-container');
+    
+    if(borrowedContainer && lentContainer) {
+        borrowedContainer.innerHTML = '';
+        lentContainer.innerHTML = '';
+        
+        const sortedDebts = [...(budgetData.debts || [])].sort((a, b) => b.date - a.date);
+        
+        sortedDebts.forEach(debt => {
+            const dDate = new Date(debt.date);
+            const repaid = debt.repaid || 0;
+            const pending = debt.amount - repaid;
+            
+            // Skip rendering if they opted to keep a fully settled debt but it equals 0
+            if (pending <= 0 && repaid > 0 && debt.amount > 0) return; 
+            
+            const div = document.createElement('div');
+            div.style = "background:#222; padding:10px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;";
+            
+            let progressHtml = repaid > 0 ? `<div style="font-size:0.75rem; color:#aaa; margin-top:2px;">Original: ₹${debt.amount} | Paid: ₹${repaid}</div>` : '';
+
+            div.innerHTML = `
+                <div>
+                    <div style="font-weight:bold; font-size:0.85rem;">${debt.desc}</div>
+                    <div style="font-size:0.75rem; color:#888;">${dDate.toLocaleDateString()}</div>
+                    ${progressHtml}
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div style="text-align:right;">
+                        <span style="font-weight:bold; font-size:0.9rem; color:${debt.type === 'borrowed' ? 'var(--bad)' : 'var(--success)'};">₹${pending.toLocaleString()}</span>
+                    </div>
+                    <button onclick="repayDebt('${debt.id}')" style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:6px; border-radius:4px; margin:0; border:none; font-size:1rem;" title="Log Repayment">💰</button>
+                    <button onclick="deleteDebt('${debt.id}')" style="background:transparent; color:#888; padding:0; margin:0; border:none; width:auto; font-size:1.1rem;" title="Delete Record">×</button>
+                </div>
+            `;
+            
+            if (debt.type === 'borrowed') {
+                totalBorrowed += pending;
+                borrowedContainer.appendChild(div);
+            } else {
+                totalLent += pending;
+                lentContainer.appendChild(div);
+            }
+        });
+        
+        if (borrowedContainer.innerHTML === '') borrowedContainer.innerHTML = '<div style="color:#aaa; font-size:0.8rem; text-align:center;">None</div>';
+        if (lentContainer.innerHTML === '') lentContainer.innerHTML = '<div style="color:#aaa; font-size:0.8rem; text-align:center;">None</div>';
+        
+        document.getElementById('total-borrowed').innerText = totalBorrowed.toLocaleString();
+        document.getElementById('total-lent').innerText = totalLent.toLocaleString();
+    }
+
+}
 // ==========================================
 // BACKLOG (WATCH/READ LATER) LOGIC
 // ==========================================
@@ -859,6 +1020,8 @@ window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.can
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense;
 window.addBacklogItem = addBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications;
+window.addDebt = addDebt; window.deleteDebt = deleteDebt;
+window.pickContact = pickContact; window.repayDebt = repayDebt;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

@@ -347,7 +347,44 @@
                 <button onclick="addExpense()" style="background:var(--danger); color:#fff;">Log Expense</button>
             </div>
             <h3 style="border-bottom:1px solid #333; padding-bottom:10px;">This Month's Expenses</h3>
-            <div id="expense-list-container"></div>
+            <div id="expense-list-container" style="margin-bottom:30px;"></div>
+
+            <!-- DEBTS AND LOANS SECTION -->
+            <hr style="border-color:#333; margin: 30px 0;">
+            <h2>Debts & Loans</h2>
+            
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
+                <h3 style="margin-top:0; color:var(--warning);">🤝 Add Borrowed / Lent</h3>
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <div style="display:flex; flex:2; gap:5px;">
+                        <input type="text" id="debt-desc" placeholder="Person / Reason" style="margin:0; flex:1;">
+                        <button onclick="pickContact()" style="background:#333; color:#fff; margin:0; padding:12px; width:auto;" title="Select from Contacts">📱</button>
+                    </div>
+                    <input type="number" id="debt-amount" placeholder="₹ Amount" style="flex:1; margin:0;">
+                </div>
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <select id="debt-type" style="flex:1;">
+                        <option value="borrowed">I Borrowed (I Owe Them)</option>
+                        <option value="lent">I Lent (They Owe Me)</option>
+                    </select>
+                    <input type="date" id="debt-date" style="flex:1;">
+                </div>
+                <button onclick="addDebt()" style="background:var(--warning); color:#000;">Log Debt Record</button>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                <div style="background:var(--card); padding:15px; border-radius:10px; border-top: 4px solid var(--bad);">
+                    <h3 style="margin-top:0; font-size:0.95rem; color:#aaa;">Pending To Pay</h3>
+                    <div style="font-size:1.5rem; color:var(--bad); font-weight:bold; margin-bottom:10px;">₹<span id="total-borrowed">0</span></div>
+                    <div id="borrowed-list-container" style="display:flex; flex-direction:column; gap:8px;"></div>
+                </div>
+                <div style="background:var(--card); padding:15px; border-radius:10px; border-top: 4px solid var(--success);">
+                    <h3 style="margin-top:0; font-size:0.95rem; color:#aaa;">Pending To Receive</h3>
+                    <div style="font-size:1.5rem; color:var(--success); font-weight:bold; margin-bottom:10px;">₹<span id="total-lent">0</span></div>
+                    <div id="lent-list-container" style="display:flex; flex-direction:column; gap:8px;"></div>
+                </div>
+            </div>
+            
         </div>
 
         <!-- ========================================== -->

@@ -70,7 +70,7 @@ if (!deenData.quran) deenData.quran = [];
 if (!deenData.dhikr) deenData.dhikr = [];
 
 let budgetData = JSON.parse(localStorage.getItem('hisab_budget')) || { limit: 0, expenses: [], debts: [] };
-if (!budgetData.debts) budgetData.debts = []; // Fallback for existing data
+if (!budgetData.debts) budgetData.debts = [];
 let backlogData = JSON.parse(localStorage.getItem('hisab_backlog')) || [];
 
 let tasksProgressChart = null;
@@ -217,7 +217,7 @@ function payDonation() {
 }
 
 // ==========================================
-// TASKS LOGIC
+// TASKS LOGIC (FIXED SORTING & PERIOD COUNT)
 // ==========================================
 function getPeriodsLeft(type, dateObj) {
     const now = new Date(); const currentYear = now.getFullYear(); let start = new Date(dateObj);
@@ -278,41 +278,78 @@ function markMissed(id, event) {
 }
 
 function renderTasks() {
-    const container = document.getElementById('task-list-container'); container.innerHTML = '';
+    const container = document.getElementById('task-list-container'); 
+    if (!container) return;
+    container.innerHTML = '';
+    
     const filterView = document.getElementById('task-view-filter') ? document.getElementById('task-view-filter').value : 'all';
-    const categories = [ { id: 'daily', title: '📅 Daily Tasks', filter: t => t.type === 'daily' }, { id: 'weekly', title: '📆 Weekly Tasks', filter: t => t.type === 'weekly' }, { id: 'monthly', title: '🗓️ Monthly Tasks', filter: t => t.type === 'monthly' }, { id: 'once', title: '🎯 One-Time Tasks', filter: t => t.type === 'once' } ];
+    const categories = [ 
+        { id: 'daily', title: '📅 Daily Tasks', filter: t => t.type === 'daily' }, 
+        { id: 'weekly', title: '📆 Weekly Tasks', filter: t => t.type === 'weekly' }, 
+        { id: 'monthly', title: '🗓️ Monthly Tasks', filter: t => t.type === 'monthly' }, 
+        { id: 'once', title: '🎯 One-Time Tasks', filter: t => t.type === 'once' } 
+    ];
 
-    const startOfDay = new Date().setHours(0,0,0,0); // Get start of today
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
     categories.forEach(cat => {
         if (filterView !== 'all' && cat.id !== filterView) return;
-        const filteredTasks = tasks.filter(cat.filter); if (filteredTasks.length === 0) return;
-        const section = document.createElement('div'); section.innerHTML = `<h3 style="margin-top:25px; color:#ddd; font-size:1.05rem; border-bottom:1px solid #333; padding-bottom:5px;">${cat.title}</h3>`;
+        const filteredTasks = tasks.filter(cat.filter); 
+        if (filteredTasks.length === 0) return;
+        
+        // 1. Determine period completion first so we can sort properly
+        filteredTasks.forEach(task => {
+            let timeThreshold = startOfDay;
+            if (task.type === 'weekly') timeThreshold = startOfWeek;
+            if (task.type === 'monthly') timeThreshold = startOfMonth;
+
+            const periodLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && h.timestamp >= timeThreshold);
+            task.amountDonePeriod = periodLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
+            
+            if (task.type === 'once') {
+                task.isDoneForPeriod = task.currentTarget <= 0;
+            } else {
+                task.isDoneForPeriod = (task.amountDonePeriod >= (task.baseTarget || 1)) || (task.currentTarget <= 0);
+            }
+        });
+
+        // 2. SORTING: Pending tasks (false/0) at the top, Completed tasks (true/1) sink to the bottom
+        filteredTasks.sort((a, b) => {
+            const aDone = a.isDoneForPeriod ? 1 : 0;
+            const bDone = b.isDoneForPeriod ? 1 : 0;
+            return aDone - bDone;
+        });
+
+        const section = document.createElement('div'); 
+        section.innerHTML = `<h3 style="margin-top:25px; color:#ddd; font-size:1.05rem; border-bottom:1px solid #333; padding-bottom:5px;">${cat.title}</h3>`;
         
         filteredTasks.forEach(task => {
-            const div = document.createElement('div'); const isAhead = task.currentTarget <= 0; div.className = `task-item ${isAhead ? 'banked' : ''}`;
+            const div = document.createElement('div'); 
+            div.className = `task-item ${task.isDoneForPeriod ? 'banked' : ''}`;
             
-            // Calculate exact amount done today by checking the history log
-            const todayLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && h.timestamp >= startOfDay);
-            const amountDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
+            let badgeLabel = "Done Today";
+            if (task.type === 'weekly') badgeLabel = "Done This Week";
+            if (task.type === 'monthly') badgeLabel = "Done This Month";
 
-            let statusHTML = isAhead ? `<span class="badge done-badge">✅ Completed for the Year!</span>` : `<span class="badge target">Remaining in year: ${task.currentTarget}</span>`;
+            let statusHTML = task.currentTarget <= 0 ? `<span class="badge done-badge">✅ Completed for Year!</span>` : `<span class="badge target">Remaining in year: ${task.currentTarget}</span>`;
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ${task.donationPenalty}</span>` : ``;
             let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#333; color:#ccc;">Missed: ${task.missedCount || 0}/5</span>` : '';
             
-            // Generate the dynamic Done Today badge
-            let doneTodayHtml = amountDoneToday > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ Done Today: ${amountDoneToday}</span>` : '';
+            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
 
             div.innerHTML = `
             <div class="task-header">
                 <div>
-                    <div class="task-title">${task.title}</div>
-                    <div class="task-badges"><span class="badge" style="background:#333; color:#ccc;">Target: ${task.baseTarget} / ${task.type}</span>${statusHTML}${reminderHtml}${donationHtml}${strictHtml}${doneTodayHtml}</div>
+                    <div class="task-title" style="${task.isDoneForPeriod ? 'text-decoration:line-through; opacity:0.8;' : ''}">${task.title}</div>
+                    <div class="task-badges"><span class="badge" style="background:#333; color:#ccc;">Target: ${task.baseTarget} / ${task.type}</span>${statusHTML}${reminderHtml}${donationHtml}${strictHtml}${donePeriodHtml}</div>
                 </div>
                 <div class="task-controls"><button class="btn-icon" onclick="editTask('${task.id}')">✏️</button><button class="btn-icon" onclick="deleteTask('${task.id}')">🗑️</button></div>
             </div>
-            ${!isAhead ? `<div class="task-action-row">${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}<div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div><button class="btn-task-action done" onclick="logProgress('${task.id}')">Complete</button></div>` : ''}`;
+            ${task.currentTarget > 0 ? `<div class="task-action-row">${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}<div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div><button class="btn-task-action done" onclick="logProgress('${task.id}')">Complete</button></div>` : ''}`;
             section.appendChild(div);
         });
         container.appendChild(section);
@@ -410,7 +447,6 @@ function renderGoodHabits() {
         const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--success)';
         let rewardText = habit.rewardType === 'points' ? `🏆 +${habit.rewardValue} Points` : `💸 -₹${habit.rewardValue} Penalty`;
         
-        // Count times logged today
         const todayLogs = activityHistory.filter(h => h.taskId === habit.id && h.actionType === 'good' && h.timestamp >= startOfDay);
         const timesDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
         let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ Done Today: ${timesDoneToday}</span>` : '';
@@ -495,14 +531,13 @@ function deleteBadHabit(id) {
 function renderBadHabits() {
     const container = document.getElementById('bad-habit-list-container'); if (!container) return; container.innerHTML = '';
     if (badHabits.length === 0) { container.innerHTML = '<p style="color:#aaa; text-align:center;">No bad habits tracked yet.</p>'; return; }
-    
+
     const startOfDay = new Date().setHours(0,0,0,0);
 
     badHabits.forEach(habit => {
         const div = document.createElement('div'); div.className = 'task-item bad-log';
         let donationHtml = habit.donationPenalty ? `<span class="badge donation">💸 Penalty: ${habit.donationPenalty}</span>` : ``;
         
-        // Count times logged today
         const todayLogs = activityHistory.filter(h => h.taskId === habit.id && h.actionType === 'bad' && h.timestamp >= startOfDay);
         const timesDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
         let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge" style="background:rgba(255, 82, 82, 0.2); color:var(--danger);">⚠️ Logged Today: ${timesDoneToday}</span>` : '';
@@ -521,32 +556,22 @@ function undoAction(historyId) {
     const entry = activityHistory.find(h => h.id === historyId); if (!entry) return;
     
     if (confirm(`Undo "${entry.title}"?`)) {
-        // Handle Regular Tasks
         if (entry.actionType === 'complete' || entry.actionType === 'missed') {
             const task = tasks.find(t => t.id === entry.taskId);
-            if (task) { 
-                task.currentTarget += entry.amount; 
-                task.isCompleted = task.currentTarget <= 0; // Accurately revert completion status
-                if (entry.actionType === 'complete' && task.isMaxOnceDaily) { task.lastCompletedDay = ''; } 
-            }
+            if (task) { task.currentTarget += entry.amount; task.isCompleted = task.currentTarget <= 0; if (entry.actionType === 'complete' && task.isMaxOnceDaily) { task.lastCompletedDay = ''; } }
         } 
-        // Handle Bad Habits
         else if (entry.actionType === 'bad') {
             const habit = badHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount -= entry.amount; }
         }
-        // Handle Good Habits & Rewards
         else if (entry.actionType === 'good') {
             const habit = goodHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount -= entry.amount; }
-            if (entry.pointsAdded) bonusPoints -= entry.pointsAdded; // Deduct the reward points back
-            if (entry.penaltyReduced) charityData.pending += entry.penaltyReduced; // Add the penalty back
+            if (entry.pointsAdded) bonusPoints -= entry.pointsAdded;
+            if (entry.penaltyReduced) charityData.pending += entry.penaltyReduced;
         }
         
-        // Handle Donations
         if (entry.donationAdded) { charityData.pending -= entry.donationAdded; if (charityData.pending < 0) charityData.pending = 0; }
         
-        // Remove from history (this will automatically lower the "Done Today" count)
         activityHistory = activityHistory.filter(h => h.id !== historyId);
-        
         saveData(); render(); openHistory(); 
     }
 }
@@ -582,7 +607,7 @@ function updateDashboard() {
     document.getElementById('donation-pending').innerText = charityData.pending.toLocaleString(); document.getElementById('donation-paid').innerText = charityData.paid.toLocaleString();
 
     let dTotal = 0, dComp = 0, wTotal = 0, wComp = 0, mTotal = 0, mComp = 0, oTotal = 0, oComp = 0;
-    const now = new Date(); const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); const startOfWeek = new Date(now.getTime() - now.getDay() * 86400000).setHours(0,0,0,0); const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
+    const now = new Date(); const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime(); const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
 
     let dayPts = 0, weekPts = 0, monthPts = 0, yearPts = 0; 
     activityHistory.forEach(r => { 
@@ -648,7 +673,6 @@ function editJuz(index) { const q = deenData.quran[index]; const newIntention = 
 function deleteJuz(index) { deenData.quran.splice(index, 1); saveData(); renderDeen(); }
 function calculateZakat() { const cash = parseFloat(document.getElementById('zakat-cash').value) || 0; const gold = parseFloat(document.getElementById('zakat-gold').value) || 0; const invest = parseFloat(document.getElementById('zakat-invest').value) || 0; deenData.zakatInputs = { cash, gold, invest }; saveDataLocallyOnly(); const zakatDue = (cash + gold + invest) * 0.025; document.getElementById('zakat-due').innerText = zakatDue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
 
-
 // ==========================================
 // BUDGET & EXPENSES LOGIC
 // ==========================================
@@ -660,76 +684,6 @@ function setBudgetLimit() {
         document.getElementById('budget-set-limit').value = '';
         saveData(); renderBudget();
     } else { alert("Please enter a valid amount."); }
-}
-async function pickContact() {
-    if (!('contacts' in navigator && 'ContactsManager' in window)) {
-        alert("Contact picker is only supported on mobile browsers. Please type the name manually.");
-        return;
-    }
-    try {
-        const props = ['name'];
-        const contacts = await navigator.contacts.select(props, { multiple: false });
-        if (contacts.length > 0 && contacts[0].name.length > 0) {
-            document.getElementById('debt-desc').value = contacts[0].name[0];
-        }
-    } catch (ex) {
-        console.error("Contact selection failed:", ex);
-    }
-}
-
-function repayDebt(id) {
-    const debt = budgetData.debts.find(d => d.id === id);
-    if (!debt) return;
-    
-    let pending = debt.amount - (debt.repaid || 0);
-    if (pending <= 0) return alert("This is already fully settled!");
-
-    let input = prompt(`How much was returned? (Pending: ₹${pending}):`);
-    if (input === null || input.trim() === '') return; 
-    
-    let repayAmount = parseFloat(input);
-    if (isNaN(repayAmount) || repayAmount <= 0) return alert("Invalid amount entered.");
-    
-    // Prevent over-paying
-    if (repayAmount > pending) repayAmount = pending; 
-    
-    debt.repaid = (debt.repaid || 0) + repayAmount;
-    
-    if (debt.amount - debt.repaid <= 0) {
-        if (confirm(`₹${repayAmount} logged. This debt is now fully settled! Do you want to remove it from the list entirely?`)) {
-            budgetData.debts = budgetData.debts.filter(d => d.id !== id);
-        }
-    } else {
-        alert(`₹${repayAmount} logged successfully. ₹${debt.amount - debt.repaid} still pending.`);
-    }
-    
-    saveData();
-    renderBudget();
-}
-
-function addDebt() {
-    const desc = document.getElementById('debt-desc').value.trim();
-    const amount = parseFloat(document.getElementById('debt-amount').value);
-    const type = document.getElementById('debt-type').value;
-    const dateInput = document.getElementById('debt-date').value;
-    
-    if (!desc || isNaN(amount) || amount <= 0) return alert("Please enter a valid description and amount.");
-    
-    const debtDate = dateInput ? new Date(dateInput).getTime() : Date.now();
-    budgetData.debts.push({ id: Date.now().toString(), desc, amount, type, date: debtDate });
-    
-    document.getElementById('debt-desc').value = ''; 
-    document.getElementById('debt-amount').value = ''; 
-    document.getElementById('debt-date').value = '';
-    
-    saveData(); renderBudget();
-}
-
-function deleteDebt(id) {
-    if (confirm("Delete this debt record?")) {
-        budgetData.debts = budgetData.debts.filter(d => d.id !== id);
-        saveData(); renderBudget();
-    }
 }
 
 function addExpense() {
@@ -753,6 +707,76 @@ function deleteExpense(id) {
     }
 }
 
+async function pickContact() {
+    if (!('contacts' in navigator && 'ContactsManager' in window)) {
+        alert("Contact picker is only supported on mobile browsers. Please type the name manually.");
+        return;
+    }
+    try {
+        const props = ['name'];
+        const contacts = await navigator.contacts.select(props, { multiple: false });
+        if (contacts.length > 0 && contacts[0].name.length > 0) {
+            document.getElementById('debt-desc').value = contacts[0].name[0];
+        }
+    } catch (ex) {
+        console.error("Contact selection failed:", ex);
+    }
+}
+
+function addDebt() {
+    const desc = document.getElementById('debt-desc').value.trim();
+    const amount = parseFloat(document.getElementById('debt-amount').value);
+    const type = document.getElementById('debt-type').value;
+    const dateInput = document.getElementById('debt-date').value;
+    
+    if (!desc || isNaN(amount) || amount <= 0) return alert("Please enter a valid description and amount.");
+    
+    const debtDate = dateInput ? new Date(dateInput).getTime() : Date.now();
+    budgetData.debts.push({ id: Date.now().toString(), desc, amount, type, date: debtDate, repaid: 0 });
+    
+    document.getElementById('debt-desc').value = ''; 
+    document.getElementById('debt-amount').value = ''; 
+    document.getElementById('debt-date').value = '';
+    
+    saveData(); renderBudget();
+}
+
+function repayDebt(id) {
+    const debt = budgetData.debts.find(d => d.id === id);
+    if (!debt) return;
+    
+    let pending = debt.amount - (debt.repaid || 0);
+    if (pending <= 0) return alert("This is already fully settled!");
+
+    let input = prompt(`How much was returned? (Pending: ₹${pending}):`);
+    if (input === null || input.trim() === '') return; 
+    
+    let repayAmount = parseFloat(input);
+    if (isNaN(repayAmount) || repayAmount <= 0) return alert("Invalid amount entered.");
+    
+    if (repayAmount > pending) repayAmount = pending; 
+    
+    debt.repaid = (debt.repaid || 0) + repayAmount;
+    
+    if (debt.amount - debt.repaid <= 0) {
+        if (confirm(`₹${repayAmount} logged. This debt is now fully settled! Do you want to remove it from the list entirely?`)) {
+            budgetData.debts = budgetData.debts.filter(d => d.id !== id);
+        }
+    } else {
+        alert(`₹${repayAmount} logged successfully. ₹${debt.amount - debt.repaid} still pending.`);
+    }
+    
+    saveData();
+    renderBudget();
+}
+
+function deleteDebt(id) {
+    if (confirm("Delete this debt record?")) {
+        budgetData.debts = budgetData.debts.filter(d => d.id !== id);
+        saveData(); renderBudget();
+    }
+}
+
 function renderBudget() {
     const now = new Date();
     const currentMonth = now.getMonth();
@@ -764,35 +788,36 @@ function renderBudget() {
     
     let monthlyTotal = 0;
     const listContainer = document.getElementById('expense-list-container');
-    listContainer.innerHTML = '';
-    
-    const sortedExpenses = [...budgetData.expenses].sort((a, b) => b.date - a.date);
-    let hasExpensesThisMonth = false;
+    if (listContainer) {
+        listContainer.innerHTML = '';
+        const sortedExpenses = [...budgetData.expenses].sort((a, b) => b.date - a.date);
+        let hasExpensesThisMonth = false;
 
-    sortedExpenses.forEach(exp => {
-        const expDate = new Date(exp.date);
-        if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
-            monthlyTotal += exp.amount;
-            hasExpensesThisMonth = true;
-            
-            const div = document.createElement('div');
-            div.style = "background:#2c2c2c; padding:12px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-left:4px solid var(--danger);";
-            div.innerHTML = `
-                <div>
-                    <div style="font-weight:bold;">${exp.desc}</div>
-                    <div style="font-size:0.8rem; color:#888;">${expDate.toLocaleDateString()}</div>
-                </div>
-                <div style="display:flex; align-items:center; gap:15px;">
-                    <span style="color:var(--danger); font-weight:bold;">₹${exp.amount.toLocaleString()}</span>
-                    <button onclick="deleteExpense('${exp.id}')" style="background:transparent; color:#888; padding:0; margin:0; border:none; width:auto; font-size:1.2rem;">×</button>
-                </div>
-            `;
-            listContainer.appendChild(div);
+        sortedExpenses.forEach(exp => {
+            const expDate = new Date(exp.date);
+            if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
+                monthlyTotal += exp.amount;
+                hasExpensesThisMonth = true;
+                
+                const div = document.createElement('div');
+                div.style = "background:#2c2c2c; padding:12px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-left:4px solid var(--danger);";
+                div.innerHTML = `
+                    <div>
+                        <div style="font-weight:bold;">${exp.desc}</div>
+                        <div style="font-size:0.8rem; color:#888;">${expDate.toLocaleDateString()}</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:15px;">
+                        <span style="color:var(--danger); font-weight:bold;">₹${exp.amount.toLocaleString()}</span>
+                        <button onclick="deleteExpense('${exp.id}')" style="background:transparent; color:#888; padding:0; margin:0; border:none; width:auto; font-size:1.2rem;">×</button>
+                    </div>
+                `;
+                listContainer.appendChild(div);
+            }
+        });
+
+        if (!hasExpensesThisMonth) {
+            listContainer.innerHTML = '<p style="color:#aaa; text-align:center;">No expenses logged for this month yet.</p>';
         }
-    });
-
-    if (!hasExpensesThisMonth) {
-        listContainer.innerHTML = '<p style="color:#aaa; text-align:center;">No expenses logged for this month yet.</p>';
     }
 
     document.getElementById('budget-spent').innerText = monthlyTotal.toLocaleString();
@@ -823,7 +848,7 @@ function renderBudget() {
         remainingText.innerText = 'Limit not set';
     }
 
-// --- DEBTS & LOANS RENDERING ---
+    // --- DEBTS & LOANS RENDERING ---
     let totalBorrowed = 0;
     let totalLent = 0;
     const borrowedContainer = document.getElementById('borrowed-list-container');
@@ -840,7 +865,6 @@ function renderBudget() {
             const repaid = debt.repaid || 0;
             const pending = debt.amount - repaid;
             
-            // Skip rendering if they opted to keep a fully settled debt but it equals 0
             if (pending <= 0 && repaid > 0 && debt.amount > 0) return; 
             
             const div = document.createElement('div');
@@ -878,8 +902,8 @@ function renderBudget() {
         document.getElementById('total-borrowed').innerText = totalBorrowed.toLocaleString();
         document.getElementById('total-lent').innerText = totalLent.toLocaleString();
     }
-
 }
+
 // ==========================================
 // BACKLOG (WATCH/READ LATER) LOGIC
 // ==========================================
@@ -923,6 +947,7 @@ function deleteBacklogItem(id) {
 
 function renderBacklog() {
     const container = document.getElementById('backlog-list-container');
+    if (!container) return;
     container.innerHTML = '';
     
     const filterView = document.getElementById('backlog-filter') ? document.getElementById('backlog-filter').value : 'all';
@@ -988,7 +1013,6 @@ setInterval(() => {
     if (processAutomaticPenalties()) { saveData(); render(); }
 }, 60000); 
 
-
 // ==========================================
 // CORE APP ROUTING & UI
 // ==========================================
@@ -1018,10 +1042,8 @@ window.payDonation = payDonation;
 window.addGoodHabit = addGoodHabit; window.editGoodHabit = editGoodHabit; window.cancelEditGoodHabit = cancelEditGoodHabit; window.logGoodHabit = logGoodHabit; window.deleteGoodHabit = deleteGoodHabit; 
 window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.cancelEditBadHabit = cancelEditBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
-window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense;
+window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
 window.addBacklogItem = addBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications;
-window.addDebt = addDebt; window.deleteDebt = deleteDebt;
-window.pickContact = pickContact; window.repayDebt = repayDebt;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

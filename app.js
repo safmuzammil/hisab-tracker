@@ -176,7 +176,7 @@ function processAutomaticPenalties() {
             }
         }
     });
-    if (penaltyAdded > 0) alert(`⚠️ You missed strict daily tasks for 5 days! ₹${penaltyAdded} penalty applied (checked against Surplus Credit first).`);
+    if (penaltyAdded > 0) alert(`⚠️ You missed strict daily tasks for 5 days! ₹${penaltyAdded} penalty applied.`);
     return needsSave;
 }
 
@@ -915,37 +915,69 @@ async function autoFetchThumbnail() {
     const imgInput = document.getElementById('backlog-image-url');
 
     if (!link && !title) return alert("Please enter a title or link first!");
-    imgInput.placeholder = "⏳ Fetching cover image...";
+    imgInput.placeholder = "⏳ Fetching high-res cover image...";
 
+    // 1. YouTube HD Thumbnail (maxresdefault -> 1080p/720p)
     if (link && (link.includes('youtube.com') || link.includes('youtu.be'))) {
         const vidIdMatch = link.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
         if (vidIdMatch && vidIdMatch[1]) {
-            imgInput.value = `https://img.youtube.com/vi/${vidIdMatch[1]}/hqdefault.jpg`;
+            const vidId = vidIdMatch[1];
+            const maxResUrl = `https://img.youtube.com/vi/${vidId}/maxresdefault.jpg`;
+            const testImg = new Image();
+            testImg.src = maxResUrl;
+            testImg.onload = function() {
+                if (this.width > 120) {
+                    imgInput.value = maxResUrl;
+                } else {
+                    imgInput.value = `https://img.youtube.com/vi/${vidId}/hqdefault.jpg`;
+                }
+            };
+            testImg.onerror = function() {
+                imgInput.value = `https://img.youtube.com/vi/${vidId}/hqdefault.jpg`;
+            };
             return;
         }
     }
 
-    if (type === 'book' || (!link && title)) {
+    // 2. OpenGraph Meta Scraper via Microlink API (Articles, Websites)
+    if (link) {
+        try {
+            const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(link)}`);
+            const data = await res.json();
+            if (data.status === 'success' && data.data) {
+                if (data.data.image && data.data.image.url) {
+                    imgInput.value = data.data.image.url;
+                    return;
+                }
+            }
+        } catch(e) { console.error("Link metadata fetch error", e); }
+    }
+
+    // 3. Google Books API (Upgraded HD Cover Search)
+    if (type === 'book' || title) {
         try {
             const query = encodeURIComponent(title || link);
             const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`);
             const data = await res.json();
             if (data.items && data.items[0].volumeInfo && data.items[0].volumeInfo.imageLinks) {
-                let thumb = data.items[0].volumeInfo.imageLinks.thumbnail || data.items[0].volumeInfo.imageLinks.smallThumbnail;
+                let imageLinks = data.items[0].volumeInfo.imageLinks;
+                let thumb = imageLinks.extraLarge || imageLinks.large || imageLinks.medium || imageLinks.thumbnail || imageLinks.smallThumbnail;
                 if (thumb) {
-                    imgInput.value = thumb.replace('http://', 'https://');
+                    thumb = thumb.replace('http://', 'https://').replace('&zoom=1', '&zoom=2').replace('&edge=curl', '');
+                    imgInput.value = thumb;
                     return;
                 }
             }
         } catch(e) { console.error("Book fetch error", e); }
     }
 
+    // 4. Fallback Logo
     if (link) {
         try {
             let domain = new URL(link).hostname;
-            imgInput.value = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+            imgInput.value = `https://logo.clearbit.com/${domain}`;
         } catch(e) {
-            alert("Could not automatically fetch cover. Please paste an image link directly!");
+            alert("Could not fetch a high-res thumbnail automatically. Please paste an image link directly!");
         }
     } else {
         alert("Could not find a cover photo automatically. Please paste an image URL directly.");
@@ -1051,7 +1083,7 @@ function renderBacklog() {
     filteredData.forEach(item => {
         const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--backlog)'; if (item.completed) div.style.opacity = '0.5';
 
-        let imageHtml = item.imageUrl ? `<img src="${item.imageUrl}" style="width:100%; max-height:180px; object-fit:cover; border-radius:8px; margin-bottom:10px; background:#111;">` : '';
+        let imageHtml = item.imageUrl ? `<img src="${item.imageUrl}" style="width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin-bottom:10px; background:#111;" onerror="this.style.display='none'">` : '';
         let linkHtml = item.link ? `<a href="${item.link}" target="_blank" style="color:var(--backlog); font-size:0.85rem; text-decoration:none; display:block; margin-bottom:5px;">🔗 Open Link</a>` : '';
         let notesHtml = item.notes ? `<div style="font-size:0.85rem; color:#aaa; margin-bottom:8px; background:#111; padding:8px; border-radius:5px;">${item.notes}</div>` : '';
         let statusBadge = item.completed ? `<span class="badge done-badge">✅ Finished</span>` : '';

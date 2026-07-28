@@ -93,8 +93,6 @@ function listenToFirebase() {
             const parsed = docSnap.data();
             const cloudModified = parsed.lastModified || 0;
 
-            // STALE-TAB LOCK: If cloud is newer, OR if this is our very first sync after opening the browser tab,
-            // forcefully discard local memory and accept cloud data so sleeping PC tabs never overwrite mobile data!
             if (!hasInitialCloudSync || cloudModified > lastModifiedLocal) {
                 tasks = parsed.tasks || []; 
                 activityHistory = parsed.history || []; 
@@ -120,7 +118,7 @@ function listenToFirebase() {
                 hasInitialCloudSync = true;
                 saveDataLocallyOnly(); 
                 render();
-                return; // Stop here! Never push anything back to cloud during a stale wakeup.
+                return; 
             }
 
             hasInitialCloudSync = true;
@@ -155,7 +153,6 @@ function migrateLegacyTasks() {
 }
 
 function processAutomaticPenalties() {
-    // GUARDRAIL: Never process auto-penalties if we haven't synced with Firebase yet
     if (!hasInitialCloudSync) return false;
     
     let needsSave = false; let penaltyAdded = 0; const todayStr = new Date().toDateString();
@@ -920,7 +917,6 @@ async function autoFetchThumbnail() {
     if (!link && !title) return alert("Please enter a title or link first!");
     imgInput.placeholder = "⏳ Fetching cover image...";
 
-    // 1. YouTube Thumbnail Extraction
     if (link && (link.includes('youtube.com') || link.includes('youtu.be'))) {
         const vidIdMatch = link.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
         if (vidIdMatch && vidIdMatch[1]) {
@@ -929,7 +925,6 @@ async function autoFetchThumbnail() {
         }
     }
 
-    // 2. Book Search via Google Books API
     if (type === 'book' || (!link && title)) {
         try {
             const query = encodeURIComponent(title || link);
@@ -945,7 +940,6 @@ async function autoFetchThumbnail() {
         } catch(e) { console.error("Book fetch error", e); }
     }
 
-    // 3. Website Favicon / Domain Logo Extraction
     if (link) {
         try {
             let domain = new URL(link).hostname;
@@ -960,6 +954,7 @@ async function autoFetchThumbnail() {
 }
 
 function addBacklogItem() {
+    const id = document.getElementById('backlog-id').value;
     const title = document.getElementById('backlog-title').value.trim();
     const link = document.getElementById('backlog-link').value.trim();
     const imageUrl = document.getElementById('backlog-image-url').value.trim();
@@ -968,20 +963,55 @@ function addBacklogItem() {
 
     if (!title) return alert("Please provide a title or name for the item.");
 
-    backlogData.push({
-        id: Date.now().toString(),
-        title, link, imageUrl, type, notes,
-        addedAt: Date.now(),
-        completed: false
-    });
-    activityHistory.push({ id: Date.now().toString(), taskId: 'backlog-'+Date.now(), category: 'backlog', timestamp: Date.now(), title: "Added to Library: " + title, actionType: 'complete', amount: 1 });
+    if (id) {
+        const item = backlogData.find(b => b.id === id);
+        if (item) {
+            item.title = title;
+            item.link = link;
+            item.imageUrl = imageUrl;
+            item.type = type;
+            item.notes = notes;
+        }
+    } else {
+        backlogData.push({
+            id: Date.now().toString(),
+            title, link, imageUrl, type, notes,
+            addedAt: Date.now(),
+            completed: false
+        });
+        activityHistory.push({ id: Date.now().toString(), taskId: 'backlog-'+Date.now(), category: 'backlog', timestamp: Date.now(), title: "Added to Library: " + title, actionType: 'complete', amount: 1 });
+    }
 
+    cancelEditBacklogItem();
+    saveData(); renderBacklog();
+}
+
+function editBacklogItem(id) {
+    const item = backlogData.find(b => b.id === id);
+    if (!item) return;
+    document.getElementById('backlog-form-title').innerText = '✏️ Edit Backlog Item';
+    document.getElementById('backlog-id').value = item.id;
+    document.getElementById('backlog-title').value = item.title || '';
+    document.getElementById('backlog-link').value = item.link || '';
+    document.getElementById('backlog-image-url').value = item.imageUrl || '';
+    document.getElementById('backlog-type').value = item.type || 'video';
+    document.getElementById('backlog-notes').value = item.notes || '';
+
+    document.getElementById('btn-save-backlog').innerText = 'Save Changes';
+    document.getElementById('btn-cancel-edit-backlog').style.display = 'block';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function cancelEditBacklogItem() {
+    document.getElementById('backlog-form-title').innerText = '📌 Add to Backlog';
+    document.getElementById('backlog-id').value = '';
     document.getElementById('backlog-title').value = '';
     document.getElementById('backlog-link').value = '';
     document.getElementById('backlog-image-url').value = '';
+    document.getElementById('backlog-type').value = 'video';
     document.getElementById('backlog-notes').value = '';
-
-    saveData(); renderBacklog();
+    document.getElementById('btn-save-backlog').innerHTML = 'Add to Library';
+    document.getElementById('btn-cancel-edit-backlog').style.display = 'none';
 }
 
 function toggleBacklogStatus(id) {
@@ -1034,7 +1064,10 @@ function renderBacklog() {
                     <div class="task-title" style="${item.completed ? 'text-decoration:line-through;' : ''}">${item.title}</div>
                     ${statusBadge}
                 </div>
-                <div class="task-controls"><button class="btn-icon" onclick="deleteBacklogItem('${item.id}')">🗑️</button></div>
+                <div class="task-controls">
+                    <button class="btn-icon" onclick="editBacklogItem('${item.id}')">✏️</button>
+                    <button class="btn-icon" onclick="deleteBacklogItem('${item.id}')">🗑️</button>
+                </div>
             </div>
             ${linkHtml}
             ${notesHtml}
@@ -1090,7 +1123,7 @@ window.addGoodHabit = addGoodHabit; window.editGoodHabit = editGoodHabit; window
 window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.cancelEditBadHabit = cancelEditBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
-window.addBacklogItem = addBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;
+window.addBacklogItem = addBacklogItem; window.editBacklogItem = editBacklogItem; window.cancelEditBacklogItem = cancelEditBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

@@ -354,7 +354,7 @@
                 <button onclick="addExpense()" style="background:var(--danger); color:#fff;">Log Expense</button>
             </div>
             <h3 style="border-bottom:1px solid #333; padding-bottom:10px;">This Month's Expenses</h3>
-            <div id="expense-list-container" style="margin-bottom:30px;"></div>
+            <div id="expense-list-container"></div>
 
             <!-- DEBTS AND LOANS SECTION -->
             <hr style="border-color:#333; margin: 30px 0;">
@@ -399,7 +399,8 @@
         <div id="tab-backlog" class="tab-content">
             <h2>Watch & Read Later</h2>
             <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--backlog);">
-                <h3 style="margin-top:0; color:var(--backlog);">📌 Add to Backlog</h3>
+                <h3 id="backlog-form-title" style="margin-top:0; color:var(--backlog);">📌 Add to Backlog</h3>
+                <input type="hidden" id="backlog-id">
                 <input type="text" id="backlog-title" placeholder="Title (e.g., KAS Study Material, One Piece)">
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <input type="url" id="backlog-link" placeholder="Link / URL (Optional)" style="margin:0; flex:2;">
@@ -415,7 +416,10 @@
                     </select>
                 </div>
                 <textarea id="backlog-notes" placeholder="Notes (Optional)" rows="2"></textarea>
-                <button onclick="addBacklogItem()" style="background:var(--backlog); color:#000;">Add to Library</button>
+                <div style="display:flex; gap:10px;">
+                    <button id="btn-save-backlog" onclick="addBacklogItem()" style="flex:2; background:var(--backlog); color:#000;">Add to Library</button>
+                    <button id="btn-cancel-edit-backlog" onclick="cancelEditBacklogItem()" style="display:none; flex:1; background:#333; color:#fff;">Cancel</button>
+                </div>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                 <h3 style="margin:0;">Your Library</h3>

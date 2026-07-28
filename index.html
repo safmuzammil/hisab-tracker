@@ -99,6 +99,8 @@
 
         /* History Modal */
         #history-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 200; overflow-y: auto; padding: 20px; }
+        .hist-filter-btn { background: #2c2c2c; color: #888; border: 1px solid #444; padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; width: auto; margin: 0; cursor: pointer; white-space: nowrap; }
+        .hist-filter-btn.active { background: var(--primary); color: #000; font-weight: bold; border-color: var(--primary); }
     </style>
 </head>
 <body>
@@ -128,9 +130,14 @@
             <h2>Dashboard</h2>
             
             <div style="background:var(--card); padding:20px; border-radius:15px; text-align:center; margin-bottom:20px; border:1px solid var(--charity);">
-                <h3 style="color:var(--charity); margin-top:0;">⚖️ Pending Charity Penalty</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <span style="color:var(--charity); font-weight:bold;">⚖️ Pending Penalty</span>
+                    <span style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:4px 10px; border-radius:8px; font-size:0.85rem; font-weight:bold;">
+                        🌟 Surplus Wallet: ₹<span id="display-surplus-wallet">0</span>
+                    </span>
+                </div>
                 <div style="font-size:3rem; font-weight:bold; color:#fff; margin:10px 0;">₹<span id="donation-pending">0</span></div>
-                <div style="color:#aaa; font-size:0.9rem; margin-bottom:15px;">Total Paid: ₹<span id="donation-paid">0</span></div>
+                <div style="color:#aaa; font-size:0.9rem; margin-bottom:15px;">Total Paid Lifetime: ₹<span id="donation-paid">0</span></div>
                 <div style="display:flex; gap:10px;">
                     <input type="number" id="donation-pay-amount" placeholder="Amount paid..." style="margin:0;">
                     <button onclick="payDonation()" style="background:var(--charity); color:#000; margin:0;">Log Payment</button>
@@ -221,8 +228,8 @@
             <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--success);">
                 <h3 style="margin-top:0; color:#fff; display:flex; justify-content:space-between; align-items:center;">
                     <span id="good-habit-form-title">🌟 Add Good Habit</span>
-                    <span style="color:var(--success); font-size:1rem; background:rgba(3, 218, 198, 0.1); padding:5px 10px; border-radius:8px;">
-                        🏆 Points: <span id="display-bonus-points" style="font-weight:bold;">0</span>
+                    <span style="color:var(--success); font-size:0.9rem; background:rgba(3, 218, 198, 0.15); padding:5px 10px; border-radius:8px;">
+                        🌟 Surplus: ₹<span id="display-surplus-wallet-habits" style="font-weight:bold;">0</span> | 🏆 Pts: <span id="display-bonus-points" style="font-weight:bold;">0</span>
                     </span>
                 </h3>
                 <input type="hidden" id="good-habit-id">
@@ -231,8 +238,8 @@
                 </div>
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <select id="good-habit-reward-type" style="flex:1; padding:12px; border-radius:8px; background:#1e1e1e; color:#fff; border:1px solid #333;">
-                        <option value="points">Add Bonus Points</option>
-                        <option value="reduce">Reduce Penalty (₹)</option>
+                        <option value="reduce">Reduce Penalty / Bank Surplus (₹)</option>
+                        <option value="points">Add Bonus Points (🏆)</option>
                     </select>
                     <input type="number" id="good-habit-reward-value" placeholder="Reward Value" style="flex:1;" min="1">
                 </div>
@@ -384,7 +391,6 @@
                     <div id="lent-list-container" style="display:flex; flex-direction:column; gap:8px;"></div>
                 </div>
             </div>
-            
         </div>
 
         <!-- ========================================== -->
@@ -395,7 +401,11 @@
             <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-left: 5px solid var(--backlog);">
                 <h3 style="margin-top:0; color:var(--backlog);">📌 Add to Backlog</h3>
                 <input type="text" id="backlog-title" placeholder="Title (e.g., KAS Study Material, One Piece)">
-                <input type="url" id="backlog-link" placeholder="Link / URL (Optional)">
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
+                    <input type="url" id="backlog-link" placeholder="Link / URL (Optional)" style="margin:0; flex:2;">
+                    <button onclick="autoFetchThumbnail()" style="background:#333; color:#fff; margin:0; flex:1; width:auto; font-size:0.85rem;" title="Auto-grab cover/thumbnail">🪄 Fetch Cover</button>
+                </div>
+                <input type="url" id="backlog-image-url" placeholder="Cover Image URL (Auto-filled or paste here)">
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <select id="backlog-type" style="flex:1;">
                         <option value="video">📺 Video / Movie / Anime</option>
@@ -422,10 +432,19 @@
 
     <!-- History Modal -->
     <div id="history-modal">
-        <div style="max-width:500px; margin:50px auto; background:var(--bg); padding:20px; border-radius:15px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <div style="max-width:600px; margin:30px auto; background:var(--bg); padding:20px; border-radius:15px; border:1px solid #333;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                 <h2 style="margin:0;">Activity History</h2>
                 <button onclick="closeHistory()" style="background:transparent; color:#fff; border:none; font-size:1.5rem; padding:0; margin:0; width:auto;">×</button>
+            </div>
+            <!-- Tab Filters for History -->
+            <div style="display:flex; gap:6px; margin-bottom:15px; overflow-x:auto; padding-bottom:5px;">
+                <button class="hist-filter-btn active" onclick="filterHistory('all', this)">All</button>
+                <button class="hist-filter-btn" onclick="filterHistory('tasks', this)">Tasks</button>
+                <button class="hist-filter-btn" onclick="filterHistory('habits', this)">Habits</button>
+                <button class="hist-filter-btn" onclick="filterHistory('deen', this)">Deen</button>
+                <button class="hist-filter-btn" onclick="filterHistory('budget', this)">Budget</button>
+                <button class="hist-filter-btn" onclick="filterHistory('backlog', this)">Saved</button>
             </div>
             <div id="history-list"></div>
         </div>

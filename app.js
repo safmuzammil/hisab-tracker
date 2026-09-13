@@ -84,15 +84,10 @@ let currentHistoryFilter = 'all';
 // ==========================================
 // GOOGLE SHEETS LIVE SYNC
 // ==========================================
-// ==========================================
-// GOOGLE SHEETS LIVE SYNC
-// ==========================================
 const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbxnUQz9WnM2X3tAIL3o2JdZO3u28SBBN5MlD8CF_mQKZ634qzto5AWiawyX7cjmqn00/exec";
 
 function syncToGoogleSheets(logEntry) {
     if (!GOOGLE_SHEETS_URL) return;
-    
-    // Using text/plain bypasses strict browser CORS preflight blocks
     fetch(GOOGLE_SHEETS_URL, {
         method: 'POST',
         redirect: 'follow',
@@ -196,7 +191,7 @@ function processAutomaticPenalties() {
             }
         }
     });
-    if (penaltyAdded > 0) alert(`⚠️ You missed strict daily tasks for 5 days! ₹${penaltyAdded} penalty applied (checked against Surplus Credit first).`);
+    if (penaltyAdded > 0) alert(`⚠️ You missed strict daily tasks for 5 days! ₹${penaltyAdded} penalty applied.`);
     return needsSave;
 }
 
@@ -625,7 +620,10 @@ function undoAction(historyId) {
         
         if (entry.donationAdded) { charityData.pending -= entry.donationAdded; if (charityData.pending < 0) charityData.pending = 0; }
         if (entry.coveredBySurplus) { charityData.surplus = (charityData.surplus || 0) + entry.coveredBySurplus; }
+        
+        // --- THIS LINE SENDS THE UNDO SIGNAL TO GOOGLE SHEETS ---
         syncToGoogleSheets({ actionType: 'undo', id: historyId });
+        
         activityHistory = activityHistory.filter(h => h.id !== historyId);
         saveData(); render(); openHistory(currentHistoryFilter); 
     }

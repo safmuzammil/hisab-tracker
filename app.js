@@ -311,7 +311,8 @@ function logProgress(id) {
     if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
     task.lastCompletedDay = todayStr;
     
-    let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone };
+    // NEW: Includes taskType: task.type
+    let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone };
     activityHistory.push(newLog);
     syncToGoogleSheets(newLog);
 
@@ -330,7 +331,8 @@ function markMissed(id, event) {
             coveredSurplus = penaltyRes.coveredBySurplus;
         }
 
-        let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', timestamp: Date.now(), title: "Missed: " + task.title, actionType: 'missed', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus };
+        // NEW: Includes taskType: task.type
+        let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), title: "Missed: " + task.title, actionType: 'missed', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus };
         activityHistory.push(newLog);
         syncToGoogleSheets(newLog);
 

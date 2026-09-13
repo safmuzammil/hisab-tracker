@@ -84,14 +84,19 @@ let currentHistoryFilter = 'all';
 // ==========================================
 // GOOGLE SHEETS LIVE SYNC
 // ==========================================
+// ==========================================
+// GOOGLE SHEETS LIVE SYNC
+// ==========================================
 const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbxnUQz9WnM2X3tAIL3o2JdZO3u28SBBN5MlD8CF_mQKZ634qzto5AWiawyX7cjmqn00/exec";
 
 function syncToGoogleSheets(logEntry) {
     if (!GOOGLE_SHEETS_URL) return;
+    
+    // Using text/plain bypasses strict browser CORS preflight blocks
     fetch(GOOGLE_SHEETS_URL, {
         method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
+        redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(logEntry)
     }).catch(err => console.error("Google Sheets sync failed:", err));
 }

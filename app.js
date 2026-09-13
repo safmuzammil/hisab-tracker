@@ -625,7 +625,7 @@ function undoAction(historyId) {
         
         if (entry.donationAdded) { charityData.pending -= entry.donationAdded; if (charityData.pending < 0) charityData.pending = 0; }
         if (entry.coveredBySurplus) { charityData.surplus = (charityData.surplus || 0) + entry.coveredBySurplus; }
-        
+        syncToGoogleSheets({ actionType: 'undo', id: historyId });
         activityHistory = activityHistory.filter(h => h.id !== historyId);
         saveData(); render(); openHistory(currentHistoryFilter); 
     }

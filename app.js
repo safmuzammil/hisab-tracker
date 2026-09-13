@@ -82,6 +82,21 @@ let showAllQada = false;
 let currentHistoryFilter = 'all';
 
 // ==========================================
+// GOOGLE SHEETS LIVE SYNC
+// ==========================================
+const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbxnUQz9WnM2X3tAIL3o2JdZO3u28SBBN5MlD8CF_mQKZ634qzto5AWiawyX7cjmqn00/exec";
+
+function syncToGoogleSheets(logEntry) {
+    if (!GOOGLE_SHEETS_URL) return;
+    fetch(GOOGLE_SHEETS_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(logEntry)
+    }).catch(err => console.error("Google Sheets sync failed:", err));
+}
+
+// ==========================================
 // STALE-TAB LOCK & CLOUD SYNC LOGIC
 // ==========================================
 let hasInitialCloudSync = false;
@@ -176,7 +191,7 @@ function processAutomaticPenalties() {
             }
         }
     });
-    if (penaltyAdded > 0) alert(`⚠️ You missed strict daily tasks for 5 days! ₹${penaltyAdded} penalty applied.`);
+    if (penaltyAdded > 0) alert(`⚠️ You missed strict daily tasks for 5 days! ₹${penaltyAdded} penalty applied (checked against Surplus Credit first).`);
     return needsSave;
 }
 
@@ -295,7 +310,11 @@ function logProgress(id) {
     const todayStr = new Date().toDateString();
     if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
     task.lastCompletedDay = todayStr;
-    activityHistory.push({ id: Date.now().toString(), taskId: task.id, category: 'tasks', timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone });
+    
+    let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone };
+    activityHistory.push(newLog);
+    syncToGoogleSheets(newLog);
+
     task.currentTarget -= amountDone; if (task.currentTarget <= 0) task.isCompleted = true; 
     saveData(); render();
 }
@@ -310,7 +329,11 @@ function markMissed(id, event) {
             addedPenalty = penaltyRes.addedToPending;
             coveredSurplus = penaltyRes.coveredBySurplus;
         }
-        activityHistory.push({ id: Date.now().toString(), taskId: task.id, category: 'tasks', timestamp: Date.now(), title: "Missed: " + task.title, actionType: 'missed', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus });
+
+        let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', timestamp: Date.now(), title: "Missed: " + task.title, actionType: 'missed', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus };
+        activityHistory.push(newLog);
+        syncToGoogleSheets(newLog);
+
         task.currentTarget -= 1; if (task.currentTarget <= 0) task.isCompleted = true;
         saveData(); render();
     }
@@ -444,7 +467,10 @@ function logGoodHabit(id, event) {
     }
     
     habit.annualCount++;
-    activityHistory.push({ id: Date.now().toString(), taskId: habit.id, category: 'habits', timestamp: Date.now(), title: "Logged Good: " + habit.title, actionType: 'good', amount: 1, pointsAdded, penaltyReduced, surplusAdded });
+    let newLog = { id: Date.now().toString(), taskId: habit.id, category: 'habits', timestamp: Date.now(), title: "Logged Good: " + habit.title, actionType: 'good', amount: 1, pointsAdded, penaltyReduced, surplusAdded };
+    activityHistory.push(newLog);
+    syncToGoogleSheets(newLog);
+
     saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
 
@@ -538,7 +564,11 @@ function logBadHabit(id, event) {
         coveredSurplus = penaltyRes.coveredBySurplus;
     }
     habit.annualCount++;
-    activityHistory.push({ id: Date.now().toString(), taskId: habit.id, category: 'habits', timestamp: Date.now(), title: "Logged Bad: " + habit.title, actionType: 'bad', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus });
+    
+    let newLog = { id: Date.now().toString(), taskId: habit.id, category: 'habits', timestamp: Date.now(), title: "Logged Bad: " + habit.title, actionType: 'bad', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus };
+    activityHistory.push(newLog);
+    syncToGoogleSheets(newLog);
+
     saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
 
@@ -705,10 +735,23 @@ function renderDeen() {
 
 function updateQada(prayer, amount) { deenData.qada[prayer] += amount; if(deenData.qada[prayer] < 0) deenData.qada[prayer] = 0; saveData(); renderDeen(); }
 function addDhikr() { const name = document.getElementById('dhikr-name').value.trim(); const target = parseInt(document.getElementById('dhikr-target').value); const intention = document.getElementById('dhikr-intention').value.trim(); const deadline = document.getElementById('dhikr-deadline').value; if (!name || !target || target <= 0) return alert("Please provide a valid Dhikr name and target number."); deenData.dhikr.push({ name, target, current: 0, intention, deadline, completed: false }); document.getElementById('dhikr-name').value = ''; document.getElementById('dhikr-target').value = ''; document.getElementById('dhikr-intention').value = ''; document.getElementById('dhikr-deadline').value = ''; saveData(); renderDeen(); }
-function logDhikr(index) { const amount = parseInt(document.getElementById(`dhikr-input-${index}`).value) || 0; if (amount <= 0) return; deenData.dhikr[index].current += amount; if (deenData.dhikr[index].current >= deenData.dhikr[index].target) { deenData.dhikr[index].current = deenData.dhikr[index].target; deenData.dhikr[index].completed = true; } activityHistory.push({ id: Date.now().toString(), taskId: 'dhikr-'+index, category: 'deen', timestamp: Date.now(), title: "Dhikr: " + deenData.dhikr[index].name, actionType: 'complete', amount: amount }); saveData(); renderDeen(); }
+function logDhikr(index) { 
+    const amount = parseInt(document.getElementById(`dhikr-input-${index}`).value) || 0; 
+    if (amount <= 0) return; 
+    deenData.dhikr[index].current += amount; 
+    if (deenData.dhikr[index].current >= deenData.dhikr[index].target) { deenData.dhikr[index].current = deenData.dhikr[index].target; deenData.dhikr[index].completed = true; } 
+    let newLog = { id: Date.now().toString(), taskId: 'dhikr-'+index, category: 'deen', timestamp: Date.now(), title: "Dhikr: " + deenData.dhikr[index].name, actionType: 'complete', amount: amount };
+    activityHistory.push(newLog); syncToGoogleSheets(newLog);
+    saveData(); renderDeen(); 
+}
 function deleteDhikr(index) { if (confirm("Delete this committed Dhikr?")) { deenData.dhikr.splice(index, 1); saveData(); renderDeen(); } }
 function addJuzIntention() { const val = document.getElementById('juz-select').value; const intention = document.getElementById('juz-intention').value.trim(); if(!val) return alert("Please select a Juz."); if(deenData.quran.find(q => q.juz == val && !q.completed)) return alert("An active intention for this Juz already exists!"); deenData.quran.push({ juz: parseInt(val), intention: intention, completed: false }); document.getElementById('juz-select').value = ''; document.getElementById('juz-intention').value = ''; saveData(); renderDeen(); }
-function completeJuz(index) { deenData.quran[index].completed = true; activityHistory.push({ id: Date.now().toString(), taskId: 'juz-'+index, category: 'deen', timestamp: Date.now(), title: "Completed Juz " + deenData.quran[index].juz, actionType: 'complete', amount: 1 }); saveData(); renderDeen(); }
+function completeJuz(index) { 
+    deenData.quran[index].completed = true; 
+    let newLog = { id: Date.now().toString(), taskId: 'juz-'+index, category: 'deen', timestamp: Date.now(), title: "Completed Juz " + deenData.quran[index].juz, actionType: 'complete', amount: 1 };
+    activityHistory.push(newLog); syncToGoogleSheets(newLog);
+    saveData(); renderDeen(); 
+}
 function editJuz(index) { const q = deenData.quran[index]; const newIntention = prompt(`Edit your intention for Juz ${q.juz}:`, q.intention); if (newIntention !== null) { deenData.quran[index].intention = newIntention.trim(); saveData(); renderDeen(); } }
 function deleteJuz(index) { deenData.quran.splice(index, 1); saveData(); renderDeen(); }
 function calculateZakat() { const cash = parseFloat(document.getElementById('zakat-cash').value) || 0; const gold = parseFloat(document.getElementById('zakat-gold').value) || 0; const invest = parseFloat(document.getElementById('zakat-invest').value) || 0; deenData.zakatInputs = { cash, gold, invest }; saveDataLocallyOnly(); const zakatDue = (cash + gold + invest) * 0.025; document.getElementById('zakat-due').innerText = zakatDue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
@@ -734,7 +777,9 @@ function addExpense() {
     
     const expenseDate = dateInput ? new Date(dateInput).getTime() : Date.now();
     budgetData.expenses.push({ id: Date.now().toString(), desc, amount, date: expenseDate });
-    activityHistory.push({ id: Date.now().toString(), taskId: 'exp-'+Date.now(), category: 'budget', timestamp: Date.now(), title: "Expense: " + desc, actionType: 'complete', amount: amount });
+    
+    let newLog = { id: Date.now().toString(), taskId: 'exp-'+Date.now(), category: 'budget', timestamp: Date.now(), title: "Expense: " + desc, actionType: 'expense', amount: amount };
+    activityHistory.push(newLog); syncToGoogleSheets(newLog);
     
     document.getElementById('expense-desc').value = ''; document.getElementById('expense-amount').value = ''; document.getElementById('expense-date').value = '';
     saveData(); renderBudget();
@@ -770,7 +815,9 @@ function addDebt() {
     
     const debtDate = dateInput ? new Date(dateInput).getTime() : Date.now();
     budgetData.debts.push({ id: Date.now().toString(), desc, amount, type, date: debtDate, repaid: 0 });
-    activityHistory.push({ id: Date.now().toString(), taskId: 'debt-'+Date.now(), category: 'budget', timestamp: Date.now(), title: `Logged Debt (${type}): ` + desc, actionType: 'complete', amount: amount });
+    
+    let newLog = { id: Date.now().toString(), taskId: 'debt-'+Date.now(), category: 'budget', timestamp: Date.now(), title: `Logged Debt (${type}): ` + desc, actionType: 'debt', amount: amount };
+    activityHistory.push(newLog); syncToGoogleSheets(newLog);
     
     document.getElementById('debt-desc').value = ''; document.getElementById('debt-amount').value = ''; document.getElementById('debt-date').value = '';
     saveData(); renderBudget();
@@ -788,7 +835,9 @@ function repayDebt(id) {
     if (repayAmount > pending) repayAmount = pending; 
     
     debt.repaid = (debt.repaid || 0) + repayAmount;
-    activityHistory.push({ id: Date.now().toString(), taskId: debt.id, category: 'budget', timestamp: Date.now(), title: `Repaid Debt (${debt.desc})`, actionType: 'complete', amount: repayAmount });
+    
+    let newLog = { id: Date.now().toString(), taskId: debt.id, category: 'budget', timestamp: Date.now(), title: `Repaid Debt (${debt.desc})`, actionType: 'repayment', amount: repayAmount };
+    activityHistory.push(newLog); syncToGoogleSheets(newLog);
     
     if (debt.amount - debt.repaid <= 0) {
         if (confirm(`₹${repayAmount} logged. This debt is now fully settled! Do you want to remove it from the list entirely?`)) {
@@ -917,7 +966,6 @@ async function autoFetchThumbnail() {
     if (!link && !title) return alert("Please enter a title or link first!");
     imgInput.placeholder = "⏳ Fetching high-res cover image...";
 
-    // 1. YouTube HD Thumbnail (maxresdefault -> 1080p/720p)
     if (link && (link.includes('youtube.com') || link.includes('youtu.be'))) {
         const vidIdMatch = link.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
         if (vidIdMatch && vidIdMatch[1]) {
@@ -926,34 +974,25 @@ async function autoFetchThumbnail() {
             const testImg = new Image();
             testImg.src = maxResUrl;
             testImg.onload = function() {
-                if (this.width > 120) {
-                    imgInput.value = maxResUrl;
-                } else {
-                    imgInput.value = `https://img.youtube.com/vi/${vidId}/hqdefault.jpg`;
-                }
+                if (this.width > 120) { imgInput.value = maxResUrl; } 
+                else { imgInput.value = `https://img.youtube.com/vi/${vidId}/hqdefault.jpg`; }
             };
-            testImg.onerror = function() {
-                imgInput.value = `https://img.youtube.com/vi/${vidId}/hqdefault.jpg`;
-            };
+            testImg.onerror = function() { imgInput.value = `https://img.youtube.com/vi/${vidId}/hqdefault.jpg`; };
             return;
         }
     }
 
-    // 2. OpenGraph Meta Scraper via Microlink API (Articles, Websites)
     if (link) {
         try {
             const res = await fetch(`https://api.microlink.io?url=${encodeURIComponent(link)}`);
             const data = await res.json();
-            if (data.status === 'success' && data.data) {
-                if (data.data.image && data.data.image.url) {
-                    imgInput.value = data.data.image.url;
-                    return;
-                }
+            if (data.status === 'success' && data.data && data.data.image && data.data.image.url) {
+                imgInput.value = data.data.image.url;
+                return;
             }
         } catch(e) { console.error("Link metadata fetch error", e); }
     }
 
-    // 3. Google Books API (Upgraded HD Cover Search)
     if (type === 'book' || title) {
         try {
             const query = encodeURIComponent(title || link);
@@ -971,7 +1010,6 @@ async function autoFetchThumbnail() {
         } catch(e) { console.error("Book fetch error", e); }
     }
 
-    // 4. Fallback Logo
     if (link) {
         try {
             let domain = new URL(link).hostname;
@@ -1011,7 +1049,9 @@ function addBacklogItem() {
             addedAt: Date.now(),
             completed: false
         });
-        activityHistory.push({ id: Date.now().toString(), taskId: 'backlog-'+Date.now(), category: 'backlog', timestamp: Date.now(), title: "Added to Library: " + title, actionType: 'complete', amount: 1 });
+        
+        let newLog = { id: Date.now().toString(), taskId: 'backlog-'+Date.now(), category: 'backlog', timestamp: Date.now(), title: "Added to Library: " + title, actionType: 'add_backlog', amount: 1 };
+        activityHistory.push(newLog); syncToGoogleSheets(newLog);
     }
 
     cancelEditBacklogItem();
@@ -1050,7 +1090,10 @@ function toggleBacklogStatus(id) {
     const item = backlogData.find(b => b.id === id);
     if (item) {
         item.completed = !item.completed;
-        activityHistory.push({ id: Date.now().toString(), taskId: item.id, category: 'backlog', timestamp: Date.now(), title: `${item.completed ? 'Completed' : 'Reopened'} Library Item: ` + item.title, actionType: 'complete', amount: 1 });
+        
+        let newLog = { id: Date.now().toString(), taskId: item.id, category: 'backlog', timestamp: Date.now(), title: `${item.completed ? 'Completed' : 'Reopened'} Library Item: ` + item.title, actionType: item.completed ? 'complete' : 'reopen', amount: 1 };
+        activityHistory.push(newLog); syncToGoogleSheets(newLog);
+        
         saveData(); renderBacklog();
         if (item.completed && typeof confetti === 'function') confetti({ particleCount: 30, spread: 50, origin: { y: 0.8 } });
     }

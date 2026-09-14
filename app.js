@@ -67,6 +67,8 @@ if (isNaN(charityData.paid) || charityData.paid == null) charityData.paid = 0;
 if (isNaN(charityData.surplus) || charityData.surplus == null) charityData.surplus = 0;
 
 let deenData = JSON.parse(localStorage.getItem('hisab_deen')) || {};
+if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
 if (!deenData.qada) deenData.qada = { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 };
 if (!deenData.zakatInputs) deenData.zakatInputs = { cash: 0, gold: 0, invest: 0 };
 if (!deenData.quran) deenData.quran = [];
@@ -317,6 +319,16 @@ function logProgress(id) {
     syncToGoogleSheets(newLog);
 
     task.currentTarget -= amountDone; if (task.currentTarget <= 0) task.isCompleted = true; 
+    // --- AUTOMATION ENGINE ---
+    const tName = task.title.toLowerCase();
+    if (tName.includes('hizb')) {
+        deenData.quranStats.totalHizb += amountDone;
+        deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+        deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+    }
+    if (tName.includes('swalath') || tName.includes('salawat')) {
+        deenData.swalathStats.total += amountDone;
+    }
     saveData(); render();
 }
 
@@ -607,8 +619,28 @@ function undoAction(historyId) {
     
     if (confirm(`Undo "${entry.title}"?`)) {
         if (entry.actionType === 'complete' || entry.actionType === 'missed') {
+            // 1. Find the task first
             const task = tasks.find(t => t.id === entry.taskId);
-            if (task) { task.currentTarget += entry.amount; task.isCompleted = task.currentTarget <= 0; if (entry.actionType === 'complete' && task.isMaxOnceDaily) { task.lastCompletedDay = ''; } }
+            
+            if (task) { 
+                // 2. Undo standard task progress
+                task.currentTarget += entry.amount; 
+                task.isCompleted = task.currentTarget <= 0; 
+                if (entry.actionType === 'complete' && task.isMaxOnceDaily) { 
+                    task.lastCompletedDay = ''; 
+                } 
+                
+                // 3. --- AUTOMATION ENGINE UNDO ---
+                const tName = task.title.toLowerCase();
+                if (tName.includes('hizb')) {
+                    deenData.quranStats.totalHizb = Math.max(0, deenData.quranStats.totalHizb - entry.amount);
+                    deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+                    deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+                }
+                if (tName.includes('swalath') || tName.includes('salawat')) {
+                    deenData.swalathStats.total = Math.max(0, deenData.swalathStats.total - entry.amount);
+                }
+            }
         } 
         else if (entry.actionType === 'bad') {
             const habit = badHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount -= entry.amount; }
@@ -676,6 +708,26 @@ function closeHistory() { document.getElementById('history-modal').style.display
 // DASHBOARD & DUAL CHARTS
 // ==========================================
 function updateDashboard() { 
+    let spiritContainer = document.getElementById('spiritual-milestones');
+    if (!spiritContainer) {
+        spiritContainer = document.createElement('div');
+        spiritContainer.id = 'spiritual-milestones';
+        spiritContainer.style = "display:flex; gap:10px; margin-bottom:20px;";
+        const dashTab = document.getElementById('tab-dashboard');
+        if (dashTab) dashTab.insertBefore(spiritContainer, dashTab.firstChild);
+    }
+
+    spiritContainer.innerHTML = `
+        <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #bb86fc; text-align:center;">
+            <div style="font-size:0.85rem; color:#aaa;">Total Khatms</div>
+            <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats?.totalKhatm || 0}</div>
+            <div style="font-size:0.75rem; color:#666;">${deenData.quranStats?.totalJuz || 0} Juz / ${deenData.quranStats?.totalHizb || 0} Hizb</div>
+        </div>
+        <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #03dac6; text-align:center;">
+            <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
+            <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
+        </div>
+    `;
     document.getElementById('donation-pending').innerText = charityData.pending.toLocaleString(); 
     document.getElementById('donation-paid').innerText = charityData.paid.toLocaleString();
     const dashSurplus = document.getElementById('display-surplus-wallet');
@@ -728,7 +780,36 @@ function renderDeen() {
         dhikrContainer.appendChild(div);
     });
 
-    const select = document.getElementById('juz-select'); if(select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } const juzContainer = document.getElementById('juz-list-container'); juzContainer.innerHTML = ''; deenData.quran.forEach((q, index) => { const div = document.createElement('div'); div.className = 'quran-item'; div.style.opacity = q.completed ? '0.5' : '1'; div.style.flexDirection = 'column'; div.style.gap = '10px'; let intentionText = q.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-top:4px;"><em>" ${q.intention} "</em></div>` : ''; div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 5px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">Complete</button><button onclick="editJuz(${index})" style="background:var(--warning); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`; juzContainer.appendChild(div); }); 
+    const select = document.getElementById('juz-select'); if(select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } 
+    
+    // --- UPDATED JUZ CONTAINER (AUTOMATIC + MANUAL COMBINED) ---
+    const juzContainer = document.getElementById('juz-list-container'); 
+    if (juzContainer) {
+        juzContainer.innerHTML = ''; 
+        
+        // 1. Show the Automated Reading Progress at the top
+        let remainderJuz = (deenData.quranStats?.totalJuz || 0) % 30;
+        let autoTracker = document.createElement('div');
+        autoTracker.style = "background:rgba(3, 218, 198, 0.05); padding:10px; border-radius:8px; margin-bottom:15px; border-left:3px solid var(--deen);";
+        autoTracker.innerHTML = `
+            <div style="font-size:0.8rem; color:#aaa;">Automated Reading Progress</div>
+            <div style="font-weight:bold; color:var(--deen);">Currently on Juz ${remainderJuz + 1}</div>
+        `;
+        juzContainer.appendChild(autoTracker);
+
+        // 2. Restore your Manual Juz Dedications List below it
+        deenData.quran.forEach((q, index) => { 
+            const div = document.createElement('div'); 
+            div.className = 'quran-item'; 
+            div.style.opacity = q.completed ? '0.5' : '1'; 
+            div.style.flexDirection = 'column'; 
+            div.style.gap = '10px'; 
+            let intentionText = q.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-top:4px;"><em>" ${q.intention} "</em></div>` : ''; 
+            div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 5px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">Complete</button><button onclick="editJuz(${index})" style="background:var(--warning); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`; 
+            juzContainer.appendChild(div); 
+        }); 
+    }
+    // --- END OF JUZ UPDATES ---
 
     const qadaContainer = document.getElementById('qada-container'); qadaContainer.innerHTML = ''; const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr']; let totalQada = prayers.reduce((acc, p) => acc + deenData.qada[p], 0);
     if (totalQada === 0 && !showAllQada) { qadaContainer.innerHTML = `<div style="text-align:center; color:#aaa; font-size:0.9rem; margin-bottom:10px;">🎉 All missed prayers are caught up!</div>`; }

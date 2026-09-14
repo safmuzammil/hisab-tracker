@@ -821,7 +821,7 @@ function addDebt() {
     const debtDate = dateInput ? new Date(dateInput).getTime() : Date.now();
     budgetData.debts.push({ id: Date.now().toString(), desc, amount, type, date: debtDate, repaid: 0 });
     
-    let newLog = { id: Date.now().toString(), taskId: 'debt-'+Date.now(), category: 'budget', timestamp: Date.now(), title: `Logged Debt (${type}): ` + desc, actionType: 'debt', amount: amount };
+    let newLog = { id: Date.now().toString(), taskId: 'debt-'+Date.now(), category: 'budget', taskType: type, timestamp: Date.now(), title: desc, actionType: 'debt', amount: amount };
     activityHistory.push(newLog); syncToGoogleSheets(newLog);
     
     document.getElementById('debt-desc').value = ''; document.getElementById('debt-amount').value = ''; document.getElementById('debt-date').value = '';
@@ -1055,7 +1055,7 @@ function addBacklogItem() {
             completed: false
         });
         
-        let newLog = { id: Date.now().toString(), taskId: 'backlog-'+Date.now(), category: 'backlog', timestamp: Date.now(), title: "Added to Library: " + title, actionType: 'add_backlog', amount: 1 };
+        let newLog = { id: Date.now().toString(), taskId: 'backlog-'+Date.now(), category: 'backlog', taskType: type, timestamp: Date.now(), title: title, actionType: 'add_backlog', amount: 1 };
         activityHistory.push(newLog); syncToGoogleSheets(newLog);
     }
 

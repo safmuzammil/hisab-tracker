@@ -48,8 +48,22 @@ function logout() { signOut(auth).then(() => { location.reload(); }); }
 function showProfile(user) {
     document.getElementById('login-prompt').style.display = 'none';
     const authContainer = document.getElementById('auth-container');
-    authContainer.style.display = 'flex';
-    authContainer.innerHTML = `<img src="${user.picture}" class="profile-pic" alt="Profile"><div class="profile-info"><h3>${user.name}</h3><p>${user.email}</p></div><button onclick="logout()" style="background:transparent; border:1px solid #aaa; color:#aaa; width:auto; padding:5px 10px; margin-left:auto; font-size:0.8rem;">Logout</button>`;
+    
+    // Apply sleek, compact inline styling
+    authContainer.style = 'display: flex; justify-content: space-between; align-items: center; background: var(--card); padding: 10px 15px; border-radius: 12px; margin-bottom: 20px;';
+    
+    authContainer.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <img src="${user.picture}" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 1px solid #333;">
+            <div style="line-height: 1.2;">
+                <div style="font-weight: bold; font-size: 1rem; color: #fff;">${user.name}</div>
+                <div style="font-size: 0.75rem; color: #aaa;">${user.email}</div>
+            </div>
+        </div>
+        <button onclick="logout()" style="background: transparent; border: 1px solid #444; color: #aaa; padding: 6px 12px; margin: 0; width: auto; font-size: 0.8rem; border-radius: 6px; cursor: pointer;">
+            Logout
+        </button>
+    `;
 }
 
 // ==========================================

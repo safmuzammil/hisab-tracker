@@ -1423,20 +1423,33 @@ setInterval(() => {
 }, 60000); 
 
 // ==========================================
-// CORE APP ROUTING & UI
+// CORE APP ROUTING & UI (PERFORMANCE OPTIMIZED)
 // ==========================================
-function switchTab(tabName, element) {
-    localStorage.setItem('hisab_active_tab', tabName); document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); 
-    document.querySelectorAll('.nav-item').forEach(nav => { nav.classList.remove('active'); nav.classList.remove('active-bad'); nav.classList.remove('active-deen'); nav.classList.remove('active-budget'); nav.classList.remove('active-backlog'); });
+function switchTab(tabName, element = null) {
+    // 1. Update Active State
+    localStorage.setItem('hisab_active_tab', tabName); 
+    
+    // 2. Hide all tabs and reset Nav UI
+    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); 
+    document.querySelectorAll('.nav-item').forEach(nav => { 
+        nav.classList.remove('active', 'active-bad', 'active-deen', 'active-budget', 'active-backlog'); 
+    });
+    
+    // 3. Show the targeted tab
     document.getElementById(`tab-${tabName}`).classList.add('active');
     
-    if(tabName === 'deen') { element.classList.add('active-deen'); renderDeen(); } 
-    else if(tabName === 'bad-habits') { element.classList.add('active-bad'); renderHabits(); }
-    else if(tabName === 'budget') { element.classList.add('active-budget'); renderBudget(); }
-    else if(tabName === 'backlog') { element.classList.add('active-backlog'); renderBacklog(); }
-    else { element.classList.add('active'); }
+    // 4. Apply Neon Theme colors to the active Nav Icon
+    if (!element) element = document.getElementById('nav-' + tabName);
+    if (element) {
+        if (tabName === 'deen') element.classList.add('active-deen'); 
+        else if (tabName === 'bad-habits') element.classList.add('active-bad');
+        else if (tabName === 'budget') element.classList.add('active-budget');
+        else if (tabName === 'backlog') element.classList.add('active-backlog');
+        else element.classList.add('active');
+    }
     
-    if (tabName === 'dashboard') updateDashboard();
+    // 5. Trigger the Isolated Render
+    render();
 }
 
 function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }
@@ -1444,11 +1457,17 @@ function toggleNotifications() { if (!("Notification" in window)) return alert("
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-// Add to your exports at the very bottom of app.js:
-window.openModal = openModal;
-window.closeModal = closeModal;
-function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
-
+// Master Render Controller: ONLY renders the visible tab
+function render() { 
+    const currentTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+    
+    if (currentTab === 'dashboard') updateDashboard();
+    else if (currentTab === 'tasks') renderTasks();
+    else if (currentTab === 'bad-habits') renderHabits();
+    else if (currentTab === 'deen') renderDeen();
+    else if (currentTab === 'budget') renderBudget();
+    else if (currentTab === 'backlog') renderBacklog();
+}
 // Add this helper function at the bottom of app.js
 function toggleTheme() {
     const body = document.body;
@@ -1470,7 +1489,9 @@ if (localStorage.getItem('hisab_theme') === 'light') {
     document.getElementById('theme-btn').innerText = '🌙';
 }
 
-// Exports
+// Global Window Exports
+window.openModal = openModal;
+window.closeModal = closeModal;
 window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; 
 window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.undoAction = undoAction; window.openHistory = openHistory; window.closeHistory = closeHistory; window.filterHistory = filterHistory;
 window.payDonation = payDonation; 
@@ -1480,5 +1501,8 @@ window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = del
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
 window.addBacklogItem = addBacklogItem; window.editBacklogItem = editBacklogItem; window.cancelEditBacklogItem = cancelEditBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;
 
+// Initialize app on load
 initNotifications();
-const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);
+const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; 
+const savedNavElement = document.getElementById('nav-' + savedTab); 
+if (savedNavElement) switchTab(savedTab, savedNavElement);

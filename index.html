@@ -199,6 +199,32 @@
                     <div style="height: 200px;"><canvas id="badHabitsChart"></canvas></div>
                 </div>
             </div>
+            <!-- NEW: Advanced Routine & Analytics Table -->
+            <div style="background:var(--card); padding:15px; border-radius:10px; margin-top:20px; overflow-x:auto;">
+                <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Routine Analytics</h3>
+                <table style="width:100%; border-collapse:collapse; min-width:1000px; font-size:0.85rem; text-align:left;">
+                    <thead>
+                        <tr style="border-bottom:2px solid var(--primary); color:#ccc;">
+                            <th style="padding:10px 5px;">ROUTINE / TASK</th>
+                            <th style="padding:10px 5px;">CATEGORY</th>
+                            <th style="padding:10px 5px;">TYPE</th>
+                            <th style="padding:10px 5px;">7D RATE</th>
+                            <th style="padding:10px 5px;">30D RATE</th>
+                            <th style="padding:10px 5px;">YEARLY RATE</th>
+                            <th style="padding:10px 5px;">LAST COMPLETED</th>
+                            <th style="padding:10px 5px;">DAYS SINCE</th>
+                            <th style="padding:10px 5px;">STATUS ALERT</th>
+                            <th style="padding:10px 5px; text-align:center;">MIN TARGET</th>
+                            <th style="padding:10px 5px; text-align:center;">TODAY LOGGED</th>
+                            <th style="padding:10px 5px; text-align:center;">BANKED SURPLUS</th>
+                            <th style="padding:10px 5px;">COMP STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dashboard-table-body">
+                        <!-- Table rows populated dynamically via app.js -->
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- ========================================== -->

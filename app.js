@@ -761,11 +761,9 @@ function openHistory(filter = 'all') {
     });
 }
 function closeHistory() { document.getElementById('history-modal').style.display = 'none'; }
-
 // ==========================================
 // DASHBOARD & DUAL CHARTS
 // ==========================================
-
 function updateDashboard() { 
     let spiritContainer = document.getElementById('spiritual-milestones');
     if (!spiritContainer) {
@@ -796,16 +794,13 @@ function updateDashboard() {
     const now = new Date(); const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime(); const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
 
     let dayPts = 0, weekPts = 0, monthPts = 0, yearPts = 0; 
-    let penaltyBreakdown = {}; // NEW: Object to aggregate penalties
+    let penaltyBreakdown = {}; 
     
     activityHistory.forEach(r => { 
         if (r.actionType === 'complete') {
             if (r.timestamp >= startOfDay) dayPts += r.amount; if (r.timestamp >= startOfWeek) weekPts += r.amount; if (r.timestamp >= startOfMonth) monthPts += r.amount; if (r.timestamp >= startOfYear) yearPts += r.amount; 
         }
-        
-        // NEW: Aggregate historical penalty data
         if (r.donationAdded > 0) {
-            // Clean up the titles for the chart labels
             let cleanTitle = r.title.replace('Logged Bad: ', '').replace('Missed: ', '');
             penaltyBreakdown[cleanTitle] = (penaltyBreakdown[cleanTitle] || 0) + r.donationAdded;
         }
@@ -835,19 +830,15 @@ function updateDashboard() {
         badHabitsChart = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Occurrences This Year', data: data, backgroundColor: '#e53935', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#333' }, ticks: { stepSize: 1 } } }, plugins: { legend: { labels: { color: '#fff' } } } } });
     }
 
-    // --- NEW: Render Penalty Analytics Chart ---
     const pCanvas = document.getElementById('penaltyAnalyticsChart');
     const pList = document.getElementById('penalty-top-list');
     
     if (pCanvas && pList) {
-        // Sort highest penalties first
         const sortedPenalties = Object.entries(penaltyBreakdown).sort((a, b) => b[1] - a[1]);
-        
         if (sortedPenalties.length === 0) {
             pList.innerHTML = '<div style="color:var(--success); text-align:center; padding:15px; background:rgba(3, 218, 198, 0.1); border-radius:8px;">🌟 Discipline is strong. Zero penalties incurred!</div>';
             if (window.penaltyChart) window.penaltyChart.destroy();
         } else {
-            // Group Top 4 individually, bundle the rest into "Other"
             let top4 = sortedPenalties.slice(0, 4);
             let otherSum = sortedPenalties.slice(4).reduce((sum, item) => sum + item[1], 0);
             if (otherSum > 0) top4.push(["Other Minor Vices", otherSum]);
@@ -858,26 +849,91 @@ function updateDashboard() {
             
             const ctx = pCanvas.getContext('2d'); 
             if (window.penaltyChart) window.penaltyChart.destroy();
-            window.penaltyChart = new Chart(ctx, { 
-                type: 'doughnut', 
-                data: { labels: pLabels, datasets: [{ data: pData, backgroundColor: pColors, borderWidth: 1, borderColor: '#1e1e1e' }] }, 
-                options: { 
-                    responsive: true, maintainAspectRatio: false, 
-                    plugins: { legend: { position: 'right', labels: { color: '#ccc', font: {size: 11} } } },
-                    cutout: '70%'
-                } 
-            });
+            window.penaltyChart = new Chart(ctx, { type: 'doughnut', data: { labels: pLabels, datasets: [{ data: pData, backgroundColor: pColors, borderWidth: 1, borderColor: '#1e1e1e' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#ccc', font: {size: 11} } } }, cutout: '70%' } });
             
-            // Build the dynamic HTML list for the top 3 offenders
-            pList.innerHTML = '<div style="color:#aaa; font-weight:bold; border-bottom:1px solid #333; padding-bottom:5px; margin-bottom:10px;">Most Expensive Vices:</div>' + 
-            sortedPenalties.slice(0, 3).map((p, i) => `
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #222;">
-                    <span style="color:#ddd;"><span style="font-size:1.2rem; margin-right:5px;">${i===0?'🥇':i===1?'🥈':'🥉'}</span> ${p[0]}</span>
-                    <span style="color:var(--bad); font-weight:bold; background:rgba(207, 102, 121, 0.1); padding:4px 8px; border-radius:6px;">₹${p[1]}</span>
-                </div>
-            `).join('');
+            pList.innerHTML = '<div style="color:#aaa; font-weight:bold; border-bottom:1px solid #333; padding-bottom:5px; margin-bottom:10px;">Most Expensive Vices:</div>' + sortedPenalties.slice(0, 3).map((p, i) => `<div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #222;"><span style="color:#ddd;"><span style="font-size:1.2rem; margin-right:5px;">${i===0?'🥇':i===1?'🥈':'🥉'}</span> ${p[0]}</span><span style="color:var(--bad); font-weight:bold; background:rgba(207, 102, 121, 0.1); padding:4px 8px; border-radius:6px;">₹${p[1]}</span></div>`).join('');
         }
     }
+
+    renderDashboardTable();
+}
+
+function renderDashboardTable() {
+    const tbody = document.getElementById('dashboard-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const startOfDay = new Date().setHours(0, 0, 0, 0);
+    const startOf7D = startOfDay - (6 * msPerDay);
+    const startOf30D = startOfDay - (29 * msPerDay);
+    const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime();
+
+    tasks.forEach(t => {
+        const logs = activityHistory.filter(h => h.taskId === t.id && h.actionType === 'complete');
+        let todayDone = 0, d7Done = 0, d30Done = 0, yDone = 0;
+        
+        logs.forEach(l => {
+            if (l.timestamp >= startOfDay) todayDone += l.amount;
+            if (l.timestamp >= startOf7D) d7Done += l.amount;
+            if (l.timestamp >= startOf30D) d30Done += l.amount;
+            if (l.timestamp >= startOfYear) yDone += l.amount;
+        });
+
+        let expected7D = t.baseTarget * (t.type === 'daily' ? 7 : (t.type === 'weekly' ? 1 : 0));
+        let expected30D = t.baseTarget * (t.type === 'daily' ? 30 : (t.type === 'weekly' ? 4 : (t.type === 'monthly' ? 1 : 0)));
+        let expectedY = t.totalYearlyTarget || 1;
+
+        let rate7D = expected7D > 0 ? Math.min(100, (d7Done / expected7D) * 100) : 0;
+        let rate30D = expected30D > 0 ? Math.min(100, (d30Done / expected30D) * 100) : 0;
+        let rateY = expectedY > 0 ? Math.min(100, (yDone / expectedY) * 100) : 0;
+
+        let daysSinceText = `<span style="color:#666;">Never</span>`;
+        let daysSinceNum = Infinity;
+        let formattedDate = '-';
+        
+        if (t.lastCompletedDay) {
+            let lastDate = new Date(t.lastCompletedDay).getTime();
+            formattedDate = new Date(t.lastCompletedDay).toLocaleDateString('en-CA');
+            daysSinceNum = Math.floor((startOfDay - lastDate) / msPerDay);
+            if (daysSinceNum === 0) daysSinceText = `<span style="background:rgba(3, 218, 198, 0.1); color:var(--success); padding:2px 6px; border-radius:6px;">0d (Today)</span>`;
+            else if (daysSinceNum === 1) daysSinceText = `<span style="background:rgba(246, 229, 141, 0.1); color:var(--warning); padding:2px 6px; border-radius:6px;">1d ago</span>`;
+            else daysSinceText = `<span style="background:rgba(207, 102, 121, 0.1); color:var(--bad); padding:2px 6px; border-radius:6px;">${daysSinceNum}d ago</span>`;
+        }
+
+        let statusHtml = `<span style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:4px 8px; border-radius:12px;">✅ On Track</span>`;
+        if (t.type === 'daily' && daysSinceNum > 0) statusHtml = `<span style="background:rgba(246, 229, 141, 0.15); color:var(--warning); padding:4px 8px; border-radius:12px;">⚠️ Lagging</span>`;
+        if (daysSinceNum > 2 && t.type === 'daily') statusHtml = `<span style="background:rgba(255, 82, 82, 0.15); color:var(--danger); padding:4px 8px; border-radius:12px;">❌ Way Behind</span>`;
+        if (!t.lastCompletedDay) statusHtml = `<span style="background:rgba(255, 82, 82, 0.15); color:var(--danger); padding:4px 8px; border-radius:12px;">❌ Not Started</span>`;
+
+        let surplus = 0;
+        let compHtml = `<span style="color:#666;">-</span>`;
+        if (t.type === 'daily') surplus = todayDone - t.baseTarget;
+        if (surplus < 0) compHtml = `<span style="background:rgba(207, 102, 121, 0.1); color:var(--bad); padding:4px 8px; border-radius:6px;">Needs ${Math.abs(surplus)} comp</span>`;
+        else if (surplus > 0) compHtml = `<span style="background:rgba(3, 218, 198, 0.1); color:var(--success); padding:4px 8px; border-radius:6px;">+${surplus} surplus</span>`;
+
+        const tr = document.createElement('tr');
+        tr.style = "border-bottom: 1px solid #2c2c2c; transition: 0.2s;";
+        tr.onmouseover = () => tr.style.background = "#2a2a2a";
+        tr.onmouseout = () => tr.style.background = "transparent";
+        
+        tr.innerHTML = `
+            <td style="padding:12px 5px; font-weight:bold; color:#fff;">${t.title}</td>
+            <td style="padding:12px 5px;"><span class="badge" style="background:#2c2c2c; color:#aaa;">Tasks</span></td>
+            <td style="padding:12px 5px; color:#aaa; text-transform:capitalize;">${t.type}</td>
+            <td style="padding:12px 5px; font-weight:bold;">${rate7D.toFixed(1)}% <div style="font-size:0.7rem; color:#666; font-weight:normal;">(${d7Done} comps)</div></td>
+            <td style="padding:12px 5px; font-weight:bold;">${rate30D.toFixed(1)}%</td>
+            <td style="padding:12px 5px; font-weight:bold;">${rateY.toFixed(1)}% <div style="font-size:0.7rem; color:#666; font-weight:normal;">(${yDone} comps)</div></td>
+            <td style="padding:12px 5px; color:#aaa;">${formattedDate}</td>
+            <td style="padding:12px 5px;">${daysSinceText}</td>
+            <td style="padding:12px 5px;">${statusHtml}</td>
+            <td style="padding:12px 5px; text-align:center; color:#fff;">${t.baseTarget}</td>
+            <td style="padding:12px 5px; text-align:center; font-weight:bold; color:var(--primary);">${todayDone}</td>
+            <td style="padding:12px 5px; text-align:center; font-weight:bold; color:${surplus < 0 ? 'var(--bad)' : (surplus > 0 ? 'var(--success)' : '#888')}">${surplus}</td>
+            <td style="padding:12px 5px;">${compHtml}</td>
+        `;
+        tbody.appendChild(tr);
+    });
 }
 
 // ==========================================

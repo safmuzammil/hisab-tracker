@@ -21,6 +21,7 @@
             --budget: #4fc3f7;
             --backlog: #ff8a65;
         }
+        
 
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { background: var(--bg); color: #fff; margin: 0; padding: 0; padding-bottom: 80px; }
@@ -108,11 +109,13 @@
 <body>
 
     <header>
-        <h1>HISAB</h1>
-        <div style="display:flex; gap:15px; align-items:center;">
-            <button id="btn-notifications" onclick="toggleNotifications()" style="background:transparent; border:1px solid #aaa; color:#aaa; padding:5px 10px; margin:0; font-size:0.8rem; width:auto;">🔕 Alerts Off</button>
-            <button onclick="openHistory()" style="background:transparent; font-size:1.5rem; padding:0; margin:0; width:auto; border:none; min-width:44px; min-height:44px;">📜</button>
-        </div>
+    <h1>HISAB</h1>
+    <div style="display:flex; gap:15px; align-items:center;">
+        <!-- New Theme Toggle Button -->
+        <button onclick="toggleTheme()" style="background:transparent; font-size:1.5rem; padding:0; margin:0; width:auto; border:none; min-width:44px; min-height:44px;" id="theme-btn">🌓</button>
+        <button id="btn-notifications" onclick="toggleNotifications()" style="background:transparent; border:1px solid #aaa; color:#aaa; padding:5px 10px; margin:0; font-size:0.8rem; width:auto;">🔕 Alerts Off</button>
+        <button onclick="openHistory()" style="background:transparent; font-size:1.5rem; padding:0; margin:0; width:auto; border:none; min-width:44px; min-height:44px;">📜</button>
+    </div>
     </header>
 
     <div class="container">

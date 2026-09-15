@@ -98,19 +98,45 @@ let showAllQada = false;
 let currentHistoryFilter = 'all';
 
 // ==========================================
-// GOOGLE SHEETS LIVE SYNC
+// GOOGLE SHEETS LIVE SYNC & OFFLINE QUEUE
 // ==========================================
 const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbxnUQz9WnM2X3tAIL3o2JdZO3u28SBBN5MlD8CF_mQKZ634qzto5AWiawyX7cjmqn00/exec";
+let offlineSyncQueue = JSON.parse(localStorage.getItem('hisab_offline_queue')) || [];
 
 function syncToGoogleSheets(logEntry) {
     if (!GOOGLE_SHEETS_URL) return;
+    
+    // If offline, queue it locally
+    if (!navigator.onLine) {
+        offlineSyncQueue.push(logEntry);
+        localStorage.setItem('hisab_offline_queue', JSON.stringify(offlineSyncQueue));
+        console.warn("Offline: Log queued for background sync.");
+        return;
+    }
+
     fetch(GOOGLE_SHEETS_URL, {
         method: 'POST',
         redirect: 'follow',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(logEntry)
-    }).catch(err => console.error("Google Sheets sync failed:", err));
+    }).catch(err => {
+        console.error("Google Sheets sync failed, queuing offline:", err);
+        offlineSyncQueue.push(logEntry);
+        localStorage.setItem('hisab_offline_queue', JSON.stringify(offlineSyncQueue));
+    });
 }
+
+// Automatically flush the queue when the internet connection is restored
+window.addEventListener('online', () => {
+    if (offlineSyncQueue.length > 0) {
+        console.log(`Connection restored. Syncing ${offlineSyncQueue.length} queued items...`);
+        const currentQueue = [...offlineSyncQueue];
+        offlineSyncQueue = []; // Clear queue to prevent duplicate firing
+        localStorage.setItem('hisab_offline_queue', JSON.stringify(offlineSyncQueue));
+        
+        currentQueue.forEach(logEntry => syncToGoogleSheets(logEntry));
+    }
+});
 
 // ==========================================
 // STALE-TAB LOCK & CLOUD SYNC LOGIC
@@ -322,17 +348,31 @@ function cancelEdit() {
 function deleteTask(id) { if (confirm("Delete this task?")) { tasks = tasks.filter(t => t.id !== id); saveData(); render(); } }
 
 function logProgress(id) {
-    const task = tasks.find(t => t.id === id); const amountDone = parseFloat(document.getElementById(`input-${id}`).value) || 0; if (amountDone <= 0) return;
+    const task = tasks.find(t => t.id === id); 
+    const amountDone = parseFloat(document.getElementById(`input-${id}`).value) || 0; 
+    if (amountDone <= 0) return;
+    
     const todayStr = new Date().toDateString();
+    
+    // --- STREAK ENGINE LOGIC ---
+    if (task.type === 'daily') {
+        const yesterday = new Date(Date.now() - 86400000).toDateString();
+        if (task.lastCompletedDay === yesterday) {
+            task.streak = (task.streak || 0) + 1;
+        } else if (task.lastCompletedDay !== todayStr) {
+            task.streak = 1; // Reset streak if missed yesterday
+        }
+    }
+    
     if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
     task.lastCompletedDay = todayStr;
     
-    // NEW: Includes taskType: task.type
     let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone };
     activityHistory.push(newLog);
     syncToGoogleSheets(newLog);
 
     task.currentTarget -= amountDone; if (task.currentTarget <= 0) task.isCompleted = true; 
+    
     // --- AUTOMATION ENGINE ---
     const tName = task.title.toLowerCase();
     if (tName.includes('hizb')) {
@@ -408,7 +448,8 @@ function renderTasks() {
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ${task.donationPenalty}</span>` : ``;
             let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#333; color:#ccc;">Missed: ${task.missedCount || 0}/5</span>` : '';
-            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
+            let streakHtml = (task.type === 'daily' && task.streak > 1) ? `<span class="badge" style="background:#ff9800; color:#fff;">🔥 ${task.streak} Day Streak</span>` : '';
+            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ ${badgeLabel}: ${task.amountDonePeriod}</span>${streakHtml}` : '';
 
             div.innerHTML = `
             <div class="task-header">
@@ -1294,6 +1335,27 @@ function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 window.openModal = openModal;
 window.closeModal = closeModal;
 function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
+
+// Add this helper function at the bottom of app.js
+function toggleTheme() {
+    const body = document.body;
+    if (body.getAttribute('data-theme') === 'light') {
+        body.removeAttribute('data-theme');
+        localStorage.setItem('hisab_theme', 'dark');
+        document.getElementById('theme-btn').innerText = '🌓';
+    } else {
+        body.setAttribute('data-theme', 'light');
+        localStorage.setItem('hisab_theme', 'light');
+        document.getElementById('theme-btn').innerText = '🌙';
+    }
+}
+window.toggleTheme = toggleTheme;
+
+// Auto-load theme on initialization
+if (localStorage.getItem('hisab_theme') === 'light') {
+    document.body.setAttribute('data-theme', 'light');
+    document.getElementById('theme-btn').innerText = '🌙';
+}
 
 // Exports
 window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; 

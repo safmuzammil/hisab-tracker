@@ -66,7 +66,7 @@ function showProfile(user) {
     `;
 }
 
-// ==========================================
+/// ==========================================
 // APP STATE & STORAGE
 // ==========================================
 let lastModifiedLocal = parseInt(localStorage.getItem('hisab_last_modified')) || 0; 
@@ -92,8 +92,11 @@ let budgetData = JSON.parse(localStorage.getItem('hisab_budget')) || { limit: 0,
 if (!budgetData.debts) budgetData.debts = [];
 let backlogData = JSON.parse(localStorage.getItem('hisab_backlog')) || [];
 
+// --- CHART VARIABLES ---
 let tasksProgressChart = null;
 let badHabitsChart = null;
+window.penaltyChart = null; // NEW: Holds the analytics doughnut chart instance
+
 let showAllQada = false;
 let currentHistoryFilter = 'all';
 
@@ -762,6 +765,7 @@ function closeHistory() { document.getElementById('history-modal').style.display
 // ==========================================
 // DASHBOARD & DUAL CHARTS
 // ==========================================
+
 function updateDashboard() { 
     let spiritContainer = document.getElementById('spiritual-milestones');
     if (!spiritContainer) {
@@ -792,9 +796,18 @@ function updateDashboard() {
     const now = new Date(); const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime(); const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
 
     let dayPts = 0, weekPts = 0, monthPts = 0, yearPts = 0; 
+    let penaltyBreakdown = {}; // NEW: Object to aggregate penalties
+    
     activityHistory.forEach(r => { 
         if (r.actionType === 'complete') {
             if (r.timestamp >= startOfDay) dayPts += r.amount; if (r.timestamp >= startOfWeek) weekPts += r.amount; if (r.timestamp >= startOfMonth) monthPts += r.amount; if (r.timestamp >= startOfYear) yearPts += r.amount; 
+        }
+        
+        // NEW: Aggregate historical penalty data
+        if (r.donationAdded > 0) {
+            // Clean up the titles for the chart labels
+            let cleanTitle = r.title.replace('Logged Bad: ', '').replace('Missed: ', '');
+            penaltyBreakdown[cleanTitle] = (penaltyBreakdown[cleanTitle] || 0) + r.donationAdded;
         }
     }); 
     
@@ -820,6 +833,50 @@ function updateDashboard() {
     if (bCanvas && badHabits.length > 0) {
         const labels = badHabits.map(h => h.title); const data = badHabits.map(h => h.annualCount); const ctx = bCanvas.getContext('2d'); if (badHabitsChart) badHabitsChart.destroy();
         badHabitsChart = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Occurrences This Year', data: data, backgroundColor: '#e53935', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#333' }, ticks: { stepSize: 1 } } }, plugins: { legend: { labels: { color: '#fff' } } } } });
+    }
+
+    // --- NEW: Render Penalty Analytics Chart ---
+    const pCanvas = document.getElementById('penaltyAnalyticsChart');
+    const pList = document.getElementById('penalty-top-list');
+    
+    if (pCanvas && pList) {
+        // Sort highest penalties first
+        const sortedPenalties = Object.entries(penaltyBreakdown).sort((a, b) => b[1] - a[1]);
+        
+        if (sortedPenalties.length === 0) {
+            pList.innerHTML = '<div style="color:var(--success); text-align:center; padding:15px; background:rgba(3, 218, 198, 0.1); border-radius:8px;">🌟 Discipline is strong. Zero penalties incurred!</div>';
+            if (window.penaltyChart) window.penaltyChart.destroy();
+        } else {
+            // Group Top 4 individually, bundle the rest into "Other"
+            let top4 = sortedPenalties.slice(0, 4);
+            let otherSum = sortedPenalties.slice(4).reduce((sum, item) => sum + item[1], 0);
+            if (otherSum > 0) top4.push(["Other Minor Vices", otherSum]);
+            
+            const pLabels = top4.map(item => item[0]);
+            const pData = top4.map(item => item[1]);
+            const pColors = ['#ff5252', '#ff9800', '#ffb142', '#cf6679', '#555555'];
+            
+            const ctx = pCanvas.getContext('2d'); 
+            if (window.penaltyChart) window.penaltyChart.destroy();
+            window.penaltyChart = new Chart(ctx, { 
+                type: 'doughnut', 
+                data: { labels: pLabels, datasets: [{ data: pData, backgroundColor: pColors, borderWidth: 1, borderColor: '#1e1e1e' }] }, 
+                options: { 
+                    responsive: true, maintainAspectRatio: false, 
+                    plugins: { legend: { position: 'right', labels: { color: '#ccc', font: {size: 11} } } },
+                    cutout: '70%'
+                } 
+            });
+            
+            // Build the dynamic HTML list for the top 3 offenders
+            pList.innerHTML = '<div style="color:#aaa; font-weight:bold; border-bottom:1px solid #333; padding-bottom:5px; margin-bottom:10px;">Most Expensive Vices:</div>' + 
+            sortedPenalties.slice(0, 3).map((p, i) => `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #222;">
+                    <span style="color:#ddd;"><span style="font-size:1.2rem; margin-right:5px;">${i===0?'🥇':i===1?'🥈':'🥉'}</span> ${p[0]}</span>
+                    <span style="color:var(--bad); font-weight:bold; background:rgba(207, 102, 121, 0.1); padding:4px 8px; border-radius:6px;">₹${p[1]}</span>
+                </div>
+            `).join('');
+        }
     }
 }
 

@@ -350,34 +350,30 @@ function cancelEdit() {
 
 function deleteTask(id) { if (confirm("Delete this task?")) { tasks = tasks.filter(t => t.id !== id); saveData(); render(); } }
 
+// ==========================================
+// TASKS LOGIC (Upgraded Automation Engine)
+// ==========================================
 function logProgress(id) {
     const task = tasks.find(t => t.id === id); 
     const amountDone = parseFloat(document.getElementById(`input-${id}`).value) || 0; 
     if (amountDone <= 0) return;
     
     const todayStr = new Date().toDateString();
-    
-    // --- STREAK ENGINE LOGIC ---
-    if (task.type === 'daily') {
-        const yesterday = new Date(Date.now() - 86400000).toDateString();
-        if (task.lastCompletedDay === yesterday) {
-            task.streak = (task.streak || 0) + 1;
-        } else if (task.lastCompletedDay !== todayStr) {
-            task.streak = 1; // Reset streak if missed yesterday
-        }
-    }
-    
     if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
     task.lastCompletedDay = todayStr;
     
+    // Maintain absolute parity with RawLogs backend
     let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone };
     activityHistory.push(newLog);
     syncToGoogleSheets(newLog);
 
-    task.currentTarget -= amountDone; if (task.currentTarget <= 0) task.isCompleted = true; 
+    task.currentTarget -= amountDone; 
+    if (task.currentTarget <= 0) task.isCompleted = true; 
     
     // --- AUTOMATION ENGINE ---
     const tName = task.title.toLowerCase();
+    
+    // 1. Update Global Spiritual Milestones
     if (tName.includes('hizb')) {
         deenData.quranStats.totalHizb += amountDone;
         deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
@@ -386,7 +382,20 @@ function logProgress(id) {
     if (tName.includes('swalath') || tName.includes('salawat')) {
         deenData.swalathStats.total += amountDone;
     }
-    saveData(); render();
+
+    // 2. Cross-Pollination Bridge: Auto-update matching Dhikr commitments in Deen Tab
+    deenData.dhikr.forEach(d => {
+        if (!d.completed && (tName.includes(d.name.toLowerCase()) || d.name.toLowerCase().includes(tName))) {
+            d.current += amountDone;
+            if (d.current >= d.target) {
+                d.current = d.target;
+                d.completed = true;
+            }
+        }
+    });
+
+    saveData(); 
+    render();
 }
 
 function markMissed(id, event) {
@@ -939,7 +948,38 @@ function renderDashboardTable() {
 // ==========================================
 // DEEN TAB
 // ==========================================
+// ==========================================
+// DEEN TAB
+// ==========================================
 function renderDeen() { 
+    // --- NEW: Spiritual Milestones Banner inside Deen Tab ---
+    const deenTab = document.getElementById('tab-deen');
+    let deenStatsContainer = document.getElementById('deen-stats-banner');
+    if (!deenStatsContainer) {
+        deenStatsContainer = document.createElement('div');
+        deenStatsContainer.id = 'deen-stats-banner';
+        deenStatsContainer.style = "display:flex; gap:10px; margin-bottom:20px;";
+        const h2 = deenTab.querySelector('h2');
+        if (h2 && h2.nextSibling) {
+            h2.parentNode.insertBefore(deenStatsContainer, h2.nextSibling);
+        } else {
+            deenTab.prepend(deenStatsContainer);
+        }
+    }
+    
+    deenStatsContainer.innerHTML = `
+        <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #bb86fc; text-align:center;">
+            <div style="font-size:0.85rem; color:#aaa;">Total Khatms</div>
+            <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats?.totalKhatm || 0}</div>
+            <div style="font-size:0.75rem; color:#666;">${deenData.quranStats?.totalJuz || 0} Juz / ${deenData.quranStats?.totalHizb || 0} Hizb</div>
+        </div>
+        <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #03dac6; text-align:center;">
+            <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
+            <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
+        </div>
+    `;
+
+    // Render Dhikr Targets
     const dhikrContainer = document.getElementById('dhikr-list-container'); dhikrContainer.innerHTML = '';
     deenData.dhikr.forEach((d, index) => {
         const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--deen)'; if (d.completed) div.style.opacity = '0.6';
@@ -950,12 +990,12 @@ function renderDeen() {
 
     const select = document.getElementById('juz-select'); if(select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } 
     
-    // --- UPDATED JUZ CONTAINER (AUTOMATIC + MANUAL COMBINED) ---
+    // Render Juz Tracking (Automatic + Manual)
     const juzContainer = document.getElementById('juz-list-container'); 
     if (juzContainer) {
         juzContainer.innerHTML = ''; 
         
-        // 1. Show the Automated Reading Progress at the top
+        // Automated Reading Progress visualizer
         let remainderJuz = (deenData.quranStats?.totalJuz || 0) % 30;
         let autoTracker = document.createElement('div');
         autoTracker.style = "background:rgba(3, 218, 198, 0.05); padding:10px; border-radius:8px; margin-bottom:15px; border-left:3px solid var(--deen);";
@@ -965,7 +1005,7 @@ function renderDeen() {
         `;
         juzContainer.appendChild(autoTracker);
 
-        // 2. Restore your Manual Juz Dedications List below it
+        // Manual Juz Dedications List
         deenData.quran.forEach((q, index) => { 
             const div = document.createElement('div'); 
             div.className = 'quran-item'; 
@@ -977,8 +1017,8 @@ function renderDeen() {
             juzContainer.appendChild(div); 
         }); 
     }
-    // --- END OF JUZ UPDATES ---
 
+    // Render Qada Prayers & Zakat Calculator
     const qadaContainer = document.getElementById('qada-container'); qadaContainer.innerHTML = ''; const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr']; let totalQada = prayers.reduce((acc, p) => acc + deenData.qada[p], 0);
     if (totalQada === 0 && !showAllQada) { qadaContainer.innerHTML = `<div style="text-align:center; color:#aaa; font-size:0.9rem; margin-bottom:10px;">🎉 All missed prayers are caught up!</div>`; }
     prayers.forEach(p => { const count = deenData.qada[p]; if (!showAllQada && count === 0) return; const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div style="font-weight:bold;">${p}</div><div class="qada-controls"><span style="font-family:monospace; font-size:1.2rem; min-width:30px; text-align:center; color:${count > 0 ? 'var(--danger)' : 'var(--success)'}">${count}</span><button class="qada-btn minus" onclick="updateQada('${p}', -1)" title="Prayed Qada">✔️</button><button class="qada-btn" onclick="updateQada('${p}', 1)" title="Missed Prayer">➕</button></div>`; qadaContainer.appendChild(div); }); 

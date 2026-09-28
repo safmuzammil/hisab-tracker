@@ -49,7 +49,6 @@ function showProfile(user) {
     document.getElementById('login-prompt').style.display = 'none';
     const authContainer = document.getElementById('auth-container');
     
-    // Apply sleek, compact inline styling
     authContainer.style = 'display: flex; justify-content: space-between; align-items: center; background: var(--card); padding: 10px 15px; border-radius: 12px; margin-bottom: 20px;';
     
     authContainer.innerHTML = `
@@ -66,7 +65,7 @@ function showProfile(user) {
     `;
 }
 
-/// ==========================================
+// ==========================================
 // APP STATE & STORAGE
 // ==========================================
 let lastModifiedLocal = parseInt(localStorage.getItem('hisab_last_modified')) || 0; 
@@ -92,54 +91,25 @@ let budgetData = JSON.parse(localStorage.getItem('hisab_budget')) || { limit: 0,
 if (!budgetData.debts) budgetData.debts = [];
 let backlogData = JSON.parse(localStorage.getItem('hisab_backlog')) || [];
 
-// --- CHART VARIABLES ---
 let tasksProgressChart = null;
 let badHabitsChart = null;
-window.penaltyChart = null; // NEW: Holds the analytics doughnut chart instance
-
 let showAllQada = false;
 let currentHistoryFilter = 'all';
 
 // ==========================================
-// GOOGLE SHEETS LIVE SYNC & OFFLINE QUEUE
+// GOOGLE SHEETS LIVE SYNC
 // ==========================================
 const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbxnUQz9WnM2X3tAIL3o2JdZO3u28SBBN5MlD8CF_mQKZ634qzto5AWiawyX7cjmqn00/exec";
-let offlineSyncQueue = JSON.parse(localStorage.getItem('hisab_offline_queue')) || [];
 
 function syncToGoogleSheets(logEntry) {
     if (!GOOGLE_SHEETS_URL) return;
-    
-    // If offline, queue it locally
-    if (!navigator.onLine) {
-        offlineSyncQueue.push(logEntry);
-        localStorage.setItem('hisab_offline_queue', JSON.stringify(offlineSyncQueue));
-        console.warn("Offline: Log queued for background sync.");
-        return;
-    }
-
     fetch(GOOGLE_SHEETS_URL, {
         method: 'POST',
         redirect: 'follow',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(logEntry)
-    }).catch(err => {
-        console.error("Google Sheets sync failed, queuing offline:", err);
-        offlineSyncQueue.push(logEntry);
-        localStorage.setItem('hisab_offline_queue', JSON.stringify(offlineSyncQueue));
-    });
+    }).catch(err => console.error("Google Sheets sync failed:", err));
 }
-
-// Automatically flush the queue when the internet connection is restored
-window.addEventListener('online', () => {
-    if (offlineSyncQueue.length > 0) {
-        console.log(`Connection restored. Syncing ${offlineSyncQueue.length} queued items...`);
-        const currentQueue = [...offlineSyncQueue];
-        offlineSyncQueue = []; // Clear queue to prevent duplicate firing
-        localStorage.setItem('hisab_offline_queue', JSON.stringify(offlineSyncQueue));
-        
-        currentQueue.forEach(logEntry => syncToGoogleSheets(logEntry));
-    }
-});
 
 // ==========================================
 // STALE-TAB LOCK & CLOUD SYNC LOGIC
@@ -172,6 +142,8 @@ function listenToFirebase() {
                     if (!deenData.quran) deenData.quran = [];
                     if (!deenData.dhikr) deenData.dhikr = [];
                 } 
+                if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+                if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
 
                 lastModifiedLocal = cloudModified;
                 localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString());
@@ -312,7 +284,7 @@ function payDonation() {
 }
 
 // ==========================================
-// TASKS LOGIC
+// TASKS LOGIC (FIXED EDIT & INSTANT TICKS)
 // ==========================================
 function getPeriodsLeft(type, dateObj) {
     const now = new Date(); const currentYear = now.getFullYear(); let start = new Date(dateObj);
@@ -340,7 +312,10 @@ function editTask(id) {
     const task = tasks.find(t => t.id === id); if (!task) return; 
     document.getElementById('form-title').innerText = '✏️ Edit Task'; document.getElementById('btn-save-task').innerText = 'Save Changes'; document.getElementById('btn-cancel-edit').style.display = 'inline-block'; 
     document.getElementById('task-id').value = task.id; document.getElementById('task-title').value = task.title; document.getElementById('task-type').value = task.type || 'daily'; document.getElementById('task-base-target').value = task.baseTarget; 
-    document.getElementById('task-donation').value = task.donationPenalty || ''; document.getElementById('task-reminder-time').value = task.reminderTime || ''; document.getElementById('task-is-max-once').checked = task.isMaxOnceDaily || false; window.scrollTo({ top: 0, behavior: 'smooth' }); 
+    document.getElementById('task-donation').value = task.donationPenalty || ''; document.getElementById('task-reminder-time').value = task.reminderTime || ''; document.getElementById('task-is-max-once').checked = task.isMaxOnceDaily || false; 
+    
+    openModal('task-modal');
+    window.scrollTo({ top: 0, behavior: 'smooth' }); 
 }
 
 function cancelEdit() { 
@@ -350,19 +325,16 @@ function cancelEdit() {
 
 function deleteTask(id) { if (confirm("Delete this task?")) { tasks = tasks.filter(t => t.id !== id); saveData(); render(); } }
 
-// ==========================================
-// TASKS LOGIC (Upgraded Automation Engine)
-// ==========================================
 function logProgress(id) {
     const task = tasks.find(t => t.id === id); 
-    const amountDone = parseFloat(document.getElementById(`input-${id}`).value) || 0; 
+    const inputEl = document.getElementById(`input-${id}`);
+    const amountDone = parseFloat(inputEl ? inputEl.value : task.baseTarget) || task.baseTarget || 1; 
     if (amountDone <= 0) return;
     
     const todayStr = new Date().toDateString();
     if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
     task.lastCompletedDay = todayStr;
     
-    // Maintain absolute parity with RawLogs backend
     let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone };
     activityHistory.push(newLog);
     syncToGoogleSheets(newLog);
@@ -370,30 +342,6 @@ function logProgress(id) {
     task.currentTarget -= amountDone; 
     if (task.currentTarget <= 0) task.isCompleted = true; 
     
-    // --- AUTOMATION ENGINE ---
-    const tName = task.title.toLowerCase();
-    
-    // 1. Update Global Spiritual Milestones
-    if (tName.includes('hizb')) {
-        deenData.quranStats.totalHizb += amountDone;
-        deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
-        deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
-    }
-    if (tName.includes('swalath') || tName.includes('salawat')) {
-        deenData.swalathStats.total += amountDone;
-    }
-
-    // 2. Cross-Pollination Bridge: Auto-update matching Dhikr commitments in Deen Tab
-    deenData.dhikr.forEach(d => {
-        if (!d.completed && (tName.includes(d.name.toLowerCase()) || d.name.toLowerCase().includes(tName))) {
-            d.current += amountDone;
-            if (d.current >= d.target) {
-                d.current = d.target;
-                d.completed = true;
-            }
-        }
-    });
-
     saveData(); 
     render();
 }
@@ -409,7 +357,6 @@ function markMissed(id, event) {
             coveredSurplus = penaltyRes.coveredBySurplus;
         }
 
-        // NEW: Includes taskType: task.type
         let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), title: "Missed: " + task.title, actionType: 'missed', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus };
         activityHistory.push(newLog);
         syncToGoogleSheets(newLog);
@@ -460,8 +407,7 @@ function renderTasks() {
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ${task.donationPenalty}</span>` : ``;
             let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#333; color:#ccc;">Missed: ${task.missedCount || 0}/5</span>` : '';
-            let streakHtml = (task.type === 'daily' && task.streak > 1) ? `<span class="badge" style="background:#ff9800; color:#fff;">🔥 ${task.streak} Day Streak</span>` : '';
-            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ ${badgeLabel}: ${task.amountDonePeriod}</span>${streakHtml}` : '';
+            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
 
             div.innerHTML = `
             <div class="task-header">
@@ -479,7 +425,7 @@ function renderTasks() {
 }
 
 // ==========================================
-// GOOD HABITS & SURPLUS WALLET LOGIC
+// GOOD & BAD HABITS LOGIC
 // ==========================================
 function addGoodHabit() {
     const id = document.getElementById('good-habit-id').value;
@@ -508,6 +454,8 @@ function editGoodHabit(id) {
     document.getElementById('good-habit-reward-value').value = habit.rewardValue || '';
     document.getElementById('btn-save-good-habit').innerText = 'Save Changes';
     document.getElementById('btn-cancel-edit-good-habit').style.display = 'block';
+    
+    openModal('good-habit-modal');
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -597,9 +545,6 @@ function renderGoodHabits() {
     });
 }
 
-// ==========================================
-// BAD HABITS / VICES LOGIC
-// ==========================================
 function addBadHabit() {
     const id = document.getElementById('bad-habit-id').value;
     const title = document.getElementById('bad-habit-title').value.trim(); 
@@ -623,6 +568,8 @@ function editBadHabit(id) {
     document.getElementById('bad-habit-donation').value = habit.donationPenalty || '';
     document.getElementById('btn-save-bad-habit').innerText = 'Save Changes';
     document.getElementById('btn-cancel-edit-bad-habit').style.display = 'block';
+    
+    openModal('bad-habit-modal');
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -679,6 +626,63 @@ function renderBadHabits() {
 function renderHabits() { renderGoodHabits(); renderBadHabits(); }
 
 // ==========================================
+// DEEN TAB DIRECT LOGGING LOGIC
+// ==========================================
+function logSwalathDirect() {
+    const input = document.getElementById('swalath-input-amount');
+    const amount = parseInt(input.value) || 0;
+    if (amount <= 0) return alert("Please enter a valid amount.");
+
+    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+    deenData.swalathStats.total += amount;
+
+    let newLog = { 
+        id: Date.now().toString(), 
+        taskId: 'swalath-direct', 
+        category: 'deen', 
+        timestamp: Date.now(), 
+        title: `Logged Swalath (+${amount})`, 
+        actionType: 'deen_swalath', 
+        amount: amount 
+    };
+    activityHistory.push(newLog);
+    syncToGoogleSheets(newLog);
+
+    input.value = '100';
+    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['#03dac6', '#bb86fc'] });
+    saveData();
+    renderDeen();
+}
+
+function logHizbDirect() {
+    const input = document.getElementById('hizb-input-amount');
+    const amount = parseFloat(input.value) || 0;
+    if (amount <= 0) return alert("Please enter a valid Hizb amount.");
+
+    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    deenData.quranStats.totalHizb += amount;
+    deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+    deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+
+    let newLog = { 
+        id: Date.now().toString(), 
+        taskId: 'hizb-direct', 
+        category: 'deen', 
+        timestamp: Date.now(), 
+        title: `Logged Hizb (+${amount})`, 
+        actionType: 'deen_hizb', 
+        amount: amount 
+    };
+    activityHistory.push(newLog);
+    syncToGoogleSheets(newLog);
+
+    input.value = '1';
+    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['#bb86fc', '#f6e58d'] });
+    saveData();
+    renderDeen();
+}
+
+// ==========================================
 // UNDO & FILTERED HISTORY MODAL
 // ==========================================
 function undoAction(historyId) {
@@ -686,29 +690,25 @@ function undoAction(historyId) {
     
     if (confirm(`Undo "${entry.title}"?`)) {
         if (entry.actionType === 'complete' || entry.actionType === 'missed') {
-            // 1. Find the task first
             const task = tasks.find(t => t.id === entry.taskId);
-            
             if (task) { 
-                // 2. Undo standard task progress
                 task.currentTarget += entry.amount; 
                 task.isCompleted = task.currentTarget <= 0; 
                 if (entry.actionType === 'complete' && task.isMaxOnceDaily) { 
                     task.lastCompletedDay = ''; 
                 } 
-                
-                // 3. --- AUTOMATION ENGINE UNDO ---
-                const tName = task.title.toLowerCase();
-                if (tName.includes('hizb')) {
-                    deenData.quranStats.totalHizb = Math.max(0, deenData.quranStats.totalHizb - entry.amount);
-                    deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
-                    deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
-                }
-                if (tName.includes('swalath') || tName.includes('salawat')) {
-                    deenData.swalathStats.total = Math.max(0, deenData.swalathStats.total - entry.amount);
-                }
             }
         } 
+        else if (entry.actionType === 'deen_swalath') {
+            if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+            deenData.swalathStats.total = Math.max(0, deenData.swalathStats.total - entry.amount);
+        }
+        else if (entry.actionType === 'deen_hizb') {
+            if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+            deenData.quranStats.totalHizb = Math.max(0, deenData.quranStats.totalHizb - entry.amount);
+            deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+            deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+        }
         else if (entry.actionType === 'bad') {
             const habit = badHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount -= entry.amount; }
         }
@@ -722,7 +722,6 @@ function undoAction(historyId) {
         if (entry.donationAdded) { charityData.pending -= entry.donationAdded; if (charityData.pending < 0) charityData.pending = 0; }
         if (entry.coveredBySurplus) { charityData.surplus = (charityData.surplus || 0) + entry.coveredBySurplus; }
         
-        // --- THIS LINE SENDS THE UNDO SIGNAL TO GOOGLE SHEETS ---
         syncToGoogleSheets({ actionType: 'undo', id: historyId });
         
         activityHistory = activityHistory.filter(h => h.id !== historyId);
@@ -770,6 +769,7 @@ function openHistory(filter = 'all') {
     });
 }
 function closeHistory() { document.getElementById('history-modal').style.display = 'none'; }
+
 // ==========================================
 // DASHBOARD & DUAL CHARTS
 // ==========================================
@@ -783,15 +783,18 @@ function updateDashboard() {
         if (dashTab) dashTab.insertBefore(spiritContainer, dashTab.firstChild);
     }
 
+    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+
     spiritContainer.innerHTML = `
         <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #bb86fc; text-align:center;">
             <div style="font-size:0.85rem; color:#aaa;">Total Khatms</div>
-            <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats?.totalKhatm || 0}</div>
-            <div style="font-size:0.75rem; color:#666;">${deenData.quranStats?.totalJuz || 0} Juz / ${deenData.quranStats?.totalHizb || 0} Hizb</div>
+            <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats.totalKhatm || 0}</div>
+            <div style="font-size:0.75rem; color:#666;">${deenData.quranStats.totalJuz || 0} Juz / ${deenData.quranStats.totalHizb || 0} Hizb</div>
         </div>
         <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #03dac6; text-align:center;">
             <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
-            <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
+            <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats.total || 0).toLocaleString()}</div>
         </div>
     `;
     document.getElementById('donation-pending').innerText = charityData.pending.toLocaleString(); 
@@ -803,15 +806,9 @@ function updateDashboard() {
     const now = new Date(); const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime(); const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
 
     let dayPts = 0, weekPts = 0, monthPts = 0, yearPts = 0; 
-    let penaltyBreakdown = {}; 
-    
     activityHistory.forEach(r => { 
         if (r.actionType === 'complete') {
             if (r.timestamp >= startOfDay) dayPts += r.amount; if (r.timestamp >= startOfWeek) weekPts += r.amount; if (r.timestamp >= startOfMonth) monthPts += r.amount; if (r.timestamp >= startOfYear) yearPts += r.amount; 
-        }
-        if (r.donationAdded > 0) {
-            let cleanTitle = r.title.replace('Logged Bad: ', '').replace('Missed: ', '');
-            penaltyBreakdown[cleanTitle] = (penaltyBreakdown[cleanTitle] || 0) + r.donationAdded;
         }
     }); 
     
@@ -838,148 +835,25 @@ function updateDashboard() {
         const labels = badHabits.map(h => h.title); const data = badHabits.map(h => h.annualCount); const ctx = bCanvas.getContext('2d'); if (badHabitsChart) badHabitsChart.destroy();
         badHabitsChart = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Occurrences This Year', data: data, backgroundColor: '#e53935', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#333' }, ticks: { stepSize: 1 } } }, plugins: { legend: { labels: { color: '#fff' } } } } });
     }
-
-    const pCanvas = document.getElementById('penaltyAnalyticsChart');
-    const pList = document.getElementById('penalty-top-list');
-    
-    if (pCanvas && pList) {
-        const sortedPenalties = Object.entries(penaltyBreakdown).sort((a, b) => b[1] - a[1]);
-        if (sortedPenalties.length === 0) {
-            pList.innerHTML = '<div style="color:var(--success); text-align:center; padding:15px; background:rgba(3, 218, 198, 0.1); border-radius:8px;">🌟 Discipline is strong. Zero penalties incurred!</div>';
-            if (window.penaltyChart) window.penaltyChart.destroy();
-        } else {
-            let top4 = sortedPenalties.slice(0, 4);
-            let otherSum = sortedPenalties.slice(4).reduce((sum, item) => sum + item[1], 0);
-            if (otherSum > 0) top4.push(["Other Minor Vices", otherSum]);
-            
-            const pLabels = top4.map(item => item[0]);
-            const pData = top4.map(item => item[1]);
-            const pColors = ['#ff5252', '#ff9800', '#ffb142', '#cf6679', '#555555'];
-            
-            const ctx = pCanvas.getContext('2d'); 
-            if (window.penaltyChart) window.penaltyChart.destroy();
-            window.penaltyChart = new Chart(ctx, { type: 'doughnut', data: { labels: pLabels, datasets: [{ data: pData, backgroundColor: pColors, borderWidth: 1, borderColor: '#1e1e1e' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#ccc', font: {size: 11} } } }, cutout: '70%' } });
-            
-            pList.innerHTML = '<div style="color:#aaa; font-weight:bold; border-bottom:1px solid #333; padding-bottom:5px; margin-bottom:10px;">Most Expensive Vices:</div>' + sortedPenalties.slice(0, 3).map((p, i) => `<div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #222;"><span style="color:#ddd;"><span style="font-size:1.2rem; margin-right:5px;">${i===0?'🥇':i===1?'🥈':'🥉'}</span> ${p[0]}</span><span style="color:var(--bad); font-weight:bold; background:rgba(207, 102, 121, 0.1); padding:4px 8px; border-radius:6px;">₹${p[1]}</span></div>`).join('');
-        }
-    }
-
-    renderDashboardTable();
-}
-
-function renderDashboardTable() {
-    const tbody = document.getElementById('dashboard-table-body');
-    if (!tbody) return;
-    tbody.innerHTML = '';
-
-    const msPerDay = 1000 * 60 * 60 * 24;
-    const startOfDay = new Date().setHours(0, 0, 0, 0);
-    const startOf7D = startOfDay - (6 * msPerDay);
-    const startOf30D = startOfDay - (29 * msPerDay);
-    const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime();
-
-    tasks.forEach(t => {
-        const logs = activityHistory.filter(h => h.taskId === t.id && h.actionType === 'complete');
-        let todayDone = 0, d7Done = 0, d30Done = 0, yDone = 0;
-        
-        logs.forEach(l => {
-            if (l.timestamp >= startOfDay) todayDone += l.amount;
-            if (l.timestamp >= startOf7D) d7Done += l.amount;
-            if (l.timestamp >= startOf30D) d30Done += l.amount;
-            if (l.timestamp >= startOfYear) yDone += l.amount;
-        });
-
-        let expected7D = t.baseTarget * (t.type === 'daily' ? 7 : (t.type === 'weekly' ? 1 : 0));
-        let expected30D = t.baseTarget * (t.type === 'daily' ? 30 : (t.type === 'weekly' ? 4 : (t.type === 'monthly' ? 1 : 0)));
-        let expectedY = t.totalYearlyTarget || 1;
-
-        let rate7D = expected7D > 0 ? Math.min(100, (d7Done / expected7D) * 100) : 0;
-        let rate30D = expected30D > 0 ? Math.min(100, (d30Done / expected30D) * 100) : 0;
-        let rateY = expectedY > 0 ? Math.min(100, (yDone / expectedY) * 100) : 0;
-
-        let daysSinceText = `<span style="color:#666;">Never</span>`;
-        let daysSinceNum = Infinity;
-        let formattedDate = '-';
-        
-        if (t.lastCompletedDay) {
-            let lastDate = new Date(t.lastCompletedDay).getTime();
-            formattedDate = new Date(t.lastCompletedDay).toLocaleDateString('en-CA');
-            daysSinceNum = Math.floor((startOfDay - lastDate) / msPerDay);
-            if (daysSinceNum === 0) daysSinceText = `<span style="background:rgba(3, 218, 198, 0.1); color:var(--success); padding:2px 6px; border-radius:6px;">0d (Today)</span>`;
-            else if (daysSinceNum === 1) daysSinceText = `<span style="background:rgba(246, 229, 141, 0.1); color:var(--warning); padding:2px 6px; border-radius:6px;">1d ago</span>`;
-            else daysSinceText = `<span style="background:rgba(207, 102, 121, 0.1); color:var(--bad); padding:2px 6px; border-radius:6px;">${daysSinceNum}d ago</span>`;
-        }
-
-        let statusHtml = `<span style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:4px 8px; border-radius:12px;">✅ On Track</span>`;
-        if (t.type === 'daily' && daysSinceNum > 0) statusHtml = `<span style="background:rgba(246, 229, 141, 0.15); color:var(--warning); padding:4px 8px; border-radius:12px;">⚠️ Lagging</span>`;
-        if (daysSinceNum > 2 && t.type === 'daily') statusHtml = `<span style="background:rgba(255, 82, 82, 0.15); color:var(--danger); padding:4px 8px; border-radius:12px;">❌ Way Behind</span>`;
-        if (!t.lastCompletedDay) statusHtml = `<span style="background:rgba(255, 82, 82, 0.15); color:var(--danger); padding:4px 8px; border-radius:12px;">❌ Not Started</span>`;
-
-        let surplus = 0;
-        let compHtml = `<span style="color:#666;">-</span>`;
-        if (t.type === 'daily') surplus = todayDone - t.baseTarget;
-        if (surplus < 0) compHtml = `<span style="background:rgba(207, 102, 121, 0.1); color:var(--bad); padding:4px 8px; border-radius:6px;">Needs ${Math.abs(surplus)} comp</span>`;
-        else if (surplus > 0) compHtml = `<span style="background:rgba(3, 218, 198, 0.1); color:var(--success); padding:4px 8px; border-radius:6px;">+${surplus} surplus</span>`;
-
-        const tr = document.createElement('tr');
-        tr.style = "border-bottom: 1px solid #2c2c2c; transition: 0.2s;";
-        tr.onmouseover = () => tr.style.background = "#2a2a2a";
-        tr.onmouseout = () => tr.style.background = "transparent";
-        
-        tr.innerHTML = `
-            <td style="padding:12px 5px; font-weight:bold; color:#fff;">${t.title}</td>
-            <td style="padding:12px 5px;"><span class="badge" style="background:#2c2c2c; color:#aaa;">Tasks</span></td>
-            <td style="padding:12px 5px; color:#aaa; text-transform:capitalize;">${t.type}</td>
-            <td style="padding:12px 5px; font-weight:bold;">${rate7D.toFixed(1)}% <div style="font-size:0.7rem; color:#666; font-weight:normal;">(${d7Done} comps)</div></td>
-            <td style="padding:12px 5px; font-weight:bold;">${rate30D.toFixed(1)}%</td>
-            <td style="padding:12px 5px; font-weight:bold;">${rateY.toFixed(1)}% <div style="font-size:0.7rem; color:#666; font-weight:normal;">(${yDone} comps)</div></td>
-            <td style="padding:12px 5px; color:#aaa;">${formattedDate}</td>
-            <td style="padding:12px 5px;">${daysSinceText}</td>
-            <td style="padding:12px 5px;">${statusHtml}</td>
-            <td style="padding:12px 5px; text-align:center; color:#fff;">${t.baseTarget}</td>
-            <td style="padding:12px 5px; text-align:center; font-weight:bold; color:var(--primary);">${todayDone}</td>
-            <td style="padding:12px 5px; text-align:center; font-weight:bold; color:${surplus < 0 ? 'var(--bad)' : (surplus > 0 ? 'var(--success)' : '#888')}">${surplus}</td>
-            <td style="padding:12px 5px;">${compHtml}</td>
-        `;
-        tbody.appendChild(tr);
-    });
 }
 
 // ==========================================
-// DEEN TAB
-// ==========================================
-// ==========================================
-// DEEN TAB
+// DEEN TAB RENDERING
 // ==========================================
 function renderDeen() { 
-    // --- NEW: Spiritual Milestones Banner inside Deen Tab ---
-    const deenTab = document.getElementById('tab-deen');
-    let deenStatsContainer = document.getElementById('deen-stats-banner');
-    if (!deenStatsContainer) {
-        deenStatsContainer = document.createElement('div');
-        deenStatsContainer.id = 'deen-stats-banner';
-        deenStatsContainer.style = "display:flex; gap:10px; margin-bottom:20px;";
-        const h2 = deenTab.querySelector('h2');
-        if (h2 && h2.nextSibling) {
-            h2.parentNode.insertBefore(deenStatsContainer, h2.nextSibling);
-        } else {
-            deenTab.prepend(deenStatsContainer);
-        }
-    }
-    
-    deenStatsContainer.innerHTML = `
-        <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #bb86fc; text-align:center;">
-            <div style="font-size:0.85rem; color:#aaa;">Total Khatms</div>
-            <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats?.totalKhatm || 0}</div>
-            <div style="font-size:0.75rem; color:#666;">${deenData.quranStats?.totalJuz || 0} Juz / ${deenData.quranStats?.totalHizb || 0} Hizb</div>
-        </div>
-        <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #03dac6; text-align:center;">
-            <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
-            <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
-        </div>
-    `;
+    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
 
-    // Render Dhikr Targets
+    const swalathDisplay = document.getElementById('deen-total-swalath');
+    if (swalathDisplay) swalathDisplay.innerText = (deenData.swalathStats.total || 0).toLocaleString();
+
+    const hizbDisplay = document.getElementById('deen-total-hizb');
+    const juzDisplay = document.getElementById('deen-total-juz');
+    const khatmDisplay = document.getElementById('deen-total-khatm');
+    if (hizbDisplay) hizbDisplay.innerText = deenData.quranStats.totalHizb || 0;
+    if (juzDisplay) juzDisplay.innerText = deenData.quranStats.totalJuz || 0;
+    if (khatmDisplay) khatmDisplay.innerText = deenData.quranStats.totalKhatm || 0;
+
     const dhikrContainer = document.getElementById('dhikr-list-container'); dhikrContainer.innerHTML = '';
     deenData.dhikr.forEach((d, index) => {
         const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--deen)'; if (d.completed) div.style.opacity = '0.6';
@@ -988,14 +862,16 @@ function renderDeen() {
         dhikrContainer.appendChild(div);
     });
 
-    const select = document.getElementById('juz-select'); if(select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } 
+    const select = document.getElementById('juz-select'); 
+    if(select && select.options.length <= 1) { 
+        for(let i=1; i<=30; i++) { 
+            let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); 
+        } 
+    } 
     
-    // Render Juz Tracking (Automatic + Manual)
     const juzContainer = document.getElementById('juz-list-container'); 
     if (juzContainer) {
         juzContainer.innerHTML = ''; 
-        
-        // Automated Reading Progress visualizer
         let remainderJuz = (deenData.quranStats?.totalJuz || 0) % 30;
         let autoTracker = document.createElement('div');
         autoTracker.style = "background:rgba(3, 218, 198, 0.05); padding:10px; border-radius:8px; margin-bottom:15px; border-left:3px solid var(--deen);";
@@ -1005,7 +881,6 @@ function renderDeen() {
         `;
         juzContainer.appendChild(autoTracker);
 
-        // Manual Juz Dedications List
         deenData.quran.forEach((q, index) => { 
             const div = document.createElement('div'); 
             div.className = 'quran-item'; 
@@ -1018,7 +893,6 @@ function renderDeen() {
         }); 
     }
 
-    // Render Qada Prayers & Zakat Calculator
     const qadaContainer = document.getElementById('qada-container'); qadaContainer.innerHTML = ''; const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr']; let totalQada = prayers.reduce((acc, p) => acc + deenData.qada[p], 0);
     if (totalQada === 0 && !showAllQada) { qadaContainer.innerHTML = `<div style="text-align:center; color:#aaa; font-size:0.9rem; margin-bottom:10px;">🎉 All missed prayers are caught up!</div>`; }
     prayers.forEach(p => { const count = deenData.qada[p]; if (!showAllQada && count === 0) return; const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div style="font-weight:bold;">${p}</div><div class="qada-controls"><span style="font-family:monospace; font-size:1.2rem; min-width:30px; text-align:center; color:${count > 0 ? 'var(--danger)' : 'var(--success)'}">${count}</span><button class="qada-btn minus" onclick="updateQada('${p}', -1)" title="Prayed Qada">✔️</button><button class="qada-btn" onclick="updateQada('${p}', 1)" title="Missed Prayer">➕</button></div>`; qadaContainer.appendChild(div); }); 
@@ -1463,33 +1337,20 @@ setInterval(() => {
 }, 60000); 
 
 // ==========================================
-// CORE APP ROUTING & UI (PERFORMANCE OPTIMIZED)
+// CORE APP ROUTING & UI
 // ==========================================
-function switchTab(tabName, element = null) {
-    // 1. Update Active State
-    localStorage.setItem('hisab_active_tab', tabName); 
-    
-    // 2. Hide all tabs and reset Nav UI
-    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); 
-    document.querySelectorAll('.nav-item').forEach(nav => { 
-        nav.classList.remove('active', 'active-bad', 'active-deen', 'active-budget', 'active-backlog'); 
-    });
-    
-    // 3. Show the targeted tab
+function switchTab(tabName, element) {
+    localStorage.setItem('hisab_active_tab', tabName); document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); 
+    document.querySelectorAll('.nav-item').forEach(nav => { nav.classList.remove('active'); nav.classList.remove('active-bad'); nav.classList.remove('active-deen'); nav.classList.remove('active-budget'); nav.classList.remove('active-backlog'); });
     document.getElementById(`tab-${tabName}`).classList.add('active');
     
-    // 4. Apply Neon Theme colors to the active Nav Icon
-    if (!element) element = document.getElementById('nav-' + tabName);
-    if (element) {
-        if (tabName === 'deen') element.classList.add('active-deen'); 
-        else if (tabName === 'bad-habits') element.classList.add('active-bad');
-        else if (tabName === 'budget') element.classList.add('active-budget');
-        else if (tabName === 'backlog') element.classList.add('active-backlog');
-        else element.classList.add('active');
-    }
+    if(tabName === 'deen') { element.classList.add('active-deen'); renderDeen(); } 
+    else if(tabName === 'bad-habits') { element.classList.add('active-bad'); renderHabits(); }
+    else if(tabName === 'budget') { element.classList.add('active-budget'); renderBudget(); }
+    else if(tabName === 'backlog') { element.classList.add('active-backlog'); renderBacklog(); }
+    else { element.classList.add('active'); }
     
-    // 5. Trigger the Isolated Render
-    render();
+    if (tabName === 'dashboard') updateDashboard();
 }
 
 function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }
@@ -1497,52 +1358,20 @@ function toggleNotifications() { if (!("Notification" in window)) return alert("
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-// Master Render Controller: ONLY renders the visible tab
-function render() { 
-    const currentTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
-    
-    if (currentTab === 'dashboard') updateDashboard();
-    else if (currentTab === 'tasks') renderTasks();
-    else if (currentTab === 'bad-habits') renderHabits();
-    else if (currentTab === 'deen') renderDeen();
-    else if (currentTab === 'budget') renderBudget();
-    else if (currentTab === 'backlog') renderBacklog();
-}
-// Add this helper function at the bottom of app.js
-function toggleTheme() {
-    const body = document.body;
-    if (body.getAttribute('data-theme') === 'light') {
-        body.removeAttribute('data-theme');
-        localStorage.setItem('hisab_theme', 'dark');
-        document.getElementById('theme-btn').innerText = '🌓';
-    } else {
-        body.setAttribute('data-theme', 'light');
-        localStorage.setItem('hisab_theme', 'light');
-        document.getElementById('theme-btn').innerText = '🌙';
-    }
-}
-window.toggleTheme = toggleTheme;
-
-// Auto-load theme on initialization
-if (localStorage.getItem('hisab_theme') === 'light') {
-    document.body.setAttribute('data-theme', 'light');
-    document.getElementById('theme-btn').innerText = '🌙';
-}
-
-// Global Window Exports
 window.openModal = openModal;
 window.closeModal = closeModal;
+function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
+
+// Exports
 window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; 
 window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.undoAction = undoAction; window.openHistory = openHistory; window.closeHistory = closeHistory; window.filterHistory = filterHistory;
 window.payDonation = payDonation; 
 window.addGoodHabit = addGoodHabit; window.editGoodHabit = editGoodHabit; window.cancelEditGoodHabit = cancelEditGoodHabit; window.logGoodHabit = logGoodHabit; window.deleteGoodHabit = deleteGoodHabit; 
 window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.cancelEditBadHabit = cancelEditBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
+window.logSwalathDirect = logSwalathDirect; window.logHizbDirect = logHizbDirect;
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
 window.addBacklogItem = addBacklogItem; window.editBacklogItem = editBacklogItem; window.cancelEditBacklogItem = cancelEditBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;
 
-// Initialize app on load
 initNotifications();
-const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; 
-const savedNavElement = document.getElementById('nav-' + savedTab); 
-if (savedNavElement) switchTab(savedTab, savedNavElement);
+const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

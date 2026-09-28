@@ -21,7 +21,6 @@
             --budget: #4fc3f7;
             --backlog: #ff8a65;
         }
-        
 
         * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { background: var(--bg); color: #fff; margin: 0; padding: 0; padding-bottom: 80px; }
@@ -54,7 +53,7 @@
         /* Forms & Modals */
         input, select, button, textarea { width: 100%; padding: 12px; margin-bottom: 10px; border: none; border-radius: 8px; font-size: 1rem; }
         input, select, textarea { background: #2c2c2c; color: #fff; }
-        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; transition: 0.2s; min-height: 44px; }
         button:active { transform: scale(0.98); }
         
         .main-action-btn { background: #333; border: 1px dashed var(--primary); color: var(--primary); padding: 15px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: center; align-items: center; gap: 10px; font-size: 1.1rem; }
@@ -109,13 +108,11 @@
 <body>
 
     <header>
-    <h1>HISAB</h1>
-    <div style="display:flex; gap:15px; align-items:center;">
-        <!-- New Theme Toggle Button -->
-        <button onclick="toggleTheme()" style="background:transparent; font-size:1.5rem; padding:0; margin:0; width:auto; border:none; min-width:44px; min-height:44px;" id="theme-btn">🌓</button>
-        <button id="btn-notifications" onclick="toggleNotifications()" style="background:transparent; border:1px solid #aaa; color:#aaa; padding:5px 10px; margin:0; font-size:0.8rem; width:auto;">🔕 Alerts Off</button>
-        <button onclick="openHistory()" style="background:transparent; font-size:1.5rem; padding:0; margin:0; width:auto; border:none; min-width:44px; min-height:44px;">📜</button>
-    </div>
+        <h1>HISAB</h1>
+        <div style="display:flex; gap:15px; align-items:center;">
+            <button id="btn-notifications" onclick="toggleNotifications()" style="background:transparent; border:1px solid #aaa; color:#aaa; padding:5px 10px; margin:0; font-size:0.8rem; width:auto;">🔕 Alerts Off</button>
+            <button onclick="openHistory()" style="background:transparent; font-size:1.5rem; padding:0; margin:0; width:auto; border:none; min-width:44px; min-height:44px;">📜</button>
+        </div>
     </header>
 
     <div class="container">
@@ -132,32 +129,7 @@
         <!-- ========================================== -->
         <div id="tab-dashboard" class="tab-content active">
             <h2>Dashboard</h2>
-            <!-- NEW: Advanced Routine & Analytics Table -->
-            <div style="background:var(--card); padding:15px; border-radius:10px; margin-top:20px; overflow-x:auto;">
-                <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Routine Analytics</h3>
-                <table style="width:100%; border-collapse:collapse; min-width:1000px; font-size:0.85rem; text-align:left;">
-                    <thead>
-                        <tr style="border-bottom:2px solid var(--primary); color:#ccc;">
-                            <th style="padding:10px 5px;">ROUTINE / TASK</th>
-                            <th style="padding:10px 5px;">CATEGORY</th>
-                            <th style="padding:10px 5px;">TYPE</th>
-                            <th style="padding:10px 5px;">7D RATE</th>
-                            <th style="padding:10px 5px;">30D RATE</th>
-                            <th style="padding:10px 5px;">YEARLY RATE</th>
-                            <th style="padding:10px 5px;">LAST COMPLETED</th>
-                            <th style="padding:10px 5px;">DAYS SINCE</th>
-                            <th style="padding:10px 5px;">STATUS ALERT</th>
-                            <th style="padding:10px 5px; text-align:center;">MIN TARGET</th>
-                            <th style="padding:10px 5px; text-align:center;">TODAY LOGGED</th>
-                            <th style="padding:10px 5px; text-align:center;">BANKED SURPLUS</th>
-                            <th style="padding:10px 5px;">COMP STATUS</th>
-                        </tr>
-                    </thead>
-                    <tbody id="dashboard-table-body">
-                        <!-- Table rows populated dynamically via app.js -->
-                    </tbody>
-                </table>
-            </div>
+            
             <div style="background:var(--card); padding:20px; border-radius:15px; text-align:center; margin-bottom:20px; border:1px solid var(--charity);">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                     <span style="color:var(--charity); font-weight:bold;">⚖️ Pending Penalty</span>
@@ -203,28 +175,7 @@
                     <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Vice Triggers (This Year)</h3>
                     <div style="height: 200px;"><canvas id="badHabitsChart"></canvas></div>
                 </div>
-
-                <!-- NEW: Penalty Insights Container -->
-                <div style="background:var(--card); padding:15px; border-radius:10px; grid-column: 1 / -1;">
-                    <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Penalty Insights (Financial Bleed)</h3>
-                    <div style="height: 180px; display: flex; justify-content: center; align-items: center; margin-bottom:10px;">
-                        <canvas id="penaltyAnalyticsChart"></canvas>
-                    </div>
-                    <div id="penalty-top-list" style="margin-top: 15px; font-size: 0.9rem;"></div>
-                </div>
             </div>
-
-                <div style="background:var(--card); padding:15px; border-radius:10px;">
-                    <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Task Categories (Annual)</h3>
-                    <div style="height: 200px;"><canvas id="tasksProgressChart"></canvas></div>
-                </div>
-
-                <div style="background:var(--card); padding:15px; border-radius:10px; grid-column: 1 / -1;">
-                    <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Vice Triggers (This Year)</h3>
-                    <div style="height: 200px;"><canvas id="badHabitsChart"></canvas></div>
-                </div>
-            </div>
-            
         </div>
 
         <!-- ========================================== -->
@@ -335,10 +286,47 @@
         </div>
 
         <!-- ========================================== -->
-        <!-- DEEN TAB (Forms Kept Inline for Rapid Entry) -->
+        <!-- DEEN TAB -->
         <!-- ========================================== -->
         <div id="tab-deen" class="tab-content">
             <h2>Deen Tracker</h2>
+
+            <!-- Dedicated Swalath Counter Card -->
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-top:3px solid var(--deen);">
+                <h3 style="margin-top:0; color:var(--deen);">📿 Swalath / Salawat Counter</h3>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <span style="color:#aaa; font-size:0.9rem;">Total Swalath Count</span>
+                    <span style="font-size:1.8rem; font-weight:bold; color:var(--deen);" id="deen-total-swalath">0</span>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <input type="number" id="swalath-input-amount" placeholder="Amount (e.g., 100)" value="100" min="1" style="margin:0;">
+                    <button onclick="logSwalathDirect()" style="background:var(--deen); color:#000; margin:0; flex:1;">➕ Log Swalath</button>
+                </div>
+            </div>
+
+            <!-- Dedicated Hizb / Quran Stats Card -->
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-top:3px solid var(--primary);">
+                <h3 style="margin-top:0; color:var(--primary);">📖 Hizb & Khatm Tracker</h3>
+                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:15px; text-align:center;">
+                    <div style="background:#2c2c2c; padding:10px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:#aaa;">Total Hizb</div>
+                        <div style="font-size:1.2rem; font-weight:bold; color:var(--primary);" id="deen-total-hizb">0</div>
+                    </div>
+                    <div style="background:#2c2c2c; padding:10px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:#aaa;">Total Juz</div>
+                        <div style="font-size:1.2rem; font-weight:bold; color:var(--success);" id="deen-total-juz">0</div>
+                    </div>
+                    <div style="background:#2c2c2c; padding:10px; border-radius:8px;">
+                        <div style="font-size:0.75rem; color:#aaa;">Khatms</div>
+                        <div style="font-size:1.2rem; font-weight:bold; color:var(--warning);" id="deen-total-khatm">0</div>
+                    </div>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <input type="number" id="hizb-input-amount" placeholder="Hizb amount (e.g., 1)" value="1" min="0.1" step="any" style="margin:0;">
+                    <button onclick="logHizbDirect()" style="background:var(--primary); color:#000; margin:0; flex:1;">📖 Log Hizb</button>
+                </div>
+            </div>
+
             <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--deen);">
                 <h3 style="margin-top:0; color:var(--deen);">📿 Commit to Dhikr</h3>
                 <div style="display:flex; gap:10px;">
@@ -359,7 +347,7 @@
             </div>
             
             <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
-                <h3 style="margin-top:0; color:var(--deen);">📖 Quran Tracker</h3>
+                <h3 style="margin-top:0; color:var(--deen);">📖 Quran Juz Dedications</h3>
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <select id="juz-select" style="flex:1;"><option value="">Select Juz</option></select>
                 </div>

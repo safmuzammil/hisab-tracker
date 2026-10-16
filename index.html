@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Hisab - Ultimate Life Tracker</title>
     <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icon.png">
+    <meta name="theme-color" content="#0d0f12">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     
@@ -30,13 +32,13 @@
         }
 
         * { box-sizing: border-box; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background: var(--bg); color: var(--text-main); margin: 0; padding: 0; padding-bottom: 90px; line-height: 1.4; }
+        body { background: var(--bg); color: var(--text-main); margin: 0; padding: 0; padding-bottom: 95px; line-height: 1.4; overflow-x: hidden; }
         
         /* Sleek Glassmorphic Header */
         header { 
-            background: rgba(13, 15, 18, 0.85); 
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background: rgba(13, 15, 18, 0.88); 
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
             padding: 12px 20px; 
             display: flex; 
             justify-content: space-between; 
@@ -53,6 +55,7 @@
             font-weight: 800;
             letter-spacing: 1.5px;
             background: linear-gradient(135deg, var(--primary), var(--success));
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -96,11 +99,11 @@
             border-radius: 10px;
             transition: all 0.2s ease;
         }
-        .nav-item.active { color: var(--primary); background: rgba(187, 134, 252, 0.1); }
-        .nav-item.active-bad { color: var(--bad); background: rgba(207, 102, 121, 0.1); }
-        .nav-item.active-deen { color: var(--deen); background: rgba(77, 182, 172, 0.1); }
-        .nav-item.active-budget { color: var(--budget); background: rgba(79, 195, 247, 0.1); }
-        .nav-item.active-backlog { color: var(--backlog); background: rgba(255, 138, 101, 0.1); }
+        .nav-item.active { color: var(--primary); background: rgba(187, 134, 252, 0.12); }
+        .nav-item.active-bad { color: var(--bad); background: rgba(207, 102, 121, 0.12); }
+        .nav-item.active-deen { color: var(--deen); background: rgba(77, 182, 172, 0.12); }
+        .nav-item.active-budget { color: var(--budget); background: rgba(79, 195, 247, 0.12); }
+        .nav-item.active-backlog { color: var(--backlog); background: rgba(255, 138, 101, 0.12); }
         .nav-icon { font-size: 1.25rem; }
 
         .tab-content { display: none; animation: fadeIn 0.2s ease-out; }
@@ -122,13 +125,13 @@
             min-height: 44px;
         }
         input, select, textarea { background: var(--card-elevated); color: #fff; outline: none; transition: border-color 0.2s; }
-        input:focus, select:focus, textarea:focus { border-color: var(--primary); }
-        button { background: var(--primary); color: #000; font-weight: 700; cursor: pointer; transition: all 0.2s ease; border: none; }
+        input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(187, 134, 252, 0.2); }
+        button { background: var(--primary); color: #000; font-weight: 700; cursor: pointer; transition: all 0.2s ease; border: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
         button:active { transform: scale(0.97); }
         
         .main-action-btn { 
             background: rgba(187, 134, 252, 0.06); 
-            border: 1px dashed var(--primary); 
+            border: 1.5px dashed var(--primary); 
             color: var(--primary); 
             padding: 14px; 
             border-radius: 12px; 
@@ -141,13 +144,13 @@
             box-shadow: 0 4px 14px rgba(0,0,0,0.15);
         }
         
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.82); z-index: 1000; backdrop-filter: blur(6px); justify-content: center; align-items: flex-end; }
-        .modal-content { background: var(--card); width: 100%; max-width: 600px; padding: 24px; border-radius: 22px 22px 0 0; border-top: 1px solid var(--border); animation: slideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1); max-height: 90vh; overflow-y: auto; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.84); z-index: 1000; backdrop-filter: blur(6px); justify-content: center; align-items: flex-end; }
+        .modal-content { background: var(--card); width: 100%; max-width: 640px; padding: 22px; border-radius: 22px 22px 0 0; border-top: 1px solid var(--border); animation: slideUp 0.26s cubic-bezier(0.16, 1, 0.3, 1); max-height: 92vh; overflow-y: auto; }
         @media (min-width: 768px) { .modal-overlay { align-items: center; } .modal-content { border-radius: 18px; border: 1px solid var(--border); } }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
         /* Badges */
-        .badge { font-size: 0.75rem; font-weight: 600; padding: 4px 9px; border-radius: 8px; margin-right: 6px; display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; }
+        .badge { font-size: 0.74rem; font-weight: 600; padding: 4px 9px; border-radius: 8px; margin-right: 5px; display: inline-flex; align-items: center; gap: 4px; margin-top: 5px; }
         .badge.target { background: rgba(187, 134, 252, 0.15); color: var(--primary); border: 1px solid rgba(187, 134, 252, 0.3); }
         .badge.reminder { background: rgba(246, 229, 141, 0.15); color: var(--warning); }
         .badge.done-badge { background: rgba(3, 218, 198, 0.15); color: var(--success); border: 1px solid rgba(3, 218, 198, 0.3); }
@@ -165,78 +168,120 @@
             transition: transform 0.2s, opacity 0.2s;
         }
         .task-item.bad-log { border-left-color: var(--bad); }
-        .task-item.banked { opacity: 0.68; border-left-color: var(--success); background: rgba(24, 27, 32, 0.6); }
-        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 10px; }
+        .task-item.banked { opacity: 0.72; border-left-color: var(--success); background: rgba(24, 27, 32, 0.65); }
+        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; gap: 10px; }
         .task-title { font-size: 1.15rem; font-weight: 700; color: #fff; }
-        .task-controls { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+        .task-controls { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
         .task-action-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
         .task-input-box { width: 78px; flex-shrink: 0; }
         .task-input-box input { margin: 0; padding: 8px; text-align: center; font-weight: bold; }
         .btn-task-action { margin: 0; padding: 10px 14px; flex: 1; border-radius: 10px; }
-        .btn-task-action.done { background: var(--success); color: #000; }
-        .btn-task-action.missed { background: rgba(255, 82, 82, 0.15); color: var(--danger); border: 1px solid rgba(255, 82, 82, 0.35); flex: 0.6; }
+        .btn-task-action.done { background: linear-gradient(135deg, var(--success), #00b894); color: #000; }
+        .btn-task-action.missed { background: rgba(255, 82, 82, 0.15); color: var(--danger); border: 1px solid rgba(255, 82, 82, 0.35); flex: 0.55; }
         .btn-task-action.bad { background: rgba(207, 102, 121, 0.2); color: var(--bad); border: 1px solid var(--bad); }
 
-        /* 7-Day Mini Strip on Task Cards & 30-Day Grid */
-        .mini-week-strip { display: flex; gap: 6px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+        /* 7-Day Mini Strip on Task Cards */
+        .mini-week-strip { 
+            display: flex; 
+            gap: 5px; 
+            margin-top: 10px; 
+            padding-top: 10px;
+            border-top: 1px dashed rgba(255,255,255,0.07);
+            align-items: center; 
+            flex-wrap: wrap; 
+        }
         .day-pill { 
             font-size: 0.7rem; 
-            padding: 3px 7px; 
-            border-radius: 6px; 
+            font-weight: 600;
+            padding: 4px 8px; 
+            min-height: 30px;
+            border-radius: 8px; 
             background: var(--card-elevated); 
             color: var(--text-muted); 
             border: 1px solid var(--border);
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            gap: 3px;
+            gap: 4px;
+            transition: all 0.15s ease;
         }
-        .day-pill.done { background: rgba(3, 218, 198, 0.15); color: var(--success); border-color: rgba(3, 218, 198, 0.4); }
-        .day-pill.missed { background: rgba(255, 82, 82, 0.15); color: var(--danger); border-color: rgba(255, 82, 82, 0.4); }
+        .day-pill:hover { border-color: var(--primary); transform: translateY(-1px); }
+        .day-pill.done { background: rgba(3, 218, 198, 0.14); color: var(--success); border-color: rgba(3, 218, 198, 0.4); }
+        .day-pill.missed { background: rgba(255, 82, 82, 0.16); color: var(--danger); border-color: rgba(255, 82, 82, 0.45); }
 
+        /* Upgraded 30-Day Interactive Calendar Grid (Tasks & Habits) */
         .calendar-30-grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); 
-            gap: 10px; 
-            margin-top: 15px; 
+            grid-template-columns: repeat(5, 1fr); 
+            gap: 8px; 
+            margin-top: 12px; 
         }
-        .cal-day-card {
+        @media (min-width: 500px) { .calendar-30-grid { grid-template-columns: repeat(6, 1fr); } }
+        
+        .cal-day-card, .cal-day-cell {
             background: var(--card-elevated);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 10px 8px;
+            border: 1.5px solid var(--border);
+            border-radius: 12px;
+            padding: 8px 4px;
             text-align: center;
             cursor: pointer;
-            min-height: 74px;
+            min-height: 72px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             align-items: center;
-            transition: transform 0.15s, border-color 0.15s;
+            transition: all 0.16s ease;
+            position: relative;
+            user-select: none;
         }
-        .cal-day-card:active { transform: scale(0.95); }
-        .cal-day-card.status-done { background: rgba(3, 218, 198, 0.12); border-color: var(--success); }
-        .cal-day-card.status-missed { background: rgba(255, 82, 82, 0.15); border-color: var(--danger); }
-        .cal-day-card.status-empty { opacity: 0.85; }
-        .cal-day-card.status-empty:hover, .cal-day-card.status-missed:hover { border-color: var(--primary); }
+        .cal-day-card:hover, .cal-day-cell:hover { border-color: rgba(187, 134, 252, 0.6); transform: translateY(-2px); }
+        .cal-day-card:active, .cal-day-cell:active { transform: scale(0.95); }
+        .cal-day-card.status-done, .cal-day-cell.status-done { background: rgba(3, 218, 198, 0.13); border-color: rgba(3, 218, 198, 0.45); color: var(--success); }
+        .cal-day-card.status-missed, .cal-day-cell.status-missed { background: rgba(255, 82, 82, 0.15); border-color: rgba(255, 82, 82, 0.5); color: var(--danger); }
+        .cal-day-card.status-unlogged, .cal-day-cell.status-unlogged { background: #1d2027; color: var(--text-muted); }
+        .cal-day-card.status-before, .cal-day-cell.status-before { opacity: 0.35; cursor: not-allowed; }
+        
+        /* Clear Active Selection Highlight */
+        .cal-day-card.selected-day, .cal-day-cell.selected-day {
+            border: 2px solid var(--primary) !important;
+            box-shadow: 0 0 0 3px rgba(187, 134, 252, 0.28), 0 6px 16px rgba(0,0,0,0.4);
+            transform: translateY(-2px);
+            z-index: 2;
+        }
+        .cal-date-top { font-size: 0.72rem; font-weight: 700; color: #e5e7eb; line-height: 1.1; }
+        .cal-weekday { font-size: 0.62rem; color: var(--text-muted); text-transform: uppercase; }
+        .cal-icon-mid { font-size: 1.1rem; margin: 2px 0; }
+        .cal-meta-bot { font-size: 0.64rem; font-weight: 700; padding: 1px 5px; border-radius: 6px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* Selected Day Inspector Panel inside 30-Day Modals */
+        .day-inspector-card {
+            background: var(--card-elevated);
+            border: 1px solid var(--primary);
+            border-radius: 14px;
+            padding: 16px;
+            margin-top: 16px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+            animation: fadeIn 0.2s ease-out;
+        }
 
         /* Morning Recap Banner */
         .yesterday-recap-banner {
-            background: linear-gradient(135deg, rgba(255, 82, 82, 0.15), rgba(255, 177, 66, 0.12));
-            border: 1px solid rgba(255, 82, 82, 0.4);
+            background: linear-gradient(135deg, rgba(255, 82, 82, 0.16), rgba(255, 177, 66, 0.12));
+            border: 1px solid rgba(255, 82, 82, 0.45);
             border-radius: 14px;
-            padding: 15px;
+            padding: 16px;
             margin-bottom: 20px;
             display: none;
         }
         
         /* Touch Targets */
-        .btn-icon { background: var(--card-elevated); border: 1px solid var(--border); color: #fff; padding: 8px; min-width: 44px; min-height: 44px; margin: 0; font-size: 1.05rem; border-radius: 10px; display:inline-flex; align-items:center; justify-content:center;}
+        .btn-icon { background: var(--card-elevated); border: 1px solid var(--border); color: #fff; padding: 8px; min-width: 44px; min-height: 44px; width: auto; margin: 0; font-size: 1.05rem; border-radius: 10px; display:inline-flex; align-items:center; justify-content:center;}
+        .btn-icon:hover { border-color: var(--primary); }
         
         /* Qada Grid */
         .qada-row { display: flex; justify-content: space-between; align-items: center; background: var(--card-elevated); padding: 10px 15px; margin-bottom: 6px; border-radius: 10px; border: 1px solid var(--border); }
         .qada-controls { display: flex; gap: 10px; align-items: center; }
-        .qada-btn { min-width: 44px; height: 44px; padding: 0; margin: 0; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; background: rgba(255,255,255,0.08); color: #fff; border-radius: 10px;}
+        .qada-btn { min-width: 44px; height: 44px; width: auto; padding: 0; margin: 0; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; background: rgba(255,255,255,0.08); color: #fff; border-radius: 10px;}
         .qada-btn.minus { background: rgba(3, 218, 198, 0.2); color: var(--success); }
 
         /* Quran Item */
@@ -247,13 +292,13 @@
         .progress-bar-fill { height: 100%; background: var(--budget); transition: width 0.3s ease; }
         
         /* Animations */
-        .floating-emoji { position: fixed; font-size: 2rem; pointer-events: none; animation: floatUp 1s ease-out forwards; z-index: 1000; }
+        .floating-emoji { position: fixed; font-size: 2rem; pointer-events: none; animation: floatUp 1s ease-out forwards; z-index: 2000; }
         @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-50px) scale(1.5); } }
         @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
         .shake-angry { animation: shake 0.4s ease-in-out; background: #ff0000 !important; }
 
         /* History Modal */
-        #history-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 200; overflow-y: auto; padding: 20px; backdrop-filter: blur(5px); }
+        #history-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1200; overflow-y: auto; padding: 20px; backdrop-filter: blur(5px); }
         .hist-filter-btn { background: var(--card-elevated); color: var(--text-muted); border: 1px solid var(--border); padding: 8px 14px; border-radius: 20px; font-size: 0.82rem; width: auto; min-height: 40px; margin: 0; cursor: pointer; white-space: nowrap; }
         .hist-filter-btn.active { background: var(--primary); color: #000; font-weight: bold; border-color: var(--primary); }
     </style>
@@ -289,11 +334,16 @@
             <h2 style="margin-top:0;">Dashboard</h2>
             
             <div style="background:var(--card); padding:20px; border-radius:16px; text-align:center; margin-bottom:20px; border:1px solid rgba(255, 177, 66, 0.4); box-shadow: 0 8px 24px rgba(0,0,0,0.25);">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
                     <span style="color:var(--charity); font-weight:bold;">⚖️ Pending Charity Penalty</span>
-                    <span style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:5px 12px; border-radius:8px; font-size:0.85rem; font-weight:bold; border:1px solid rgba(3,218,198,0.3);">
-                        🌟 Surplus: ₹<span id="display-surplus-wallet">0</span>
-                    </span>
+                    <div style="display:flex; gap:8px;">
+                        <span style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:5px 12px; border-radius:8px; font-size:0.82rem; font-weight:bold; border:1px solid rgba(3,218,198,0.3);">
+                            🌟 Surplus: ₹<span id="display-surplus-wallet">0</span>
+                        </span>
+                        <span style="background:rgba(187, 134, 252, 0.15); color:var(--primary); padding:5px 12px; border-radius:8px; font-size:0.82rem; font-weight:bold; border:1px solid rgba(187,134,252,0.3);">
+                            🏆 Pts: <span id="display-bonus-points-dash">0</span>
+                        </span>
+                    </div>
                 </div>
                 <div style="font-size:3rem; font-weight:800; color:#fff; margin:10px 0;">₹<span id="donation-pending">0</span></div>
                 <div style="color:var(--text-muted); font-size:0.9rem; margin-bottom:15px;">Total Paid Lifetime: ₹<span id="donation-paid">0</span></div>
@@ -350,7 +400,7 @@
                 </select>
             </div>
             
-            <button class="main-action-btn" onclick="openModal('task-modal')">
+            <button class="main-action-btn" onclick="cancelEdit(); openModal('task-modal');">
                 ➕ Add New Task / Goal
             </button>
 
@@ -365,7 +415,7 @@
                     <button class="btn-icon" onclick="closeModal('task-modal')">❌</button>
                 </div>
                 <input type="hidden" id="task-id">
-                <input type="text" id="task-title" placeholder="Task Name (e.g., Pushups, Read Pages)">
+                <input type="text" id="task-title" placeholder="Task Name (e.g., Pushups, Hizb, Swalath)">
                 <div style="display:flex; gap:10px;">
                     <select id="task-type" style="flex:1;">
                         <option value="daily">Daily Target</option>
@@ -383,23 +433,24 @@
                     <input type="checkbox" id="task-is-max-once" style="width:22px; height:22px; min-height:22px; margin:0;"> 
                     Strict: Track daily missed log & apply ₹50 penalty every 5 missed days.
                 </label>
-                <button id="btn-save-task" onclick="saveTask(); closeModal('task-modal');">Save Task</button>
+                <button id="btn-save-task" onclick="saveTask()">Save Task</button>
                 <button id="btn-cancel-edit" onclick="cancelEdit(); closeModal('task-modal');" style="display:none; background:#333; color:#fff;">Cancel</button>
             </div>
         </div>
 
-        <!-- 30-Day Task History & Catch-Up Modal -->
+        <!-- 30-Day Task History, Inspector & Penalty Refund Modal -->
         <div id="task-30day-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('task-30day-modal')">
             <div class="modal-content" style="max-width:650px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; gap:10px;">
                     <div>
                         <h2 id="task-30day-title" style="margin:0; font-size:1.25rem; color:var(--primary);">📅 30-Day Task History</h2>
-                        <div id="task-30day-subtitle" style="font-size:0.82rem; color:var(--text-muted); margin-top:4px;">Tap any missed or past unfulfilled day to complete it retroactively & refund penalties.</div>
+                        <div id="task-30day-subtitle" style="font-size:0.82rem; color:var(--text-muted); margin-top:4px;">Select any date below to fulfill missed tasks, refund penalties, or undo logs.</div>
                     </div>
                     <button class="btn-icon" onclick="closeModal('task-30day-modal')">❌</button>
                 </div>
-                <div id="task-30day-summary" style="display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap;"></div>
+                <div id="task-30day-summary" style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;"></div>
                 <div id="task-30day-grid" class="calendar-30-grid"></div>
+                <div id="task-30day-inspector" class="day-inspector-card" style="display:none;"></div>
             </div>
         </div>
 
@@ -407,16 +458,22 @@
         <!-- HABITS TAB -->
         <!-- ========================================== -->
         <div id="tab-bad-habits" class="tab-content">
-            <h2 style="margin-top:0; margin-bottom: 20px;">Habits & Vices</h2>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
+                <h2 style="margin:0;">Habits & Vices</h2>
+                <div style="display:flex; gap:8px;">
+                    <span class="badge done-badge" style="font-size:0.8rem;">🌟 Surplus: ₹<span id="display-surplus-wallet-habits">0</span></span>
+                    <span class="badge target" style="font-size:0.8rem;">🏆 Points: <span id="display-bonus-points">0</span></span>
+                </div>
+            </div>
             
-            <button class="main-action-btn" onclick="openModal('good-habit-modal')" style="border-color:var(--success); color:var(--success); background:rgba(3,218,198,0.06);">
+            <button class="main-action-btn" onclick="cancelEditGoodHabit(); openModal('good-habit-modal');" style="border-color:var(--success); color:var(--success); background:rgba(3,218,198,0.06);">
                 🌟 Add Good Habit Tracker
             </button>
             <div id="good-habit-list-container" style="margin-bottom: 30px;"></div>
 
             <hr style="border-color:var(--border); margin: 30px 0;">
 
-            <button class="main-action-btn" onclick="openModal('bad-habit-modal')" style="border-color:var(--bad); color:var(--bad); background:rgba(207,102,121,0.06);">
+            <button class="main-action-btn" onclick="cancelEditBadHabit(); openModal('bad-habit-modal');" style="border-color:var(--bad); color:var(--bad); background:rgba(207,102,121,0.06);">
                 🚫 Add Vice / Trigger Tracker
             </button>
             <div id="bad-habit-list-container"></div>
@@ -438,7 +495,7 @@
                     </select>
                     <input type="number" id="good-habit-reward-value" placeholder="Value" style="flex:1;" min="1">
                 </div>
-                <button id="btn-save-good-habit" onclick="addGoodHabit(); closeModal('good-habit-modal');" style="background:var(--success);">Save Good Habit</button>
+                <button id="btn-save-good-habit" onclick="addGoodHabit()" style="background:var(--success); color:#000;">Save Good Habit</button>
                 <button id="btn-cancel-edit-good-habit" onclick="cancelEditGoodHabit(); closeModal('good-habit-modal');" style="display:none; background:#333; color:#fff;">Cancel</button>
             </div>
         </div>
@@ -452,8 +509,23 @@
                 <input type="hidden" id="bad-habit-id">
                 <input type="text" id="bad-habit-title" placeholder="e.g., Junk Food, Late Sleep">
                 <input type="number" id="bad-habit-donation" placeholder="Penalty ₹">
-                <button id="btn-save-bad-habit" onclick="addBadHabit(); closeModal('bad-habit-modal');" style="background:var(--bad); color:#fff;">Save Bad Habit</button>
+                <button id="btn-save-bad-habit" onclick="addBadHabit()" style="background:var(--bad); color:#fff;">Save Bad Habit</button>
                 <button id="btn-cancel-edit-bad-habit" onclick="cancelEditBadHabit(); closeModal('bad-habit-modal');" style="display:none; background:#333; color:#fff;">Cancel</button>
+            </div>
+        </div>
+        <!-- 30-Day Habit Streak & Retroactive Inspector Modal -->
+        <div id="habit-30day-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('habit-30day-modal')">
+            <div class="modal-content" style="max-width:650px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; gap:10px;">
+                    <div>
+                        <h2 id="habit-30day-title" style="margin:0; font-size:1.25rem; color:var(--success);">📅 30-Day Habit History</h2>
+                        <div id="habit-30day-subtitle" style="font-size:0.82rem; color:var(--text-muted); margin-top:4px;">Tap any date to log retroactively or undo entries (auto-adjusts Surplus, Points & Penalties).</div>
+                    </div>
+                    <button class="btn-icon" onclick="closeModal('habit-30day-modal')">❌</button>
+                </div>
+                <div id="habit-30day-summary" style="display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;"></div>
+                <div id="habit-30day-grid" class="calendar-30-grid"></div>
+                <div id="habit-30day-inspector" class="day-inspector-card" style="display:none;"></div>
             </div>
         </div>
 
@@ -609,7 +681,7 @@
                 <input type="text" id="expense-desc" placeholder="What did you buy? (e.g., Groceries)">
                 <input type="number" id="expense-amount" placeholder="₹ Amount">
                 <input type="date" id="expense-date">
-                <button onclick="addExpense(); closeModal('expense-modal');" style="background:var(--danger); color:#fff;">Log Expense</button>
+                <button onclick="addExpense()" style="background:var(--danger); color:#fff;">Log Expense</button>
             </div>
         </div>
 
@@ -629,7 +701,7 @@
                     <option value="lent">I Lent (They Owe Me)</option>
                 </select>
                 <input type="date" id="debt-date">
-                <button onclick="addDebt(); closeModal('debt-modal');" style="background:var(--warning); color:#000;">Log Debt</button>
+                <button onclick="addDebt()" style="background:var(--warning); color:#000;">Log Debt</button>
             </div>
         </div>
 
@@ -646,7 +718,7 @@
                 </select>
             </div>
 
-            <button class="main-action-btn" onclick="openModal('backlog-modal')" style="border-color:var(--backlog); color:var(--backlog); background:rgba(255,138,101,0.06);">
+            <button class="main-action-btn" onclick="cancelEditBacklogItem(); openModal('backlog-modal');" style="border-color:var(--backlog); color:var(--backlog); background:rgba(255,138,101,0.06);">
                 📌 Save Link / Book / Video
             </button>
 
@@ -674,7 +746,7 @@
                     <option value="other">🔖 Other</option>
                 </select>
                 <textarea id="backlog-notes" placeholder="Notes (Optional)" rows="2"></textarea>
-                <button id="btn-save-backlog" onclick="addBacklogItem(); closeModal('backlog-modal');" style="background:var(--backlog); color:#000;">Save to Library</button>
+                <button id="btn-save-backlog" onclick="addBacklogItem()" style="background:var(--backlog); color:#000;">Save to Library</button>
                 <button id="btn-cancel-edit-backlog" onclick="cancelEditBacklogItem(); closeModal('backlog-modal');" style="display:none; background:#333; color:#fff; margin-top:10px;">Cancel</button>
             </div>
         </div>

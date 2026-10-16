@@ -95,6 +95,7 @@ let badHabitsChart = null;
 let showAllQada = false;
 let currentHistoryFilter = 'all';
 let active30DayTaskId = null;
+let selected30DayDateKey = null;
 
 // ==========================================
 // DATE HELPERS FOR ACCURATE DAY BOUNDARIES
@@ -113,6 +114,12 @@ function getDayBounds(dateKey) {
     const end = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
     const noon = new Date(y, m - 1, d, 12, 0, 0, 0).getTime();
     return { start, end, noon };
+}
+
+function isLogOnDateKey(log, dateKey) {
+    if (log.missedDateKey === dateKey || log.fulfilledDateKey === dateKey) return true;
+    const { start, end } = getDayBounds(dateKey);
+    return log.timestamp >= start && log.timestamp <= end;
 }
 
 // ==========================================
@@ -213,7 +220,7 @@ function migrateLegacyTasks() {
 
 // ==========================================
 // FIXED MORNING MISSED TASKS & PENALTY ENGINE
-// Evaluates strictly up to YESTERDAY (never marks today's pending tasks as missed!)
+// Strictly checks up to YESTERDAY (never marks today's pending tasks as missed!)
 // ==========================================
 function processAutomaticPenalties() {
     if (!hasInitialCloudSync) return false;
@@ -231,12 +238,10 @@ function processAutomaticPenalties() {
             const createdStart = new Date(t.createdAt || Date.now());
             createdStart.setHours(0, 0, 0, 0);
 
-            // Initialize lastEvaluatedDateKey if missing or legacy
             if (!t.lastEvaluatedDateKey) {
                 if (t.penaltyCheckDate) {
                     const parsedOld = new Date(t.penaltyCheckDate);
                     parsedOld.setHours(0, 0, 0, 0);
-                    // Step back 1 day so yesterday is properly evaluated if needed
                     const initDate = new Date(Math.min(parsedOld.getTime(), todayStart) - 86400000);
                     t.lastEvaluatedDateKey = toDateKey(Math.max(createdStart.getTime() - 86400000, initDate.getTime()));
                 } else {
@@ -248,25 +253,24 @@ function processAutomaticPenalties() {
             let cursor = getDayBounds(t.lastEvaluatedDateKey).start + 86400000;
             while (cursor < todayStart) {
                 const checkKey = toDateKey(cursor);
-                const { start, end, noon } = getDayBounds(checkKey);
+                const { start, noon } = getDayBounds(checkKey);
 
                 if (start >= createdStart.getTime()) {
                     const doneLogs = activityHistory.filter(h =>
                         h.taskId === t.id &&
                         h.actionType === 'complete' &&
-                        h.timestamp >= start &&
-                        h.timestamp <= end
+                        isLogOnDateKey(h, checkKey)
                     );
                     const amountDone = doneLogs.reduce((s, h) => s + (h.amount || 1), 0);
                     const alreadyMarkedMissed = activityHistory.some(h =>
                         h.taskId === t.id &&
                         h.actionType === 'missed' &&
-                        h.timestamp >= start &&
-                        h.timestamp <= end
+                        isLogOnDateKey(h, checkKey)
                     );
 
                     if (amountDone < (t.baseTarget || 1) && !alreadyMarkedMissed) {
                         let dayPenalty = 0;
+                        let strictPenaltyTriggered = false;
                         let addedPenalty = 0;
                         let coveredSurplus = 0;
 
@@ -274,6 +278,7 @@ function processAutomaticPenalties() {
                             t.missedCount = (t.missedCount || 0) + 1;
                             if (t.missedCount >= 5) {
                                 dayPenalty += 50;
+                                strictPenaltyTriggered = true;
                                 t.missedCount = 0;
                             }
                         }
@@ -295,6 +300,7 @@ function processAutomaticPenalties() {
                             taskType: t.type,
                             timestamp: noon,
                             missedDateKey: checkKey,
+                            strict50Applied: strictPenaltyTriggered,
                             title: `Missed (${checkKey}): ${t.title}`,
                             actionType: 'missed',
                             amount: t.baseTarget || 1,
@@ -324,21 +330,18 @@ function processAutomaticPenalties() {
         }
     });
 
-    // Also render morning report banner for yesterday's actual missed tasks
     renderMorningMissedBanner(yesterdayKey, yesterdayMissedTitles, totalPenaltyAdded);
     return needsSave;
 }
 
 function renderMorningMissedBanner(yesterdayKey, newMissedList = [], penaltyAdded = 0) {
-    const banner = document.getElementById('morning-missed-banner');
+    const banner = document.getElementById('yesterday-recap-banner') || document.getElementById('morning-missed-banner');
     if (!banner) return;
 
-    const { start, end } = getDayBounds(yesterdayKey);
     const yesterdayMissedLogs = activityHistory.filter(h =>
         h.category === 'tasks' &&
         h.actionType === 'missed' &&
-        h.timestamp >= start &&
-        h.timestamp <= end
+        isLogOnDateKey(h, yesterdayKey)
     );
 
     if (yesterdayMissedLogs.length === 0) {
@@ -350,8 +353,9 @@ function renderMorningMissedBanner(yesterdayKey, newMissedList = [], penaltyAdde
         const task = tasks.find(t => t.id === log.taskId);
         const taskName = task ? task.title : log.title.replace(/^Missed.*?:\s*/, '');
         const pen = (log.donationAdded || 0) + (log.coveredBySurplus || 0);
-        return `<li style="margin-bottom:4px;"><strong>${taskName}</strong> ${pen > 0 ? `<span style="color:var(--charity);">(Penalty: ₹${pen})</span>` : ''} 
-            ${task ? `<button onclick="openTask30DayModal('${task.id}')" style="background:rgba(3,218,198,0.18); color:var(--success); border:1px solid var(--success); padding:2px 8px; font-size:0.75rem; width:auto; min-height:28px; margin:0 0 0 8px; border-radius:6px;">Fulfill Now</button>` : ''}
+        return `<li style="margin-bottom:6px;">
+            <strong>${taskName}</strong> ${pen > 0 ? `<span style="color:var(--charity);">(Penalty: ₹${pen})</span>` : ''} 
+            ${task ? `<button onclick="openTask30DayModal('${task.id}', '${yesterdayKey}')" style="background:rgba(3,218,198,0.18); color:var(--success); border:1px solid var(--success); padding:3px 10px; font-size:0.75rem; width:auto; min-height:28px; margin:0 0 0 8px; border-radius:6px;">Fulfill & Refund</button>` : ''}
         </li>`;
     }).join('');
 
@@ -365,11 +369,11 @@ function renderMorningMissedBanner(yesterdayKey, newMissedList = [], penaltyAdde
                 <ul style="margin:0; padding-left:18px; font-size:0.85rem; color:#eee;">
                     ${itemsHtml}
                 </ul>
-                <div style="font-size:0.78rem; color:#aaa; margin-top:8px;">
-                    💡 Fulfill any missed task from its <strong>📅 30-Day History</strong> to automatically refund its penalty!
+                <div style="font-size:0.78rem; color:var(--text-muted); margin-top:8px;">
+                    💡 Tap <strong>Fulfill & Refund</strong> or open any task's <strong>📅 30-Day History</strong> to complete missed days and deduct penalties!
                 </div>
             </div>
-            <button class="btn-icon" onclick="document.getElementById('morning-missed-banner').style.display='none'" style="min-width:34px; min-height:34px; font-size:0.85rem;">✖</button>
+            <button class="btn-icon" onclick="this.closest('.yesterday-recap-banner').style.display='none'" style="min-width:34px; min-height:34px; font-size:0.85rem;">✖</button>
         </div>
     `;
 
@@ -534,10 +538,9 @@ function logProgress(id) {
 
     const todayStr = new Date().toDateString();
     const todayKey = toDateKey(Date.now());
-    const { start, end } = getDayBounds(todayKey);
 
-    // Check if this task was already marked missed today; if so, refund today's penalty automatically!
-    const missedTodayLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= start && h.timestamp <= end);
+    // If this task was already marked missed today, automatically reverse today's missed log & refund penalty
+    const missedTodayLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && isLogOnDateKey(h, todayKey));
     missedTodayLogs.forEach(mLog => {
         refundPenaltyFromLog(mLog);
         task.currentTarget += (mLog.amount || 1);
@@ -549,14 +552,13 @@ function logProgress(id) {
     task.lastCompletedDay = todayStr;
     if (task.isMaxOnceDaily) task.missedCount = 0;
     
-    let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone };
+    let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), fulfilledDateKey: todayKey, title: "Completed: " + task.title, actionType: 'complete', amount: amountDone };
     activityHistory.push(newLog);
     syncToGoogleSheets(newLog);
 
     task.currentTarget = Math.max(0, (task.currentTarget || 0) - amountDone);
     if (task.currentTarget <= 0) task.isCompleted = true; 
     
-    // --- AUTOMATION ENGINE ---
     applyDeenAutomation(task.title, amountDone);
 
     saveData(); render();
@@ -584,123 +586,235 @@ function markMissed(id, event) {
 }
 
 // ==========================================
-// 30-DAY PER-TASK INTERACTIVE CALENDAR & RETROACTIVE FULFILLMENT
+// UPGRADED 30-DAY PER-TASK INTERACTIVE CALENDAR,
+// DAY INSPECTOR, UNDO, & PENALTY DEDUCTION ENGINE
 // ==========================================
-function openTask30DayModal(taskId) {
+// ==========================================
+// HELPER: CHECK IF A LOG BELONGS TO A YYYY-MM-DD DATE KEY
+// ==========================================
+let active30DayHabitId = null;
+let active30DayHabitKind = 'good'; // 'good' or 'bad'
+let selectedHabit30DayDateKey = null;
+
+function isLogOnDateKey(log, dateKey) {
+    if (log.missedDateKey === dateKey || log.fulfilledDateKey === dateKey || log.habitDateKey === dateKey) return true;
+    const { start, end } = getDayBounds(dateKey);
+    return log.timestamp >= start && log.timestamp <= end;
+}
+
+// ==========================================
+// 30-DAY PER-TASK INTERACTIVE CALENDAR,
+// DAY INSPECTOR, UNDO, & PENALTY DEDUCTION ENGINE
+// ==========================================
+function openTask30DayModal(taskId, initialDateKey = null) {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     active30DayTaskId = taskId;
 
-    document.getElementById('task-30day-title').innerText = `📅 ${task.title} (Last 30 Days)`;
+    document.getElementById('task-30day-title').innerText = `📅 ${task.title}`;
     const grid = document.getElementById('task-30day-grid');
     const summaryEl = document.getElementById('task-30day-summary');
     grid.innerHTML = '';
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const createdDate = new Date(task.createdAt || Date.now());
-    createdDate.setHours(0, 0, 0, 0);
+    const todayKey = toDateKey(todayStart);
+
+    if (!selected30DayDateKey || initialDateKey) {
+        selected30DayDateKey = initialDateKey || todayKey;
+    }
 
     let doneDaysCount = 0;
     let missedDaysCount = 0;
-    let totalPenaltyOnTask = 0;
 
-    // Render from 29 days ago up to today (30 days total)
+    // Render last 30 days (from 29 days ago up to today)
     for (let i = 29; i >= 0; i--) {
         const cellDate = new Date(todayStart - i * 86400000);
         const dateKey = toDateKey(cellDate);
-        const { start, end } = getDayBounds(dateKey);
         const shortLabel = cellDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        const weekdayLabel = cellDate.toLocaleDateString(undefined, { weekday: 'short' });
 
-        const doneLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && h.timestamp >= start && h.timestamp <= end);
-        const missedLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= start && h.timestamp <= end);
+        const doneLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && isLogOnDateKey(h, dateKey));
+        const missedLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && isLogOnDateKey(h, dateKey));
 
         const amountDone = doneLogs.reduce((s, h) => s + (h.amount || 1), 0);
         const penaltyDay = missedLogs.reduce((s, h) => s + (h.donationAdded || 0) + (h.coveredBySurplus || 0), 0);
 
         const cell = document.createElement('div');
-        const isBeforeCreation = start < createdDate.getTime() && doneLogs.length === 0 && missedLogs.length === 0;
+        let statusClass = 'status-unlogged';
+        let iconHtml = i === 0 ? '⏳' : '⚪';
+        let metaHtml = i === 0 ? 'Today' : 'Unlogged';
 
         if (amountDone >= (task.baseTarget || 1) || doneLogs.length > 0) {
             doneDaysCount++;
-            cell.className = 'cal-day-cell status-done';
-            cell.innerHTML = `
-                <div class="cal-date-label">${shortLabel}</div>
-                <div class="cal-status-icon">✅</div>
-                <div class="cal-sub-info">${amountDone} done</div>
-            `;
-            cell.title = `Completed on ${dateKey}`;
+            statusClass = 'status-done';
+            iconHtml = '✅';
+            metaHtml = `${amountDone} done`;
         } else if (missedLogs.length > 0) {
             missedDaysCount++;
-            totalPenaltyOnTask += penaltyDay;
-            cell.className = 'cal-day-cell status-missed';
-            cell.innerHTML = `
-                <div class="cal-date-label">${shortLabel}</div>
-                <div class="cal-status-icon">❌</div>
-                <div class="cal-sub-info">${penaltyDay > 0 ? `₹${penaltyDay}` : 'Missed'}</div>
-            `;
-            cell.onclick = () => fulfillMissedTaskDay(task.id, dateKey);
-        } else if (isBeforeCreation) {
-            cell.className = 'cal-day-cell status-before';
-            cell.innerHTML = `
-                <div class="cal-date-label">${shortLabel}</div>
-                <div class="cal-status-icon">—</div>
-                <div class="cal-sub-info">N/A</div>
-            `;
-        } else {
-            cell.className = 'cal-day-cell status-unlogged';
-            cell.innerHTML = `
-                <div class="cal-date-label">${shortLabel}</div>
-                <div class="cal-status-icon">${i === 0 ? '⏳' : '⚪'}</div>
-                <div class="cal-sub-info">${i === 0 ? 'Today' : 'Tap to fill'}</div>
-            `;
-            cell.onclick = () => fulfillMissedTaskDay(task.id, dateKey);
+            const displayPenalty = penaltyDay > 0 ? penaltyDay : (task.donationPenalty || 0);
+            statusClass = 'status-missed';
+            iconHtml = '❌';
+            metaHtml = displayPenalty > 0 ? `-₹${displayPenalty}` : 'Missed';
         }
+
+        const isSelected = (dateKey === selected30DayDateKey);
+        cell.className = `cal-day-card ${statusClass}${isSelected ? 'selected-day' : ''}`;
+        cell.innerHTML = `
+            <div class="cal-date-top">${shortLabel}</div>
+            <div class="cal-weekday">${weekdayLabel}</div>
+            <div class="cal-icon-mid">${iconHtml}</div>
+            <div class="cal-meta-bot">${metaHtml}</div>
+        `;
+
+        cell.onclick = () => {
+            selected30DayDateKey = dateKey;
+            openTask30DayModal(task.id, dateKey);
+        };
 
         grid.appendChild(cell);
     }
 
     summaryEl.innerHTML = `
         <span class="badge done-badge">✅ Completed: ${doneDaysCount}d</span>
-        <span class="badge" style="background:rgba(255,82,82,0.15); color:var(--danger);">❌ Missed: ${missedDaysCount}d</span>
-        ${totalPenaltyOnTask > 0 ? `<span class="badge donation">💸 Refundable Penalty: ₹${totalPenaltyOnTask}</span>` : ''}
+        <span class="badge" style="background:rgba(255,82,82,0.15); color:var(--danger); border:1px solid rgba(255,82,82,0.35);">❌ Missed: ${missedDaysCount}d</span>
+        <span class="badge donation">💸 Task Penalty Rate: ₹${task.donationPenalty || (task.isMaxOnceDaily ? '50 / 5d' : 0)}</span>
+        <span class="badge target">⚖️ Pending Wallet: ₹${charityData.pending}</span>
     `;
 
+    render30DayInspector(task, selected30DayDateKey);
     openModal('task-30day-modal');
 }
 
-function fulfillMissedTaskDay(taskId, dateKey) {
+function render30DayInspector(task, dateKey) {
+    const inspector = document.getElementById('task-30day-inspector');
+    if (!inspector || !task || !dateKey) return;
+
+    const doneLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && isLogOnDateKey(h, dateKey));
+    const missedLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && isLogOnDateKey(h, dateKey));
+    const amountDone = doneLogs.reduce((s, h) => s + (h.amount || 1), 0);
+
+    const loggedPenalty = missedLogs.reduce((s, h) => s + (h.donationAdded || 0) + (h.coveredBySurplus || 0), 0);
+    const taskPenaltyRate = task.donationPenalty || 0;
+    const effectiveRefund = loggedPenalty > 0 ? loggedPenalty : (taskPenaltyRate > 0 ? Math.min(charityData.pending, taskPenaltyRate) : 0);
+
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const readableDate = new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
+
+    inspector.style.display = 'block';
+
+    if (doneLogs.length > 0) {
+        inspector.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                <div>
+                    <div style="font-size:0.8rem; color:var(--text-muted);">Selected Date</div>
+                    <div style="font-size:1.05rem; font-weight:800; color:var(--success);">✅ ${readableDate}</div>
+                </div>
+                <span class="badge done-badge" style="margin:0;">Logged: ${amountDone} /${task.baseTarget || 1}</span>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button onclick="undoTaskDayLogs('${task.id}', '${dateKey}')" style="background:rgba(255, 82, 82, 0.16); color:var(--danger); border:1px solid rgba(255, 82, 82, 0.4); flex:1; margin:0;">
+                    ↩️ Undo Completion on ${dateKey}
+                </button>
+                <button onclick="fulfillMissedTaskDay('${task.id}', '${dateKey}')" style="background:var(--card); color:var(--primary); border:1px solid var(--primary); flex:1; margin:0;">
+                    ➕ Log Extra Units
+                </button>
+            </div>
+        `;
+    } else if (missedLogs.length > 0) {
+        inspector.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                <div>
+                    <div style="font-size:0.8rem; color:var(--text-muted);">Selected Date (Missed)</div>
+                    <div style="font-size:1.05rem; font-weight:800; color:var(--danger);">❌ ${readableDate}</div>
+                </div>
+                <span class="badge donation" style="margin:0;">
+                    💸 Refund on Completion: ₹${effectiveRefund}
+                </span>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px;">
+                <div style="width:95px; flex-shrink:0;">
+                    <input type="number" id="inspector-amount-input" value="${task.baseTarget || 1}" step="any" min="0.1" style="margin:0; text-align:center; font-weight:bold;">
+                </div>
+                <button onclick="fulfillMissedTaskDay('${task.id}', '${dateKey}', true)" style="background:var(--success); color:#000; flex:1; margin:0;">
+                    ✅ Fulfill Task & Deduct ₹${effectiveRefund} Penalty
+                </button>
+            </div>
+            <button onclick="undoTaskDayLogs('${task.id}', '${dateKey}')" style="background:transparent; color:var(--text-muted); border:1px solid var(--border); width:100%; margin:0; min-height:38px; font-size:0.82rem;">
+                ↩️ Remove Missed Status (Undo Missed Log Only)
+            </button>
+        `;
+    } else {
+        inspector.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                <div>
+                    <div style="font-size:0.8rem; color:var(--text-muted);">Selected Date (Unlogged)</div>
+                    <div style="font-size:1.05rem; font-weight:800; color:#fff;">⚪ ${readableDate}</div>
+                </div>
+                ${effectiveRefund > 0 ? `<span class="badge donation" style="margin:0;">💸 Deducts ₹${effectiveRefund} Penalty</span>` : `<span class="badge target" style="margin:0;">Target: ${task.baseTarget || 1}</span>`}
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <div style="width:95px; flex-shrink:0;">
+                    <input type="number" id="inspector-amount-input" value="${task.baseTarget || 1}" step="any" min="0.1" style="margin:0; text-align:center; font-weight:bold;">
+                </div>
+                <button onclick="fulfillMissedTaskDay('${task.id}', '${dateKey}', true)" style="background:var(--primary); color:#000; flex:1; margin:0;">
+                    ✅ Mark Completed${effectiveRefund > 0 ? ` (& Deduct ₹${effectiveRefund})` : ''}
+                </button>
+                <button onclick="markTaskMissedOnDate('${task.id}', '${dateKey}')" style="background:rgba(255,82,82,0.15); color:var(--danger); border:1px solid rgba(255,82,82,0.35); width:auto; padding:0 14px; margin:0;" title="Mark Missed on this Date">
+                    ❌ Missed
+                </button>
+            </div>
+        `;
+    }
+}
+
+function fulfillMissedTaskDay(taskId, dateKey, fromInspector = false) {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
-    const { start, end, noon } = getDayBounds(dateKey);
-    const missedLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= start && h.timestamp <= end);
-    const expectedPenaltyRefund = missedLogs.reduce((s, h) => s + (h.donationAdded || 0) + (h.coveredBySurplus || 0), 0);
+    const { noon } = getDayBounds(dateKey);
+    const missedLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && isLogOnDateKey(h, dateKey));
 
-    const promptMsg = missedLogs.length > 0
-        ? `Fulfill missed task "${task.title}" for ${dateKey}?\n${expectedPenaltyRefund > 0 ? `💸 This will automatically decrease/refund ₹${expectedPenaltyRefund} from your penalty!` : ''}\n\nEnter units completed:`
-        : `Log "${task.title}" retroactively for ${dateKey}?\n\nEnter units completed:`;
+    let amountDone = task.baseTarget || 1;
+    const inspectorInput = document.getElementById('inspector-amount-input');
+    if (fromInspector && inspectorInput) {
+        amountDone = parseFloat(inspectorInput.value);
+    } else {
+        const inputVal = prompt(`Complete "${task.title}" for ${dateKey}.\nEnter units completed:`, task.baseTarget || 1);
+        if (inputVal === null) return;
+        amountDone = parseFloat(inputVal);
+    }
 
-    const inputVal = prompt(promptMsg, task.baseTarget || 1);
-    if (inputVal === null) return;
-    const amountDone = parseFloat(inputVal);
     if (isNaN(amountDone) || amountDone <= 0) return alert("Please enter a valid positive number.");
 
-    // 1. Reverse any 'missed' log on that date & refund its penalty!
     let refundedAmount = 0;
     missedLogs.forEach(mLog => {
         refundedAmount += refundPenaltyFromLog(mLog);
-        // Restore target that was decremented by the missed log before applying the completion decrement
         task.currentTarget += (mLog.amount || 1);
         syncToGoogleSheets({ actionType: 'undo', id: mLog.id });
         activityHistory = activityHistory.filter(h => h.id !== mLog.id);
     });
 
+    if (refundedAmount === 0 && charityData.pending > 0) {
+        if (task.donationPenalty > 0) {
+            const deduct = Math.min(charityData.pending, task.donationPenalty);
+            charityData.pending = Math.max(0, charityData.pending - deduct);
+            refundedAmount += deduct;
+        } else if (task.isMaxOnceDaily && missedLogs.length > 0) {
+            const recentStrictLog = activityHistory.find(h => h.taskId === task.id && h.actionType === 'missed' && h.strict50Applied && (h.donationAdded > 0 || h.coveredBySurplus > 0));
+            if (recentStrictLog) {
+                refundedAmount += refundPenaltyFromLog(recentStrictLog);
+                recentStrictLog.donationAdded = 0;
+                recentStrictLog.coveredBySurplus = 0;
+                recentStrictLog.strict50Applied = false;
+            }
+        }
+    }
+
     if (missedLogs.length > 0 && task.isMaxOnceDaily && (task.missedCount || 0) > 0) {
         task.missedCount = Math.max(0, task.missedCount - 1);
     }
 
-    // 2. Create the retroactive completion log on that specific date
     const retroLog = {
         id: Date.now().toString(),
         taskId: task.id,
@@ -709,7 +823,8 @@ function fulfillMissedTaskDay(taskId, dateKey) {
         timestamp: noon,
         fulfilledRetroactively: true,
         fulfilledDateKey: dateKey,
-        title: `Completed (${dateKey}): ${task.title}`,
+        penaltyRefunded: refundedAmount,
+        title: `Completed (${dateKey}):${task.title}`,
         actionType: 'complete',
         amount: amountDone
     };
@@ -719,17 +834,87 @@ function fulfillMissedTaskDay(taskId, dateKey) {
     task.currentTarget = Math.max(0, (task.currentTarget || 0) - amountDone);
     task.isCompleted = task.currentTarget <= 0;
 
-    // 3. Run spiritual automation if Hizb or Swalath
     applyDeenAutomation(task.title, amountDone);
 
     if (typeof confetti === 'function') confetti({ particleCount: 55, spread: 65, origin: { y: 0.75 } });
-    if (refundedAmount > 0) {
-        alert(`✅ Fulfilled "${task.title}" for ${dateKey}! ₹${refundedAmount} penalty has been deducted from your Pending Donations.`);
-    }
 
     saveData();
     render();
-    openTask30DayModal(taskId);
+    selected30DayDateKey = dateKey;
+    openTask30DayModal(taskId, dateKey);
+}
+
+function undoTaskDayLogs(taskId, dateKey) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const dayLogs = activityHistory.filter(h => h.taskId === task.id && isLogOnDateKey(h, dateKey));
+    if (dayLogs.length === 0) return;
+
+    if (!confirm(`Undo ${dayLogs.length} log(s) for "${task.title}" on ${dateKey}?`)) return;
+
+    dayLogs.forEach(entry => {
+        if (entry.actionType === 'complete') {
+            task.currentTarget += (entry.amount || 1);
+            task.isCompleted = task.currentTarget <= 0;
+            applyDeenAutomation(task.title, -(entry.amount || 1));
+            if (entry.penaltyRefunded && entry.penaltyRefunded > 0) {
+                applyPenalty(entry.penaltyRefunded);
+            }
+        } else if (entry.actionType === 'missed') {
+            task.currentTarget += (entry.amount || 1);
+            task.isCompleted = task.currentTarget <= 0;
+            refundPenaltyFromLog(entry);
+            if (task.isMaxOnceDaily && (task.missedCount || 0) > 0) {
+                task.missedCount = Math.max(0, task.missedCount - 1);
+            }
+        }
+        syncToGoogleSheets({ actionType: 'undo', id: entry.id });
+        activityHistory = activityHistory.filter(h => h.id !== entry.id);
+    });
+
+    saveData();
+    render();
+    selected30DayDateKey = dateKey;
+    openTask30DayModal(taskId, dateKey);
+}
+
+function markTaskMissedOnDate(taskId, dateKey) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const { noon } = getDayBounds(dateKey);
+    let addedPenalty = 0;
+    let coveredSurplus = 0;
+    if (task.donationPenalty > 0) {
+        const res = applyPenalty(task.donationPenalty);
+        addedPenalty = res.addedToPending;
+        coveredSurplus = res.coveredBySurplus;
+    }
+
+    const missedLog = {
+        id: Date.now().toString(),
+        taskId: task.id,
+        category: 'tasks',
+        taskType: task.type,
+        timestamp: noon,
+        missedDateKey: dateKey,
+        title: `Missed (${dateKey}):${task.title}`,
+        actionType: 'missed',
+        amount: task.baseTarget || 1,
+        donationAdded: addedPenalty,
+        coveredBySurplus: coveredSurplus
+    };
+    activityHistory.push(missedLog);
+    syncToGoogleSheets(missedLog);
+
+    task.currentTarget = Math.max(0, (task.currentTarget || 0) - (task.baseTarget || 1));
+    task.isCompleted = task.currentTarget <= 0;
+
+    saveData();
+    render();
+    selected30DayDateKey = dateKey;
+    openTask30DayModal(taskId, dateKey);
 }
 
 function renderTasks() {
@@ -769,7 +954,6 @@ function renderTasks() {
             const div = document.createElement('div'); div.className = `task-item ${task.isDoneForPeriod ? 'banked' : ''}`;
             let badgeLabel = "Done Today"; if (task.type === 'weekly') badgeLabel = "Done This Week"; if (task.type === 'monthly') badgeLabel = "Done This Month";
 
-            // Count missed days in last 30 days for quick badge visibility
             const thirtyDaysAgo = startOfDay - 29 * 86400000;
             const missed30Count = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= thirtyDaysAgo).length;
 
@@ -777,15 +961,31 @@ function renderTasks() {
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ₹${task.donationPenalty}</span>` : ``;
             let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#2a2a35; color:#ccc;">Strict Streak: ${task.missedCount || 0}/5</span>` : '';
-            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge done-badge">✅ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
-            let missedBadgeHtml = missed30Count > 0 ? `<span class="badge" style="background:rgba(255,82,82,0.18); color:var(--danger); cursor:pointer;" onclick="openTask30DayModal('${task.id}')">⚠️ ${missed30Count} Missed (Tap to Fulfill)</span>` : '';
+            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge done-badge">✅ ${badgeLabel}:${task.amountDonePeriod}</span>` : '';
+            let missedBadgeHtml = missed30Count > 0 ? `<span class="badge" style="background:rgba(255,82,82,0.18); color:var(--danger); border:1px solid rgba(255,82,82,0.4); cursor:pointer;" onclick="openTask30DayModal('${task.id}')">⚠️ ${missed30Count} Missed (Tap to Fulfill)</span>` : '';
+
+            let miniWeekHtml = '';
+            if (task.type === 'daily') {
+                let pills = '';
+                for (let d = 6; d >= 0; d--) {
+                    const pDate = new Date(startOfDay - d * 86400000);
+                    const dKey = toDateKey(pDate);
+                    const dayShort = d === 0 ? 'Today' : pDate.toLocaleDateString(undefined, { weekday: 'short' });
+                    const isDone = activityHistory.some(h => h.taskId === task.id && h.actionType === 'complete' && isLogOnDateKey(h, dKey));
+                    const isMiss = !isDone && activityHistory.some(h => h.taskId === task.id && h.actionType === 'missed' && isLogOnDateKey(h, dKey));
+                    const pClass = isDone ? 'done' : (isMiss ? 'missed' : '');
+                    const pIcon = isDone ? '✅' : (isMiss ? '❌' : '⚪');
+                    pills += `<span class="day-pill ${pClass}" onclick="openTask30DayModal('${task.id}', '${dKey}')" title="Inspect ${dKey}">${pIcon}${dayShort}</span>`;
+                }
+                miniWeekHtml = `<div class="mini-week-strip">${pills}</div>`;
+            }
 
             div.innerHTML = `
             <div class="task-header">
                 <div>
                     <div class="task-title" style="${task.isDoneForPeriod ? 'text-decoration:line-through; opacity:0.8;' : ''}">${task.isDoneForPeriod ? '✅ ' : ''}${task.title}</div>
                     <div class="task-badges">
-                        <span class="badge" style="background:#252530; color:#ccc;">Target: ${task.baseTarget} / ${task.type}</span>
+                        <span class="badge" style="background:#252530; color:#ccc;">Target: ${task.baseTarget} /${task.type}</span>
                         ${statusHTML}${reminderHtml}${donationHtml}${strictHtml}${donePeriodHtml}${missedBadgeHtml}
                     </div>
                 </div>
@@ -795,7 +995,7 @@ function renderTasks() {
                     <button class="btn-icon" onclick="deleteTask('${task.id}')" title="Delete Task">🗑️</button>
                 </div>
             </div>
-            ${task.currentTarget > 0 ? `<div class="task-action-row">${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}<div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div><button class="btn-task-action done" onclick="logProgress('${task.id}')">${task.isDoneForPeriod ? '➕ Log More' : '✔️ Complete'}</button></div>` : ''}`;
+            ${miniWeekHtml}${task.currentTarget > 0 ? `<div class="task-action-row">${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}<div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div><button class="btn-task-action done" onclick="logProgress('${task.id}')">${task.isDoneForPeriod ? '➕ Log More' : '✔️ Complete'}</button></div>` : ''}`;
             section.appendChild(div);
         });
         container.appendChild(section);
@@ -803,7 +1003,7 @@ function renderTasks() {
 }
 
 // ==========================================
-// GOOD HABITS & SURPLUS WALLET LOGIC
+// GOOD HABITS, BAD HABITS & 30-DAY HABIT CALENDAR
 // ==========================================
 function addGoodHabit() {
     const id = document.getElementById('good-habit-id').value;
@@ -845,9 +1045,9 @@ function cancelEditGoodHabit() {
     document.getElementById('btn-cancel-edit-good-habit').style.display = 'none';
 }
 
-function logGoodHabit(id, event) {
+function logGoodHabit(id, event, customDateKey = null) {
     const habit = goodHabits.find(h => h.id === id); if (!habit) return;
-    triggerHappyEffect(event);
+    if (event) triggerHappyEffect(event);
     
     let pointsAdded = 0; let penaltyReduced = 0; let surplusAdded = 0;
 
@@ -872,7 +1072,9 @@ function logGoodHabit(id, event) {
     }
     
     habit.annualCount++;
-    let newLog = { id: Date.now().toString(), taskId: habit.id, category: 'habits', timestamp: Date.now(), title: "Logged Good: " + habit.title, actionType: 'good', amount: 1, pointsAdded, penaltyReduced, surplusAdded };
+    const logTime = customDateKey ? getDayBounds(customDateKey).noon : Date.now();
+    const dateKeyUsed = customDateKey || toDateKey(Date.now());
+    let newLog = { id: Date.now().toString(), taskId: habit.id, category: 'habits', timestamp: logTime, habitDateKey: dateKeyUsed, title: `Logged Good (${dateKeyUsed}): ` + habit.title, actionType: 'good', amount: 1, pointsAdded, penaltyReduced, surplusAdded };
     activityHistory.push(newLog);
     syncToGoogleSheets(newLog);
 
@@ -894,7 +1096,8 @@ function renderGoodHabits() {
     container.innerHTML = '';
     if (goodHabits.length === 0) { container.innerHTML = '<p style="color:#aaa; text-align:center;">No good habits tracked yet.</p>'; return; }
 
-    const startOfDay = new Date().setHours(0,0,0,0);
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
     goodHabits.forEach(habit => {
         const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--success)';
@@ -902,7 +1105,18 @@ function renderGoodHabits() {
         
         const todayLogs = activityHistory.filter(h => h.taskId === habit.id && h.actionType === 'good' && h.timestamp >= startOfDay);
         const timesDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
-        let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ Done Today: ${timesDoneToday}</span>` : '';
+        let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge done-badge">⭐ Done Today: ${timesDoneToday}</span>` : '';
+
+        let pills = '';
+        for (let d = 6; d >= 0; d--) {
+            const pDate = new Date(startOfDay - d * 86400000);
+            const dKey = toDateKey(pDate);
+            const dayShort = d === 0 ? 'Today' : pDate.toLocaleDateString(undefined, { weekday: 'short' });
+            const countDay = activityHistory.filter(h => h.taskId === habit.id && h.actionType === 'good' && isLogOnDateKey(h, dKey)).reduce((s, l) => s + (l.amount || 1), 0);
+            const pClass = countDay > 0 ? 'done' : '';
+            const pIcon = countDay > 0 ? `🌟${countDay > 1 ? countDay : ''}` : '⚪';
+            pills += `<span class="day-pill ${pClass}" onclick="openHabit30DayModal('${habit.id}', 'good', '${dKey}')" title="Inspect ${dKey}">${pIcon}${dayShort}</span>`;
+        }
 
         div.innerHTML = `
             <div class="task-header">
@@ -911,19 +1125,18 @@ function renderGoodHabits() {
                     <div class="task-badges"><span class="badge" style="background:#252530; color:#fff;">Annual Total: ${habit.annualCount}</span><span class="badge" style="background:rgba(3, 218, 198, 0.1); color:var(--success);">${rewardText}</span>${doneTodayHtml}</div>
                 </div>
                 <div class="task-controls">
+                    <button class="btn-icon" onclick="openHabit30DayModal('${habit.id}', 'good')" title="30-Day Habit Streak">📅</button>
                     <button class="btn-icon" onclick="editGoodHabit('${habit.id}')">✏️</button>
                     <button class="btn-icon" onclick="deleteGoodHabit('${habit.id}')">🗑️</button>
                 </div>
             </div>
+            <div class="mini-week-strip">${pills}</div>
             <div class="task-action-row"><button class="btn-task-action" style="background:var(--success); color:#000;" onclick="logGoodHabit('${habit.id}', event)">+1 Log Good Habit</button></div>
         `;
         container.appendChild(div);
     });
 }
 
-// ==========================================
-// BAD HABITS / VICES LOGIC
-// ==========================================
 function addBadHabit() {
     const id = document.getElementById('bad-habit-id').value;
     const title = document.getElementById('bad-habit-title').value.trim(); 
@@ -959,9 +1172,9 @@ function cancelEditBadHabit() {
     document.getElementById('btn-cancel-edit-bad-habit').style.display = 'none';
 }
 
-function logBadHabit(id, event) {
+function logBadHabit(id, event, customDateKey = null) {
     const habit = badHabits.find(h => h.id === id); if (!habit) return;
-    triggerSadEffect(event);
+    if (event) triggerSadEffect(event);
     let addedPenalty = 0; let coveredSurplus = 0;
     if (habit.donationPenalty > 0) { 
         const penaltyRes = applyPenalty(habit.donationPenalty);
@@ -970,7 +1183,9 @@ function logBadHabit(id, event) {
     }
     habit.annualCount++;
     
-    let newLog = { id: Date.now().toString(), taskId: habit.id, category: 'habits', timestamp: Date.now(), title: "Logged Bad: " + habit.title, actionType: 'bad', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus };
+    const logTime = customDateKey ? getDayBounds(customDateKey).noon : Date.now();
+    const dateKeyUsed = customDateKey || toDateKey(Date.now());
+    let newLog = { id: Date.now().toString(), taskId: habit.id, category: 'habits', timestamp: logTime, habitDateKey: dateKeyUsed, title: `Logged Bad (${dateKeyUsed}): ` + habit.title, actionType: 'bad', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus };
     activityHistory.push(newLog);
     syncToGoogleSheets(newLog);
 
@@ -985,7 +1200,8 @@ function renderBadHabits() {
     const container = document.getElementById('bad-habit-list-container'); if (!container) return; container.innerHTML = '';
     if (badHabits.length === 0) { container.innerHTML = '<p style="color:#aaa; text-align:center;">No bad habits tracked yet.</p>'; return; }
 
-    const startOfDay = new Date().setHours(0,0,0,0);
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
     badHabits.forEach(habit => {
         const div = document.createElement('div'); div.className = 'task-item bad-log';
@@ -995,12 +1211,259 @@ function renderBadHabits() {
         const timesDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
         let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge" style="background:rgba(255, 82, 82, 0.2); color:var(--danger);">⚠️ Logged Today: ${timesDoneToday}</span>` : '';
 
-        div.innerHTML = `<div class="task-header"><div><div class="task-title" style="color:var(--bad);">${habit.title}</div><div class="task-badges"><span class="badge" style="background:#252530; color:#fff;">Annual Total: ${habit.annualCount}</span>${donationHtml}${doneTodayHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="editBadHabit('${habit.id}')">✏️</button><button class="btn-icon" onclick="deleteBadHabit('${habit.id}')">🗑️</button></div></div><div class="task-action-row"><button class="btn-task-action bad" onclick="logBadHabit('${habit.id}', event)">+1 Log Occurrence</button></div>`;
+        let pills = '';
+        for (let d = 6; d >= 0; d--) {
+            const pDate = new Date(startOfDay - d * 86400000);
+            const dKey = toDateKey(pDate);
+            const dayShort = d === 0 ? 'Today' : pDate.toLocaleDateString(undefined, { weekday: 'short' });
+            const countDay = activityHistory.filter(h => h.taskId === habit.id && h.actionType === 'bad' && isLogOnDateKey(h, dKey)).reduce((s, l) => s + (l.amount || 1), 0);
+            const pClass = countDay > 0 ? 'missed' : 'done';
+            const pIcon = countDay > 0 ? `⚠️${countDay}` : '🛡️';
+            pills += `<span class="day-pill ${pClass}" onclick="openHabit30DayModal('${habit.id}', 'bad', '${dKey}')" title="Inspect ${dKey}">${pIcon} ${dayShort}</span>`;
+        }
+
+        div.innerHTML = `
+            <div class="task-header">
+                <div>
+                    <div class="task-title" style="color:var(--bad);">${habit.title}</div>
+                    <div class="task-badges"><span class="badge" style="background:#252530; color:#fff;">Annual Total: ${habit.annualCount}</span>${donationHtml}${doneTodayHtml}</div>
+                </div>
+                <div class="task-controls">
+                    <button class="btn-icon" onclick="openHabit30DayModal('${habit.id}', 'bad')" title="30-Day Vice History">📅</button>
+                    <button class="btn-icon" onclick="editBadHabit('${habit.id}')">✏️</button>
+                    <button class="btn-icon" onclick="deleteBadHabit('${habit.id}')">🗑️</button>
+                </div>
+            </div>
+            <div class="mini-week-strip">${pills}</div>
+            <div class="task-action-row"><button class="btn-task-action bad" onclick="logBadHabit('${habit.id}', event)">+1 Log Occurrence</button></div>
+        `;
         container.appendChild(div);
     });
 }
 
+function openHabit30DayModal(habitId, kind = 'good', initialDateKey = null) {
+    const list = kind === 'good' ? goodHabits : badHabits;
+    const habit = list.find(h => h.id === habitId);
+    if (!habit) return;
+
+    active30DayHabitId = habitId;
+    active30DayHabitKind = kind;
+
+    const titleEl = document.getElementById('habit-30day-title');
+    titleEl.innerText = `${kind === 'good' ? '🌟' : '🚫'} ${habit.title} (Last 30 Days)`;
+    titleEl.style.color = kind === 'good' ? 'var(--success)' : 'var(--bad)';
+
+    const grid = document.getElementById('habit-30day-grid');
+    const summaryEl = document.getElementById('habit-30day-summary');
+    grid.innerHTML = '';
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const todayKey = toDateKey(todayStart);
+
+    if (!selectedHabit30DayDateKey || initialDateKey) {
+        selectedHabit30DayDateKey = initialDateKey || todayKey;
+    }
+
+    let activeDays = 0;
+    let totalCount30 = 0;
+
+    for (let i = 29; i >= 0; i--) {
+        const cellDate = new Date(todayStart - i * 86400000);
+        const dateKey = toDateKey(cellDate);
+        const shortLabel = cellDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        const weekdayLabel = cellDate.toLocaleDateString(undefined, { weekday: 'short' });
+
+        const logs = activityHistory.filter(h => h.taskId === habit.id && h.actionType === kind && isLogOnDateKey(h, dateKey));
+        const count = logs.reduce((s, l) => s + (l.amount || 1), 0);
+
+        const cell = document.createElement('div');
+        let statusClass = 'status-unlogged';
+        let iconHtml = '⚪';
+        let metaHtml = '0';
+
+        if (kind === 'good') {
+            if (count > 0) {
+                activeDays++;
+                totalCount30 += count;
+                statusClass = 'status-done';
+                iconHtml = '🌟';
+                metaHtml = `+${count}x`;
+            } else {
+                metaHtml = i === 0 ? 'Today' : '—';
+            }
+        } else {
+            if (count > 0) {
+                activeDays++;
+                totalCount30 += count;
+                statusClass = 'status-missed';
+                iconHtml = '⚠️';
+                metaHtml = `${count}x`;
+            } else {
+                statusClass = 'status-done';
+                iconHtml = '🛡️';
+                metaHtml = 'Clean';
+            }
+        }
+
+        const isSelected = (dateKey === selectedHabit30DayDateKey);
+        cell.className = `cal-day-card ${statusClass} ${isSelected ? 'selected-day' : ''}`;
+        cell.innerHTML = `
+            <div class="cal-date-top">${shortLabel}</div>
+            <div class="cal-weekday">${weekdayLabel}</div>
+            <div class="cal-icon-mid">${iconHtml}</div>
+            <div class="cal-meta-bot">${metaHtml}</div>
+        `;
+        cell.onclick = () => {
+            selectedHabit30DayDateKey = dateKey;
+            openHabit30DayModal(habit.id, kind, dateKey);
+        };
+        grid.appendChild(cell);
+    }
+
+    if (kind === 'good') {
+        summaryEl.innerHTML = `
+            <span class="badge done-badge">🌟 Active Days: ${activeDays}/30</span>
+            <span class="badge target">Total Logged (30d): ${totalCount30}x</span>
+            <span class="badge done-badge">🌟 Surplus Wallet: ₹${charityData.surplus || 0}</span>
+        `;
+    } else {
+        summaryEl.innerHTML = `
+            <span class="badge done-badge">🛡️ Clean Days: ${30 - activeDays}/30</span>
+            <span class="badge" style="background:rgba(255,82,82,0.16); color:var(--danger);">⚠️ Triggered Days: ${activeDays} (${totalCount30}x)</span>
+            <span class="badge donation">⚖️ Pending Penalty: ₹${charityData.pending || 0}</span>
+        `;
+    }
+
+    renderHabit30DayInspector(habit, kind, selectedHabit30DayDateKey);
+    openModal('habit-30day-modal');
+}
+
+function renderHabit30DayInspector(habit, kind, dateKey) {
+    const inspector = document.getElementById('habit-30day-inspector');
+    if (!inspector || !habit || !dateKey) return;
+
+    const logs = activityHistory.filter(h => h.taskId === habit.id && h.actionType === kind && isLogOnDateKey(h, dateKey));
+    const count = logs.reduce((s, l) => s + (l.amount || 1), 0);
+
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const readableDate = new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
+
+    inspector.style.display = 'block';
+    inspector.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+            <div>
+                <div style="font-size:0.8rem; color:var(--text-muted);">Selected Date</div>
+                <div style="font-size:1.05rem; font-weight:800; color:${kind === 'good' ? 'var(--success)' : 'var(--bad)'};">${readableDate}</div>
+            </div>
+            <span class="badge ${count > 0 ? (kind === 'good' ? 'done-badge' : 'donation') : 'target'}" style="margin:0;">
+                Logged on this date: ${count}x
+            </span>
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button onclick="logHabitOnDate('${habit.id}', '${kind}', '${dateKey}')" style="background:${kind === 'good' ? 'var(--success)' : 'var(--bad)'}; color:${kind === 'good' ? '#000' : '#fff'}; flex:1; margin:0;">
+                ➕ Log +1 on ${dateKey}
+            </button>
+            ${count > 0 ? `
+                <button onclick="undoHabitDayLog('${habit.id}', '${kind}', '${dateKey}')" style="background:rgba(255, 82, 82, 0.16); color:var(--danger); border:1px solid rgba(255, 82, 82, 0.4); flex:1; margin:0;">
+                    ↩️ Undo Last Entry (${dateKey})
+                </button>
+            ` : ''}
+        </div>
+    `;
+}
+
+function logHabitOnDate(habitId, kind, dateKey) {
+    if (kind === 'good') {
+        logGoodHabit(habitId, null, dateKey);
+    } else {
+        logBadHabit(habitId, null, dateKey);
+    }
+    openHabit30DayModal(habitId, kind, dateKey);
+}
+
+function undoHabitDayLog(habitId, kind, dateKey) {
+    const logs = activityHistory.filter(h => h.taskId === habitId && h.actionType === kind && isLogOnDateKey(h, dateKey));
+    if (logs.length === 0) return;
+
+    const entry = logs[logs.length - 1];
+    if (kind === 'bad') {
+        const habit = badHabits.find(h => h.id === entry.taskId);
+        if (habit) habit.annualCount = Math.max(0, habit.annualCount - (entry.amount || 1));
+        refundPenaltyFromLog(entry);
+    } else if (kind === 'good') {
+        const habit = goodHabits.find(h => h.id === entry.taskId);
+        if (habit) habit.annualCount = Math.max(0, habit.annualCount - (entry.amount || 1));
+        if (entry.pointsAdded) bonusPoints = Math.max(0, bonusPoints - entry.pointsAdded);
+        if (entry.penaltyReduced) charityData.pending += entry.penaltyReduced;
+        if (entry.surplusAdded) charityData.surplus = Math.max(0, (charityData.surplus || 0) - entry.surplusAdded);
+    }
+
+    syncToGoogleSheets({ actionType: 'undo', id: entry.id });
+    activityHistory = activityHistory.filter(h => h.id !== entry.id);
+
+    saveData();
+    render();
+    openHabit30DayModal(habitId, kind, dateKey);
+}
+
 function renderHabits() { renderGoodHabits(); renderBadHabits(); }
+// ==========================================
+// DEEN TAB DIRECT LOGGING & RENDERING
+// ==========================================
+function logSwalathDirect() {
+    const input = document.getElementById('swalath-input-amount');
+    const amount = parseInt(input ? input.value : 100) || 0;
+    if (amount <= 0) return alert("Please enter a valid amount.");
+
+    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+    deenData.swalathStats.total += amount;
+
+    let newLog = { 
+        id: Date.now().toString(), 
+        taskId: 'swalath-direct', 
+        category: 'deen', 
+        timestamp: Date.now(), 
+        title: `Logged Swalath (+${amount})`, 
+        actionType: 'deen_swalath', 
+        amount: amount 
+    };
+    activityHistory.push(newLog);
+    syncToGoogleSheets(newLog);
+
+    if (input) input.value = '100';
+    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['#03dac6', '#bb86fc'] });
+    saveData();
+    render();
+}
+
+function logHizbDirect() {
+    const input = document.getElementById('hizb-input-amount');
+    const amount = parseFloat(input ? input.value : 1) || 0;
+    if (amount <= 0) return alert("Please enter a valid Hizb amount.");
+
+    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    deenData.quranStats.totalHizb += amount;
+    deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+    deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+
+    let newLog = { 
+        id: Date.now().toString(), 
+        taskId: 'hizb-direct', 
+        category: 'deen', 
+        timestamp: Date.now(), 
+        title: `Logged Hizb (+${amount})`, 
+        actionType: 'deen_hizb', 
+        amount: amount 
+    };
+    activityHistory.push(newLog);
+    syncToGoogleSheets(newLog);
+
+    if (input) input.value = '1';
+    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['#bb86fc', '#f6e58d'] });
+    saveData();
+    render();
+}
 
 // ==========================================
 // UNDO & FILTERED HISTORY MODAL
@@ -1020,6 +1483,9 @@ function undoAction(historyId) {
                 } 
                 if (entry.actionType === 'complete') {
                     applyDeenAutomation(task.title, -entry.amount);
+                    if (entry.penaltyRefunded && entry.penaltyRefunded > 0) {
+                        applyPenalty(entry.penaltyRefunded);
+                    }
                 }
             } else if (entry.category === 'deen' && entry.taskId && entry.taskId.startsWith('dhikr-')) {
                 const idx = parseInt(entry.taskId.replace('dhikr-', ''));
@@ -1029,6 +1495,16 @@ function undoAction(historyId) {
                 }
             }
         } 
+        else if (entry.actionType === 'deen_swalath') {
+            if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+            deenData.swalathStats.total = Math.max(0, deenData.swalathStats.total - entry.amount);
+        }
+        else if (entry.actionType === 'deen_hizb') {
+            if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+            deenData.quranStats.totalHizb = Math.max(0, deenData.quranStats.totalHizb - entry.amount);
+            deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+            deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+        }
         else if (entry.actionType === 'bad') {
             const habit = badHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount = Math.max(0, habit.annualCount - entry.amount); }
         }
@@ -1079,18 +1555,19 @@ function openHistory(filter = 'all') {
         let fulfillBtn = '';
         if (item.actionType === 'missed' && item.taskId) {
             const dKey = item.missedDateKey || toDateKey(item.timestamp);
-            fulfillBtn = `<button onclick="closeHistory(); fulfillMissedTaskDay('${item.taskId}', '${dKey}')" style="background:var(--success); color:#000; border:none; padding:6px 12px; font-size:0.85rem; margin:0 8px 0 0; width:auto; border-radius:6px;">✅ Fulfill & Refund Penalty</button>`;
+            fulfillBtn = `<button onclick="closeHistory(); openTask30DayModal('${item.taskId}', '${dKey}')" style="background:var(--success); color:#000; border:none; padding:6px 12px; font-size:0.85rem; margin:0 8px 0 0; width:auto; border-radius:6px;">✅ Fulfill & Refund Penalty</button>`;
         }
 
         let undoBtn = `<button onclick="undoAction('${item.id}')" style="background:transparent; border:1px solid #aaa; padding:6px 12px; font-size:0.85rem; color:#ccc; margin:0; width:auto; border-radius:6px;">↩️ Undo</button>`;
         let detailText = '';
         if (item.donationAdded) detailText += `<div style="color:var(--charity); font-size:0.85rem; margin-top:4px;">💸 Added penalty: ₹${item.donationAdded}</div>`;
         if (item.coveredBySurplus) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">🌟 Covered by Surplus Credit: ₹${item.coveredBySurplus}</div>`;
+        if (item.penaltyRefunded) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">💸 Refunded penalty: ₹${item.penaltyRefunded}</div>`;
         if (item.pointsAdded) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">🏆 Added points: ${item.pointsAdded}</div>`;
         if (item.penaltyReduced) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">💸 Reduced penalty by: ₹${item.penaltyReduced}</div>`;
         if (item.surplusAdded) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">🌟 Banked Surplus Credit: ₹${item.surplusAdded}</div>`;
 
-        div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.05rem; color:#fff;">${item.title}</strong></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${date}</div>${detailText}<div style="margin-top:10px; display:flex; align-items:center;">${fulfillBtn}${undoBtn}</div>`;
+        div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.05rem; color:#fff;">${item.title}</strong></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${date}</div>${detailText}<div style="margin-top:10px; display:flex; align-items:center; flex-wrap:wrap; gap:6px;">${fulfillBtn}${undoBtn}</div>`;
         list.appendChild(div);
     });
 }
@@ -1118,7 +1595,7 @@ function updateDashboard() {
         <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #03dac6; text-align:center;">
             <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
             <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
-            <div style="font-size:0.75rem; color:#888;">Automated via Tasks</div>
+            <div style="font-size:0.75rem; color:#888;">Live Deen Milestone</div>
         </div>
     `;
     spiritContainer.innerHTML = espiritualHTML;
@@ -1169,6 +1646,19 @@ function updateDashboard() {
 // DEEN TAB
 // ==========================================
 function renderDeen() { 
+    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+
+    const swalathEl = document.getElementById('deen-total-swalath');
+    if (swalathEl) swalathEl.innerText = (deenData.swalathStats.total || 0).toLocaleString();
+
+    const hizbEl = document.getElementById('deen-total-hizb');
+    const juzEl = document.getElementById('deen-total-juz');
+    const khatmEl = document.getElementById('deen-total-khatm');
+    if (hizbEl) hizbEl.innerText = deenData.quranStats.totalHizb || 0;
+    if (juzEl) juzEl.innerText = deenData.quranStats.totalJuz || 0;
+    if (khatmEl) khatmEl.innerText = deenData.quranStats.totalKhatm || 0;
+
     const deenSummary = document.getElementById('deen-spiritual-summary');
     if (deenSummary) {
         deenSummary.innerHTML = `
@@ -1180,7 +1670,7 @@ function renderDeen() {
             <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #03dac6; text-align:center;">
                 <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
                 <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
-                <div style="font-size:0.75rem; color:#888;">Synced from Tasks</div>
+                <div style="font-size:0.75rem; color:#888;">Synced from Tasks & Deen</div>
             </div>
         `;
     }
@@ -1202,7 +1692,7 @@ function renderDeen() {
         let autoTracker = document.createElement('div');
         autoTracker.style = "background:rgba(3, 218, 198, 0.06); padding:12px; border-radius:10px; margin-bottom:12px; border-left:3px solid var(--deen);";
         autoTracker.innerHTML = `
-            <div style="font-size:0.8rem; color:#aaa;">Automated Reading Progress (via Hizb Tasks)</div>
+            <div style="font-size:0.8rem; color:#aaa;">Automated Reading Progress</div>
             <div style="font-weight:bold; color:var(--deen); margin-top:2px;">Currently on Juz ${remainderJuz + 1} (${deenData.quranStats?.totalHizb || 0} Total Hizb read)</div>
         `;
         juzContainer.appendChild(autoTracker);
@@ -1703,14 +2193,17 @@ function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget();
 window.openModal = openModal; window.closeModal = closeModal;
 window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; 
 window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed;
-window.openTask30DayModal = openTask30DayModal; window.fulfillMissedTaskDay = fulfillMissedTaskDay;
+window.openTask30DayModal = openTask30DayModal; window.fulfillMissedTaskDay = fulfillMissedTaskDay; window.undoTaskDayLogs = undoTaskDayLogs; window.markTaskMissedOnDate = markTaskMissedOnDate;
 window.undoAction = undoAction; window.openHistory = openHistory; window.closeHistory = closeHistory; window.filterHistory = filterHistory;
 window.payDonation = payDonation; 
 window.addGoodHabit = addGoodHabit; window.editGoodHabit = editGoodHabit; window.cancelEditGoodHabit = cancelEditGoodHabit; window.logGoodHabit = logGoodHabit; window.deleteGoodHabit = deleteGoodHabit; 
 window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.cancelEditBadHabit = cancelEditBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
+window.logSwalathDirect = logSwalathDirect; window.logHizbDirect = logHizbDirect;
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
 window.addBacklogItem = addBacklogItem; window.editBacklogItem = editBacklogItem; window.cancelEditBacklogItem = cancelEditBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;
+window.openTask30DayModal = openTask30DayModal; window.fulfillMissedTaskDay = fulfillMissedTaskDay; window.undoTaskDayLogs = undoTaskDayLogs; window.markTaskMissedOnDate = markTaskMissedOnDate;
+window.openHabit30DayModal = openHabit30DayModal; window.logHabitOnDate = logHabitOnDate; window.undoHabitDayLog = undoHabitDayLog;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);

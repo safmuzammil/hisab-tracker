@@ -4,15 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Hisab - Ultimate Life Tracker</title>
+    <link rel="manifest" href="manifest.json">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     
     <style>
         :root {
-            --bg: #121212;
-            --card: #1e1e1e;
+            --bg: #0d0f12;
+            --card: #181b20;
+            --card-elevated: #22262e;
+            --border: #2c313c;
             --primary: #bb86fc;
+            --primary-glow: rgba(187, 134, 252, 0.25);
             --success: #03dac6;
+            --success-glow: rgba(3, 218, 198, 0.2);
             --bad: #cf6679;
             --warning: #f6e58d;
             --danger: #ff5252;
@@ -20,78 +25,226 @@
             --charity: #ffb142;
             --budget: #4fc3f7;
             --backlog: #ff8a65;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
         }
 
-        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background: var(--bg); color: #fff; margin: 0; padding: 0; padding-bottom: 80px; }
+        * { box-sizing: border-box; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background: var(--bg); color: var(--text-main); margin: 0; padding: 0; padding-bottom: 90px; line-height: 1.4; }
         
-        header { background: #000; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 100; }
-        header h1 { margin: 0; font-size: 1.5rem; color: var(--primary); }
+        /* Sleek Glassmorphic Header */
+        header { 
+            background: rgba(13, 15, 18, 0.85); 
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 12px 20px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            border-bottom: 1px solid var(--border); 
+            position: sticky; 
+            top: 0; 
+            z-index: 100; 
+        }
+        .brand-wrap { display: flex; align-items: center; gap: 10px; }
+        header h1 { 
+            margin: 0; 
+            font-size: 1.4rem; 
+            font-weight: 800;
+            letter-spacing: 1.5px;
+            background: linear-gradient(135deg, var(--primary), var(--success));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
         
-        .container { padding: 20px; max-width: 800px; margin: auto; }
+        .container { padding: 18px; max-width: 820px; margin: auto; }
         
-        /* Auth */
-        .auth-box { background: var(--card); padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
+        /* Auth Box */
+        .auth-box { background: var(--card); padding: 20px; border-radius: 14px; margin-bottom: 20px; text-align: center; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
         
-        /* Navigation */
-        nav { display: flex; justify-content: space-around; background: #000; padding: 8px 0; position: fixed; bottom: 0; width: 100%; border-top: 1px solid #333; z-index: 100; overflow-x: auto;}
-        .nav-item { background: none; border: none; color: #888; font-size: 0.75rem; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; flex: 1; padding: 5px; min-width: 60px;}
-        .nav-item.active { color: var(--primary); }
-        .nav-item.active-bad { color: var(--bad); }
-        .nav-item.active-deen { color: var(--deen); }
-        .nav-item.active-budget { color: var(--budget); }
-        .nav-item.active-backlog { color: var(--backlog); }
-        .nav-icon { font-size: 1.3rem; }
+        /* Floating Bottom Navigation */
+        nav { 
+            display: flex; 
+            justify-content: space-around; 
+            background: rgba(18, 20, 26, 0.95); 
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            padding: 6px 8px; 
+            position: fixed; 
+            bottom: 0; 
+            width: 100%; 
+            border-top: 1px solid var(--border); 
+            z-index: 100; 
+            overflow-x: auto;
+        }
+        .nav-item { 
+            background: none; 
+            border: none; 
+            color: var(--text-muted); 
+            font-size: 0.72rem; 
+            font-weight: 600;
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center;
+            gap: 3px; 
+            cursor: pointer; 
+            flex: 1; 
+            padding: 6px 4px; 
+            min-width: 58px;
+            min-height: 48px;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+        }
+        .nav-item.active { color: var(--primary); background: rgba(187, 134, 252, 0.1); }
+        .nav-item.active-bad { color: var(--bad); background: rgba(207, 102, 121, 0.1); }
+        .nav-item.active-deen { color: var(--deen); background: rgba(77, 182, 172, 0.1); }
+        .nav-item.active-budget { color: var(--budget); background: rgba(79, 195, 247, 0.1); }
+        .nav-item.active-backlog { color: var(--backlog); background: rgba(255, 138, 101, 0.1); }
+        .nav-icon { font-size: 1.25rem; }
 
-        .tab-content { display: none; }
+        .tab-content { display: none; animation: fadeIn 0.2s ease-out; }
         .tab-content.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
         
         /* Dashboard Grid UI */
         .dashboard-grid { display: grid; grid-template-columns: 1fr; gap: 15px; margin-bottom: 20px; }
         @media (min-width: 768px) { .dashboard-grid { grid-template-columns: repeat(2, 1fr); } }
 
         /* Forms & Modals */
-        input, select, button, textarea { width: 100%; padding: 12px; margin-bottom: 10px; border: none; border-radius: 8px; font-size: 1rem; }
-        input, select, textarea { background: #2c2c2c; color: #fff; }
-        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; transition: 0.2s; min-height: 44px; }
-        button:active { transform: scale(0.98); }
+        input, select, button, textarea { 
+            width: 100%; 
+            padding: 12px 14px; 
+            margin-bottom: 10px; 
+            border: 1px solid var(--border); 
+            border-radius: 10px; 
+            font-size: 0.95rem; 
+            min-height: 44px;
+        }
+        input, select, textarea { background: var(--card-elevated); color: #fff; outline: none; transition: border-color 0.2s; }
+        input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+        button { background: var(--primary); color: #000; font-weight: 700; cursor: pointer; transition: all 0.2s ease; border: none; }
+        button:active { transform: scale(0.97); }
         
-        .main-action-btn { background: #333; border: 1px dashed var(--primary); color: var(--primary); padding: 15px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: center; align-items: center; gap: 10px; font-size: 1.1rem; }
+        .main-action-btn { 
+            background: rgba(187, 134, 252, 0.06); 
+            border: 1px dashed var(--primary); 
+            color: var(--primary); 
+            padding: 14px; 
+            border-radius: 12px; 
+            margin-bottom: 20px; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            gap: 10px; 
+            font-size: 1rem; 
+            box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+        }
         
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 1000; backdrop-filter: blur(4px); justify-content: center; align-items: flex-end; }
-        .modal-content { background: var(--card); width: 100%; max-width: 600px; padding: 25px; border-radius: 20px 20px 0 0; animation: slideUp 0.3s ease-out; max-height: 90vh; overflow-y: auto; }
-        @media (min-width: 768px) { .modal-overlay { align-items: center; } .modal-content { border-radius: 16px; } }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.82); z-index: 1000; backdrop-filter: blur(6px); justify-content: center; align-items: flex-end; }
+        .modal-content { background: var(--card); width: 100%; max-width: 600px; padding: 24px; border-radius: 22px 22px 0 0; border-top: 1px solid var(--border); animation: slideUp 0.28s cubic-bezier(0.16, 1, 0.3, 1); max-height: 90vh; overflow-y: auto; }
+        @media (min-width: 768px) { .modal-overlay { align-items: center; } .modal-content { border-radius: 18px; border: 1px solid var(--border); } }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
         /* Badges */
-        .badge { font-size: 0.75rem; padding: 4px 8px; border-radius: 12px; margin-right: 5px; display: inline-block; margin-top: 5px; }
-        .badge.target { background: rgba(187, 134, 252, 0.2); color: var(--primary); }
-        .badge.reminder { background: rgba(246, 229, 141, 0.2); color: var(--warning); }
-        .badge.done-badge { background: rgba(3, 218, 198, 0.2); color: var(--success); }
+        .badge { font-size: 0.75rem; font-weight: 600; padding: 4px 9px; border-radius: 8px; margin-right: 6px; display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; }
+        .badge.target { background: rgba(187, 134, 252, 0.15); color: var(--primary); border: 1px solid rgba(187, 134, 252, 0.3); }
+        .badge.reminder { background: rgba(246, 229, 141, 0.15); color: var(--warning); }
+        .badge.done-badge { background: rgba(3, 218, 198, 0.15); color: var(--success); border: 1px solid rgba(3, 218, 198, 0.3); }
+        .badge.donation { background: rgba(255, 177, 66, 0.15); color: var(--charity); border: 1px solid rgba(255, 177, 66, 0.3); }
         
         /* Task Cards */
-        .task-item { background: var(--card); padding: 15px; border-radius: 10px; margin-bottom: 15px; border-left: 5px solid var(--primary); }
+        .task-item { 
+            background: var(--card); 
+            padding: 16px; 
+            border-radius: 14px; 
+            margin-bottom: 14px; 
+            border: 1px solid var(--border);
+            border-left: 5px solid var(--primary); 
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            transition: transform 0.2s, opacity 0.2s;
+        }
         .task-item.bad-log { border-left-color: var(--bad); }
-        .task-item.banked { opacity: 0.6; border-left-color: var(--success); }
-        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; }
-        .task-title { font-size: 1.2rem; font-weight: bold; }
-        .task-action-row { display: flex; gap: 10px; align-items: center; }
-        .task-input-box { width: 70px; }
-        .task-input-box input { margin: 0; padding: 8px; text-align: center; }
-        .btn-task-action { margin: 0; padding: 10px; flex: 1; }
+        .task-item.banked { opacity: 0.68; border-left-color: var(--success); background: rgba(24, 27, 32, 0.6); }
+        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; gap: 10px; }
+        .task-title { font-size: 1.15rem; font-weight: 700; color: #fff; }
+        .task-controls { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+        .task-action-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+        .task-input-box { width: 78px; flex-shrink: 0; }
+        .task-input-box input { margin: 0; padding: 8px; text-align: center; font-weight: bold; }
+        .btn-task-action { margin: 0; padding: 10px 14px; flex: 1; border-radius: 10px; }
+        .btn-task-action.done { background: var(--success); color: #000; }
+        .btn-task-action.missed { background: rgba(255, 82, 82, 0.15); color: var(--danger); border: 1px solid rgba(255, 82, 82, 0.35); flex: 0.6; }
+        .btn-task-action.bad { background: rgba(207, 102, 121, 0.2); color: var(--bad); border: 1px solid var(--bad); }
+
+        /* 7-Day Mini Strip on Task Cards & 30-Day Grid */
+        .mini-week-strip { display: flex; gap: 6px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+        .day-pill { 
+            font-size: 0.7rem; 
+            padding: 3px 7px; 
+            border-radius: 6px; 
+            background: var(--card-elevated); 
+            color: var(--text-muted); 
+            border: 1px solid var(--border);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .day-pill.done { background: rgba(3, 218, 198, 0.15); color: var(--success); border-color: rgba(3, 218, 198, 0.4); }
+        .day-pill.missed { background: rgba(255, 82, 82, 0.15); color: var(--danger); border-color: rgba(255, 82, 82, 0.4); }
+
+        .calendar-30-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); 
+            gap: 10px; 
+            margin-top: 15px; 
+        }
+        .cal-day-card {
+            background: var(--card-elevated);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 8px;
+            text-align: center;
+            cursor: pointer;
+            min-height: 74px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            transition: transform 0.15s, border-color 0.15s;
+        }
+        .cal-day-card:active { transform: scale(0.95); }
+        .cal-day-card.status-done { background: rgba(3, 218, 198, 0.12); border-color: var(--success); }
+        .cal-day-card.status-missed { background: rgba(255, 82, 82, 0.15); border-color: var(--danger); }
+        .cal-day-card.status-empty { opacity: 0.85; }
+        .cal-day-card.status-empty:hover, .cal-day-card.status-missed:hover { border-color: var(--primary); }
+
+        /* Morning Recap Banner */
+        .yesterday-recap-banner {
+            background: linear-gradient(135deg, rgba(255, 82, 82, 0.15), rgba(255, 177, 66, 0.12));
+            border: 1px solid rgba(255, 82, 82, 0.4);
+            border-radius: 14px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: none;
+        }
         
         /* Touch Targets */
-        .btn-icon { background: transparent; padding: 10px; min-width: 44px; min-height: 44px; margin: 0; font-size: 1.2rem; border-radius: 50%; display:inline-flex; align-items:center; justify-content:center;}
+        .btn-icon { background: var(--card-elevated); border: 1px solid var(--border); color: #fff; padding: 8px; min-width: 44px; min-height: 44px; margin: 0; font-size: 1.05rem; border-radius: 10px; display:inline-flex; align-items:center; justify-content:center;}
         
         /* Qada Grid */
-        .qada-row { display: flex; justify-content: space-between; align-items: center; background: #2c2c2c; padding: 10px 15px; margin-bottom: 5px; border-radius: 8px; }
+        .qada-row { display: flex; justify-content: space-between; align-items: center; background: var(--card-elevated); padding: 10px 15px; margin-bottom: 6px; border-radius: 10px; border: 1px solid var(--border); }
         .qada-controls { display: flex; gap: 10px; align-items: center; }
-        .qada-btn { min-width: 44px; height: 44px; padding: 0; margin: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; background: rgba(255,255,255,0.1); color: #fff; border-radius: 8px;}
+        .qada-btn { min-width: 44px; height: 44px; padding: 0; margin: 0; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; background: rgba(255,255,255,0.08); color: #fff; border-radius: 10px;}
         .qada-btn.minus { background: rgba(3, 218, 198, 0.2); color: var(--success); }
 
+        /* Quran Item */
+        .quran-item { background: var(--card-elevated); padding: 12px 15px; border-radius: 10px; border: 1px solid var(--border); display: flex; justify-content: space-between; }
+
         /* Budget Progress */
-        .progress-bar-container { background: #333; height: 20px; border-radius: 10px; overflow: hidden; margin: 15px 0; }
-        .progress-bar-fill { height: 100%; background: var(--budget); transition: width 0.3s; }
+        .progress-bar-container { background: #2c313c; height: 16px; border-radius: 10px; overflow: hidden; margin: 15px 0; }
+        .progress-bar-fill { height: 100%; background: var(--budget); transition: width 0.3s ease; }
         
         /* Animations */
         .floating-emoji { position: fixed; font-size: 2rem; pointer-events: none; animation: floatUp 1s ease-out forwards; z-index: 1000; }
@@ -100,79 +253,83 @@
         .shake-angry { animation: shake 0.4s ease-in-out; background: #ff0000 !important; }
 
         /* History Modal */
-        #history-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 200; overflow-y: auto; padding: 20px; }
-        .hist-filter-btn { background: #2c2c2c; color: #888; border: 1px solid #444; padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; width: auto; margin: 0; cursor: pointer; white-space: nowrap; }
+        #history-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 200; overflow-y: auto; padding: 20px; backdrop-filter: blur(5px); }
+        .hist-filter-btn { background: var(--card-elevated); color: var(--text-muted); border: 1px solid var(--border); padding: 8px 14px; border-radius: 20px; font-size: 0.82rem; width: auto; min-height: 40px; margin: 0; cursor: pointer; white-space: nowrap; }
         .hist-filter-btn.active { background: var(--primary); color: #000; font-weight: bold; border-color: var(--primary); }
     </style>
 </head>
 <body>
 
     <header>
-        <h1>HISAB</h1>
-        <div style="display:flex; gap:15px; align-items:center;">
-            <button id="btn-notifications" onclick="toggleNotifications()" style="background:transparent; border:1px solid #aaa; color:#aaa; padding:5px 10px; margin:0; font-size:0.8rem; width:auto;">🔕 Alerts Off</button>
-            <button onclick="openHistory()" style="background:transparent; font-size:1.5rem; padding:0; margin:0; width:auto; border:none; min-width:44px; min-height:44px;">📜</button>
+        <div class="brand-wrap">
+            <h1>HISAB</h1>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <button id="btn-notifications" onclick="toggleNotifications()" style="background:var(--card-elevated); border:1px solid var(--border); color:var(--text-muted); padding:6px 12px; margin:0; font-size:0.8rem; width:auto; min-height:44px; border-radius:10px;">🔕 Alerts Off</button>
+            <button onclick="openHistory()" title="Activity History" style="background:var(--card-elevated); font-size:1.3rem; padding:0; margin:0; width:auto; border:1px solid var(--border); min-width:44px; min-height:44px; border-radius:10px;">📜</button>
         </div>
     </header>
 
     <div class="container">
         
         <div class="auth-box" id="login-prompt">
-            <h2>Cloud Sync & Backup</h2>
-            <p style="color:#aaa; font-size:0.9rem; margin-bottom:15px;">Sign in to sync your data across devices.</p>
+            <h2 style="margin-top:0;">Cloud Sync & Backup</h2>
+            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:15px;">Sign in to sync your Hisab data across all your devices.</p>
             <div id="google-signin-button"></div>
         </div>
         <div class="auth-box" id="auth-container" style="display:none; align-items:center;"></div>
+
+        <!-- Morning Yesterday Missed Recap Banner -->
+        <div id="yesterday-recap-banner" class="yesterday-recap-banner"></div>
 
         <!-- ========================================== -->
         <!-- DASHBOARD TAB -->
         <!-- ========================================== -->
         <div id="tab-dashboard" class="tab-content active">
-            <h2>Dashboard</h2>
+            <h2 style="margin-top:0;">Dashboard</h2>
             
-            <div style="background:var(--card); padding:20px; border-radius:15px; text-align:center; margin-bottom:20px; border:1px solid var(--charity);">
+            <div style="background:var(--card); padding:20px; border-radius:16px; text-align:center; margin-bottom:20px; border:1px solid rgba(255, 177, 66, 0.4); box-shadow: 0 8px 24px rgba(0,0,0,0.25);">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <span style="color:var(--charity); font-weight:bold;">⚖️ Pending Penalty</span>
-                    <span style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:4px 10px; border-radius:8px; font-size:0.85rem; font-weight:bold;">
+                    <span style="color:var(--charity); font-weight:bold;">⚖️ Pending Charity Penalty</span>
+                    <span style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:5px 12px; border-radius:8px; font-size:0.85rem; font-weight:bold; border:1px solid rgba(3,218,198,0.3);">
                         🌟 Surplus: ₹<span id="display-surplus-wallet">0</span>
                     </span>
                 </div>
-                <div style="font-size:3rem; font-weight:bold; color:#fff; margin:10px 0;">₹<span id="donation-pending">0</span></div>
-                <div style="color:#aaa; font-size:0.9rem; margin-bottom:15px;">Total Paid Lifetime: ₹<span id="donation-paid">0</span></div>
+                <div style="font-size:3rem; font-weight:800; color:#fff; margin:10px 0;">₹<span id="donation-pending">0</span></div>
+                <div style="color:var(--text-muted); font-size:0.9rem; margin-bottom:15px;">Total Paid Lifetime: ₹<span id="donation-paid">0</span></div>
                 <div style="display:flex; gap:10px;">
-                    <input type="number" id="donation-pay-amount" placeholder="Amount paid..." style="margin:0;">
-                    <button onclick="payDonation()" style="background:var(--charity); color:#000; margin:0;">Log Payment</button>
+                    <input type="number" id="donation-pay-amount" placeholder="Amount paid (₹)..." style="margin:0;">
+                    <button onclick="payDonation()" style="background:var(--charity); color:#000; margin:0; width:auto; padding:0 20px;">Log Payment</button>
                 </div>
             </div>
 
-            <!-- CSS Grid Applied Here -->
             <div class="dashboard-grid">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                    <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
-                        <div style="color:#aaa; font-size:0.9rem;">Done Today</div>
-                        <div style="font-size:1.5rem; color:var(--primary); font-weight:bold;" id="day-completed">0</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="background:var(--card); padding:16px; border-radius:14px; text-align:center; border:1px solid var(--border);">
+                        <div style="color:var(--text-muted); font-size:0.85rem;">Done Today</div>
+                        <div style="font-size:1.6rem; color:var(--primary); font-weight:800; margin-top:4px;" id="day-completed">0</div>
                     </div>
-                    <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
-                        <div style="color:#aaa; font-size:0.9rem;">Done This Week</div>
-                        <div style="font-size:1.5rem; color:var(--primary); font-weight:bold;" id="week-completed">0</div>
+                    <div style="background:var(--card); padding:16px; border-radius:14px; text-align:center; border:1px solid var(--border);">
+                        <div style="color:var(--text-muted); font-size:0.85rem;">Done This Week</div>
+                        <div style="font-size:1.6rem; color:var(--primary); font-weight:800; margin-top:4px;" id="week-completed">0</div>
                     </div>
-                    <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
-                        <div style="color:#aaa; font-size:0.9rem;">Done This Month</div>
-                        <div style="font-size:1.5rem; color:var(--primary); font-weight:bold;" id="month-completed">0</div>
+                    <div style="background:var(--card); padding:16px; border-radius:14px; text-align:center; border:1px solid var(--border);">
+                        <div style="color:var(--text-muted); font-size:0.85rem;">Done This Month</div>
+                        <div style="font-size:1.6rem; color:var(--primary); font-weight:800; margin-top:4px;" id="month-completed">0</div>
                     </div>
-                    <div style="background:var(--card); padding:15px; border-radius:10px; text-align:center;">
-                        <div style="color:#aaa; font-size:0.9rem;">Done This Year</div>
-                        <div style="font-size:1.5rem; color:var(--success); font-weight:bold;" id="year-completed">0</div>
+                    <div style="background:var(--card); padding:16px; border-radius:14px; text-align:center; border:1px solid var(--border);">
+                        <div style="color:var(--text-muted); font-size:0.85rem;">Done This Year</div>
+                        <div style="font-size:1.6rem; color:var(--success); font-weight:800; margin-top:4px;" id="year-completed">0</div>
                     </div>
                 </div>
 
-                <div style="background:var(--card); padding:15px; border-radius:10px;">
-                    <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Task Categories (Annual)</h3>
+                <div style="background:var(--card); padding:16px; border-radius:14px; border:1px solid var(--border);">
+                    <h3 style="margin-top:0; font-size:0.95rem; color:var(--text-muted);">Task Categories (Annual)</h3>
                     <div style="height: 200px;"><canvas id="tasksProgressChart"></canvas></div>
                 </div>
 
-                <div style="background:var(--card); padding:15px; border-radius:10px; grid-column: 1 / -1;">
-                    <h3 style="margin-top:0; font-size:1rem; color:#aaa;">Vice Triggers (This Year)</h3>
+                <div style="background:var(--card); padding:16px; border-radius:14px; border:1px solid var(--border); grid-column: 1 / -1;">
+                    <h3 style="margin-top:0; font-size:0.95rem; color:var(--text-muted);">Vice Triggers (This Year)</h3>
                     <div style="height: 200px;"><canvas id="badHabitsChart"></canvas></div>
                 </div>
             </div>
@@ -184,7 +341,7 @@
         <div id="tab-tasks" class="tab-content">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                 <h2 style="margin:0;">Your Tasks</h2>
-                <select id="task-view-filter" style="width:auto; margin:0; padding:5px 10px;" onchange="renderTasks()">
+                <select id="task-view-filter" style="width:auto; margin:0; padding:8px 14px;" onchange="renderTasks()">
                     <option value="all">View All</option>
                     <option value="daily">Daily Tasks</option>
                     <option value="weekly">Weekly Tasks</option>
@@ -193,7 +350,7 @@
                 </select>
             </div>
             
-            <button class="main-action-btn" onclick="openModal('task-modal')" style="border-color:var(--primary); color:var(--primary);">
+            <button class="main-action-btn" onclick="openModal('task-modal')">
                 ➕ Add New Task / Goal
             </button>
 
@@ -222,12 +379,27 @@
                     <input type="number" id="task-donation" placeholder="Penalty if missed (₹)" style="flex:1;">
                     <input type="time" id="task-reminder-time" style="flex:1;">
                 </div>
-                <label style="display:flex; align-items:center; gap:10px; margin-bottom:15px; color:#aaa; font-size:0.9rem;">
-                    <input type="checkbox" id="task-is-max-once" style="width:auto; margin:0; width:20px; height:20px;"> 
-                    Strict: If missed for 5 consecutive days, add ₹50 penalty.
+                <label style="display:flex; align-items:center; gap:10px; margin-bottom:15px; color:var(--text-muted); font-size:0.9rem; cursor:pointer;">
+                    <input type="checkbox" id="task-is-max-once" style="width:22px; height:22px; min-height:22px; margin:0;"> 
+                    Strict: Track daily missed log & apply ₹50 penalty every 5 missed days.
                 </label>
                 <button id="btn-save-task" onclick="saveTask(); closeModal('task-modal');">Save Task</button>
                 <button id="btn-cancel-edit" onclick="cancelEdit(); closeModal('task-modal');" style="display:none; background:#333; color:#fff;">Cancel</button>
+            </div>
+        </div>
+
+        <!-- 30-Day Task History & Catch-Up Modal -->
+        <div id="task-30day-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('task-30day-modal')">
+            <div class="modal-content" style="max-width:650px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div>
+                        <h2 id="task-30day-title" style="margin:0; font-size:1.25rem; color:var(--primary);">📅 30-Day Task History</h2>
+                        <div id="task-30day-subtitle" style="font-size:0.82rem; color:var(--text-muted); margin-top:4px;">Tap any missed or past unfulfilled day to complete it retroactively & refund penalties.</div>
+                    </div>
+                    <button class="btn-icon" onclick="closeModal('task-30day-modal')">❌</button>
+                </div>
+                <div id="task-30day-summary" style="display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap;"></div>
+                <div id="task-30day-grid" class="calendar-30-grid"></div>
             </div>
         </div>
 
@@ -235,16 +407,16 @@
         <!-- HABITS TAB -->
         <!-- ========================================== -->
         <div id="tab-bad-habits" class="tab-content">
-            <h2 style="margin-bottom: 20px;">Habits & Vices</h2>
+            <h2 style="margin-top:0; margin-bottom: 20px;">Habits & Vices</h2>
             
-            <button class="main-action-btn" onclick="openModal('good-habit-modal')" style="border-color:var(--success); color:var(--success);">
+            <button class="main-action-btn" onclick="openModal('good-habit-modal')" style="border-color:var(--success); color:var(--success); background:rgba(3,218,198,0.06);">
                 🌟 Add Good Habit Tracker
             </button>
             <div id="good-habit-list-container" style="margin-bottom: 30px;"></div>
 
-            <hr style="border-color:#333; margin: 30px 0;">
+            <hr style="border-color:var(--border); margin: 30px 0;">
 
-            <button class="main-action-btn" onclick="openModal('bad-habit-modal')" style="border-color:var(--bad); color:var(--bad);">
+            <button class="main-action-btn" onclick="openModal('bad-habit-modal')" style="border-color:var(--bad); color:var(--bad); background:rgba(207,102,121,0.06);">
                 🚫 Add Vice / Trigger Tracker
             </button>
             <div id="bad-habit-list-container"></div>
@@ -261,7 +433,7 @@
                 <input type="text" id="good-habit-title" placeholder="e.g., Read 10 pages, Gym">
                 <div style="display:flex; gap:10px;">
                     <select id="good-habit-reward-type" style="flex:1;">
-                        <option value="reduce">Bank Surplus (₹)</option>
+                        <option value="reduce">Bank Surplus / Reduce Penalty (₹)</option>
                         <option value="points">Bonus Points (🏆)</option>
                     </select>
                     <input type="number" id="good-habit-reward-value" placeholder="Value" style="flex:1;" min="1">
@@ -278,7 +450,7 @@
                     <button class="btn-icon" onclick="closeModal('bad-habit-modal')">❌</button>
                 </div>
                 <input type="hidden" id="bad-habit-id">
-                <input type="text" id="bad-habit-title" placeholder="e.g., Junk Food, Smoking">
+                <input type="text" id="bad-habit-title" placeholder="e.g., Junk Food, Late Sleep">
                 <input type="number" id="bad-habit-donation" placeholder="Penalty ₹">
                 <button id="btn-save-bad-habit" onclick="addBadHabit(); closeModal('bad-habit-modal');" style="background:var(--bad); color:#fff;">Save Bad Habit</button>
                 <button id="btn-cancel-edit-bad-habit" onclick="cancelEditBadHabit(); closeModal('bad-habit-modal');" style="display:none; background:#333; color:#fff;">Cancel</button>
@@ -289,14 +461,14 @@
         <!-- DEEN TAB -->
         <!-- ========================================== -->
         <div id="tab-deen" class="tab-content">
-            <h2>Deen Tracker</h2>
+            <h2 style="margin-top:0;">Deen Tracker</h2>
 
             <!-- Dedicated Swalath Counter Card -->
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-top:3px solid var(--deen);">
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--border); border-top:3px solid var(--deen);">
                 <h3 style="margin-top:0; color:var(--deen);">📿 Swalath / Salawat Counter</h3>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                    <span style="color:#aaa; font-size:0.9rem;">Total Swalath Count</span>
-                    <span style="font-size:1.8rem; font-weight:bold; color:var(--deen);" id="deen-total-swalath">0</span>
+                    <span style="color:var(--text-muted); font-size:0.9rem;">Total Swalath Count</span>
+                    <span style="font-size:1.8rem; font-weight:800; color:var(--deen);" id="deen-total-swalath">0</span>
                 </div>
                 <div style="display:flex; gap:10px;">
                     <input type="number" id="swalath-input-amount" placeholder="Amount (e.g., 100)" value="100" min="1" style="margin:0;">
@@ -305,20 +477,20 @@
             </div>
 
             <!-- Dedicated Hizb / Quran Stats Card -->
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border-top:3px solid var(--primary);">
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--border); border-top:3px solid var(--primary);">
                 <h3 style="margin-top:0; color:var(--primary);">📖 Hizb & Khatm Tracker</h3>
                 <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:15px; text-align:center;">
-                    <div style="background:#2c2c2c; padding:10px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:#aaa;">Total Hizb</div>
-                        <div style="font-size:1.2rem; font-weight:bold; color:var(--primary);" id="deen-total-hizb">0</div>
+                    <div style="background:var(--card-elevated); padding:10px; border-radius:10px; border:1px solid var(--border);">
+                        <div style="font-size:0.75rem; color:var(--text-muted);">Total Hizb</div>
+                        <div style="font-size:1.25rem; font-weight:800; color:var(--primary);" id="deen-total-hizb">0</div>
                     </div>
-                    <div style="background:#2c2c2c; padding:10px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:#aaa;">Total Juz</div>
-                        <div style="font-size:1.2rem; font-weight:bold; color:var(--success);" id="deen-total-juz">0</div>
+                    <div style="background:var(--card-elevated); padding:10px; border-radius:10px; border:1px solid var(--border);">
+                        <div style="font-size:0.75rem; color:var(--text-muted);">Total Juz</div>
+                        <div style="font-size:1.25rem; font-weight:800; color:var(--success);" id="deen-total-juz">0</div>
                     </div>
-                    <div style="background:#2c2c2c; padding:10px; border-radius:8px;">
-                        <div style="font-size:0.75rem; color:#aaa;">Khatms</div>
-                        <div style="font-size:1.2rem; font-weight:bold; color:var(--warning);" id="deen-total-khatm">0</div>
+                    <div style="background:var(--card-elevated); padding:10px; border-radius:10px; border:1px solid var(--border);">
+                        <div style="font-size:0.75rem; color:var(--text-muted);">Khatms</div>
+                        <div style="font-size:1.25rem; font-weight:800; color:var(--warning);" id="deen-total-khatm">0</div>
                     </div>
                 </div>
                 <div style="display:flex; gap:10px;">
@@ -341,12 +513,12 @@
             </div>
             <div id="dhikr-list-container" style="margin-bottom:30px;"></div>
 
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--border);">
                 <h3 style="margin-top:0; color:var(--deen);">🕌 Qada Prayers</h3>
                 <div id="qada-container"></div>
             </div>
             
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--border);">
                 <h3 style="margin-top:0; color:var(--deen);">📖 Quran Juz Dedications</h3>
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <select id="juz-select" style="flex:1;"><option value="">Select Juz</option></select>
@@ -356,16 +528,16 @@
                 <div id="juz-list-container" style="margin-top:15px; display:flex; flex-direction:column; gap:10px;"></div>
             </div>
 
-            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px;">
+            <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--border);">
                 <h3 style="margin-top:0; color:var(--deen);">💰 Zakat Calculator</h3>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:15px;">
-                    <div><label style="color:#aaa; font-size:0.8rem;">Cash</label><input type="number" id="zakat-cash" oninput="calculateZakat()" value="0"></div>
-                    <div><label style="color:#aaa; font-size:0.8rem;">Gold</label><input type="number" id="zakat-gold" oninput="calculateZakat()" value="0"></div>
-                    <div style="grid-column: span 2;"><label style="color:#aaa; font-size:0.8rem;">Investments</label><input type="number" id="zakat-invest" oninput="calculateZakat()" value="0"></div>
+                    <div><label style="color:var(--text-muted); font-size:0.8rem;">Cash</label><input type="number" id="zakat-cash" oninput="calculateZakat()" value="0"></div>
+                    <div><label style="color:var(--text-muted); font-size:0.8rem;">Gold</label><input type="number" id="zakat-gold" oninput="calculateZakat()" value="0"></div>
+                    <div style="grid-column: span 2;"><label style="color:var(--text-muted); font-size:0.8rem;">Investments</label><input type="number" id="zakat-invest" oninput="calculateZakat()" value="0"></div>
                 </div>
-                <div style="text-align:center; padding:15px; background:rgba(77, 182, 172, 0.1); border-radius:8px;">
-                    <div style="color:var(--deen);">Estimated Due</div>
-                    <div style="font-size:2rem; font-weight:bold; color:var(--deen);">₹<span id="zakat-due">0.00</span></div>
+                <div style="text-align:center; padding:15px; background:rgba(77, 182, 172, 0.1); border-radius:10px;">
+                    <div style="color:var(--deen);">Estimated Due (2.5%)</div>
+                    <div style="font-size:2rem; font-weight:800; color:var(--deen);">₹<span id="zakat-due">0.00</span></div>
                 </div>
             </div>
         </div>
@@ -374,54 +546,54 @@
         <!-- BUDGET & EXPENSES TAB -->
         <!-- ========================================== -->
         <div id="tab-budget" class="tab-content">
-            <h2>Monthly Budget</h2>
+            <h2 style="margin-top:0;">Monthly Budget</h2>
             <div style="background:var(--card); padding:20px; border-radius:15px; margin-bottom:20px; border:1px solid var(--budget);">
                 <div style="display:flex; justify-content:space-between; align-items:flex-end;">
                     <div>
                         <h3 style="margin:0; color:#fff;" id="budget-month-title">This Month</h3>
-                        <div style="color:#aaa; font-size:0.9rem;">Limit: ₹<span id="budget-limit-display">0</span></div>
+                        <div style="color:var(--text-muted); font-size:0.9rem;">Limit: ₹<span id="budget-limit-display">0</span></div>
                     </div>
                     <div style="text-align:right;">
-                        <div style="font-size:1.8rem; font-weight:bold; color:var(--budget);">₹<span id="budget-spent">0</span></div>
-                        <div style="color:#aaa; font-size:0.8rem;">Spent</div>
+                        <div style="font-size:1.8rem; font-weight:800; color:var(--budget);">₹<span id="budget-spent">0</span></div>
+                        <div style="color:var(--text-muted); font-size:0.8rem;">Spent</div>
                     </div>
                 </div>
                 <div class="progress-bar-container">
                     <div id="budget-progress-fill" class="progress-bar-fill" style="width: 0%;"></div>
                 </div>
-                <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:#888;">
-                    <span>0</span>
+                <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted);">
+                    <span>₹0</span>
                     <span id="budget-remaining-text">₹0 Remaining</span>
                 </div>
-                <hr style="border-color:#333; margin: 15px 0;">
+                <hr style="border-color:var(--border); margin: 15px 0;">
                 <div style="display:flex; gap:10px;">
                     <input type="number" id="budget-set-limit" placeholder="Set Limit (₹)" style="margin:0; flex:1;">
-                    <button onclick="setBudgetLimit()" style="background:#333; color:#fff; margin:0; flex:0.5;">Update</button>
+                    <button onclick="setBudgetLimit()" style="background:var(--card-elevated); color:#fff; border:1px solid var(--border); margin:0; flex:0.5;">Update</button>
                 </div>
             </div>
 
-            <button class="main-action-btn" onclick="openModal('expense-modal')" style="border-color:var(--danger); color:var(--danger);">
+            <button class="main-action-btn" onclick="openModal('expense-modal')" style="border-color:var(--danger); color:var(--danger); background:rgba(255,82,82,0.06);">
                 📉 Log New Expense
             </button>
-            <h3 style="border-bottom:1px solid #333; padding-bottom:10px;">This Month's Expenses</h3>
+            <h3 style="border-bottom:1px solid var(--border); padding-bottom:10px;">This Month's Expenses</h3>
             <div id="expense-list-container" style="margin-bottom:30px;"></div>
 
-            <hr style="border-color:#333; margin: 30px 0;">
+            <hr style="border-color:var(--border); margin: 30px 0;">
             <h2>Debts & Loans</h2>
             
-            <button class="main-action-btn" onclick="openModal('debt-modal')" style="border-color:var(--warning); color:var(--warning);">
+            <button class="main-action-btn" onclick="openModal('debt-modal')" style="border-color:var(--warning); color:var(--warning); background:rgba(246,229,141,0.06);">
                 🤝 Add Borrowed / Lent Record
             </button>
             
             <div class="dashboard-grid">
-                <div style="background:var(--card); padding:15px; border-radius:10px; border-top: 4px solid var(--bad);">
-                    <h3 style="margin-top:0; font-size:0.95rem; color:#aaa;">Pending To Pay</h3>
-                    <div style="font-size:1.5rem; color:var(--bad); font-weight:bold; margin-bottom:10px;">₹<span id="total-borrowed">0</span></div>
+                <div style="background:var(--card); padding:15px; border-radius:12px; border:1px solid var(--border); border-top: 4px solid var(--bad);">
+                    <h3 style="margin-top:0; font-size:0.95rem; color:var(--text-muted);">Pending To Pay (Borrowed)</h3>
+                    <div style="font-size:1.5rem; color:var(--bad); font-weight:800; margin-bottom:10px;">₹<span id="total-borrowed">0</span></div>
                     <div id="borrowed-list-container" style="display:flex; flex-direction:column; gap:8px;"></div>
                 </div>
-                <div style="background:var(--card); padding:15px; border-radius:10px; border-top: 4px solid var(--success);">
-                    <h3 style="margin-top:0; font-size:0.95rem; color:#aaa;">Pending To Receive</h3>
-                    <div style="font-size:1.5rem; color:var(--success); font-weight:bold; margin-bottom:10px;">₹<span id="total-lent">0</span></div>
+                <div style="background:var(--card); padding:15px; border-radius:12px; border:1px solid var(--border); border-top: 4px solid var(--success);">
+                    <h3 style="margin-top:0; font-size:0.95rem; color:var(--text-muted);">Pending To Receive (Lent)</h3>
+                    <div style="font-size:1.5rem; color:var(--success); font-weight:800; margin-bottom:10px;">₹<span id="total-lent">0</span></div>
                     <div id="lent-list-container" style="display:flex; flex-direction:column; gap:8px;"></div>
                 </div>
             </div>
@@ -449,7 +621,7 @@
                 </div>
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <input type="text" id="debt-desc" placeholder="Person / Reason" style="margin:0; flex:2;">
-                    <button onclick="pickContact()" style="background:#333; color:#fff; margin:0; flex:1;" title="Select Contact">📱</button>
+                    <button onclick="pickContact()" style="background:var(--card-elevated); color:#fff; border:1px solid var(--border); margin:0; flex:1;" title="Select Contact">📱</button>
                 </div>
                 <input type="number" id="debt-amount" placeholder="₹ Amount">
                 <select id="debt-type">
@@ -467,14 +639,14 @@
         <div id="tab-backlog" class="tab-content">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                 <h2 style="margin:0;">Your Library</h2>
-                <select id="backlog-filter" style="width:auto; margin:0; padding:5px 10px;" onchange="renderBacklog()">
+                <select id="backlog-filter" style="width:auto; margin:0; padding:8px 14px;" onchange="renderBacklog()">
                     <option value="all">All Items</option>
                     <option value="pending">Pending</option>
                     <option value="completed">Completed</option>
                 </select>
             </div>
 
-            <button class="main-action-btn" onclick="openModal('backlog-modal')" style="border-color:var(--backlog); color:var(--backlog);">
+            <button class="main-action-btn" onclick="openModal('backlog-modal')" style="border-color:var(--backlog); color:var(--backlog); background:rgba(255,138,101,0.06);">
                 📌 Save Link / Book / Video
             </button>
 
@@ -492,7 +664,7 @@
                 <input type="text" id="backlog-title" placeholder="Title (e.g., KAS Material)">
                 <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <input type="url" id="backlog-link" placeholder="URL Link" style="margin:0; flex:2;">
-                    <button onclick="autoFetchThumbnail()" style="background:#333; color:#fff; margin:0; flex:1; font-size:0.85rem;">🪄 Cover</button>
+                    <button onclick="autoFetchThumbnail()" style="background:var(--card-elevated); color:#fff; border:1px solid var(--border); margin:0; flex:1; font-size:0.85rem;">🪄 Cover</button>
                 </div>
                 <input type="url" id="backlog-image-url" placeholder="Cover Image URL">
                 <select id="backlog-type">
@@ -508,14 +680,13 @@
         </div>
     </div>
 
-    <!-- History Modal -->
+    <!-- Activity History Modal -->
     <div id="history-modal">
-        <div style="max-width:600px; margin:30px auto; background:var(--bg); padding:20px; border-radius:15px; border:1px solid #333;">
+        <div style="max-width:600px; margin:20px auto; background:var(--card); padding:20px; border-radius:18px; border:1px solid var(--border);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                 <h2 style="margin:0;">Activity History</h2>
-                <button onclick="closeHistory()" style="background:transparent; color:#fff; border:none; font-size:1.5rem; padding:0; margin:0; width:auto; min-width:44px; min-height:44px;">×</button>
+                <button onclick="closeHistory()" class="btn-icon">❌</button>
             </div>
-            <!-- Tab Filters for History -->
             <div style="display:flex; gap:6px; margin-bottom:15px; overflow-x:auto; padding-bottom:5px;">
                 <button class="hist-filter-btn active" onclick="filterHistory('all', this)">All</button>
                 <button class="hist-filter-btn" onclick="filterHistory('tasks', this)">Tasks</button>

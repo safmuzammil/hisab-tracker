@@ -31,6 +31,7 @@ onAuthStateChanged(auth, async (user) => {
         currentUser = null;
         document.getElementById('login-prompt').style.display = 'block';
         document.getElementById('auth-container').style.display = 'none';
+        hasInitialCloudSync = true;
         migrateLegacyTasks();
         processAutomaticPenalties(); 
         render();
@@ -48,13 +49,11 @@ function logout() { signOut(auth).then(() => { location.reload(); }); }
 function showProfile(user) {
     document.getElementById('login-prompt').style.display = 'none';
     const authContainer = document.getElementById('auth-container');
-    
-    authContainer.style = 'display: flex; justify-content: space-between; align-items: center; background: var(--card); padding: 10px 15px; border-radius: 12px; margin-bottom: 20px;';
-    
+    authContainer.style = 'display: flex; justify-content: space-between; align-items: center; background: var(--card); padding: 10px 15px; border-radius: 12px; margin-bottom: 20px; border: 1px solid var(--border);';
     authContainer.innerHTML = `
         <div style="display: flex; align-items: center; gap: 12px;">
             <img src="${user.picture}" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 1px solid #333;">
-            <div style="line-height: 1.2;">
+            <div style="line-height: 1.2; text-align:left;">
                 <div style="font-weight: bold; font-size: 1rem; color: #fff;">${user.name}</div>
                 <div style="font-size: 0.75rem; color: #aaa;">${user.email}</div>
             </div>
@@ -95,9 +94,29 @@ let tasksProgressChart = null;
 let badHabitsChart = null;
 let showAllQada = false;
 let currentHistoryFilter = 'all';
+let active30DayTaskId = null;
 
 // ==========================================
-// GOOGLE SHEETS LIVE SYNC
+// DATE HELPERS FOR ACCURATE DAY BOUNDARIES
+// ==========================================
+function toDateKey(dateInput) {
+    const d = new Date(dateInput);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function getDayBounds(dateKey) {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const start = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+    const end = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
+    const noon = new Date(y, m - 1, d, 12, 0, 0, 0).getTime();
+    return { start, end, noon };
+}
+
+// ==========================================
+// GOOGLE SHEETS LIVE SYNC ('RawLogs')
 // ==========================================
 const GOOGLE_SHEETS_URL = "https://script.google.com/macros/s/AKfycbxnUQz9WnM2X3tAIL3o2JdZO3u28SBBN5MlD8CF_mQKZ634qzto5AWiawyX7cjmqn00/exec";
 
@@ -141,14 +160,21 @@ function listenToFirebase() {
                     if (!deenData.zakatInputs) deenData.zakatInputs = { cash: 0, gold: 0, invest: 0 };
                     if (!deenData.quran) deenData.quran = [];
                     if (!deenData.dhikr) deenData.dhikr = [];
-                } 
+                }
                 if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
                 if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
 
                 lastModifiedLocal = cloudModified;
                 localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString());
                 hasInitialCloudSync = true;
-                saveDataLocallyOnly(); 
+                
+                let legacyChanged = migrateLegacyTasks();
+                let autoChanged = processAutomaticPenalties();
+                if (legacyChanged || autoChanged) {
+                    saveData();
+                } else {
+                    saveDataLocallyOnly();
+                }
                 render();
                 return; 
             }
@@ -157,8 +183,9 @@ function listenToFirebase() {
             let legacyChanged = migrateLegacyTasks();
             let autoChanged = processAutomaticPenalties(); 
             
-            if (legacyChanged || autoChanged) { saveDataLocallyOnly(); syncDataToFirebase(); }
-            saveDataLocallyOnly(); render();
+            if (legacyChanged || autoChanged) { saveData(); }
+            else { saveDataLocallyOnly(); }
+            render();
         } else { 
             hasInitialCloudSync = true;
             migrateLegacyTasks();
@@ -184,32 +211,178 @@ function migrateLegacyTasks() {
     return needsSave;
 }
 
+// ==========================================
+// FIXED MORNING MISSED TASKS & PENALTY ENGINE
+// Evaluates strictly up to YESTERDAY (never marks today's pending tasks as missed!)
+// ==========================================
 function processAutomaticPenalties() {
     if (!hasInitialCloudSync) return false;
-    
-    let needsSave = false; let penaltyAdded = 0; const todayStr = new Date().toDateString();
+
+    let needsSave = false;
+    let totalPenaltyAdded = 0;
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterdayDate = new Date(todayStart - 86400000);
+    const yesterdayKey = toDateKey(yesterdayDate);
+    let yesterdayMissedTitles = [];
+
     tasks.forEach(t => {
-        if (t.isMaxOnceDaily) {
-            if (!t.penaltyCheckDate) { t.penaltyCheckDate = todayStr; needsSave = true; }
-            while (t.penaltyCheckDate !== todayStr) {
-                let pDate = new Date(t.penaltyCheckDate); pDate.setDate(pDate.getDate() + 1); let nextDateStr = pDate.toDateString();
-                if (new Date(nextDateStr).getTime() <= new Date(todayStr).getTime()) {
-                    if (t.lastCompletedDay !== t.penaltyCheckDate) {
-                        t.missedCount = (t.missedCount || 0) + 1;
-                        if (t.missedCount >= 5) { 
-                            applyPenalty(50);
-                            penaltyAdded += 50; 
-                            t.missedCount = 0; 
+        if (t.type === 'daily' && (t.isMaxOnceDaily || (t.donationPenalty && t.donationPenalty > 0))) {
+            const createdStart = new Date(t.createdAt || Date.now());
+            createdStart.setHours(0, 0, 0, 0);
+
+            // Initialize lastEvaluatedDateKey if missing or legacy
+            if (!t.lastEvaluatedDateKey) {
+                if (t.penaltyCheckDate) {
+                    const parsedOld = new Date(t.penaltyCheckDate);
+                    parsedOld.setHours(0, 0, 0, 0);
+                    // Step back 1 day so yesterday is properly evaluated if needed
+                    const initDate = new Date(Math.min(parsedOld.getTime(), todayStart) - 86400000);
+                    t.lastEvaluatedDateKey = toDateKey(Math.max(createdStart.getTime() - 86400000, initDate.getTime()));
+                } else {
+                    t.lastEvaluatedDateKey = toDateKey(new Date(todayStart - 86400000));
+                }
+                needsSave = true;
+            }
+
+            let cursor = getDayBounds(t.lastEvaluatedDateKey).start + 86400000;
+            while (cursor < todayStart) {
+                const checkKey = toDateKey(cursor);
+                const { start, end, noon } = getDayBounds(checkKey);
+
+                if (start >= createdStart.getTime()) {
+                    const doneLogs = activityHistory.filter(h =>
+                        h.taskId === t.id &&
+                        h.actionType === 'complete' &&
+                        h.timestamp >= start &&
+                        h.timestamp <= end
+                    );
+                    const amountDone = doneLogs.reduce((s, h) => s + (h.amount || 1), 0);
+                    const alreadyMarkedMissed = activityHistory.some(h =>
+                        h.taskId === t.id &&
+                        h.actionType === 'missed' &&
+                        h.timestamp >= start &&
+                        h.timestamp <= end
+                    );
+
+                    if (amountDone < (t.baseTarget || 1) && !alreadyMarkedMissed) {
+                        let dayPenalty = 0;
+                        let addedPenalty = 0;
+                        let coveredSurplus = 0;
+
+                        if (t.isMaxOnceDaily) {
+                            t.missedCount = (t.missedCount || 0) + 1;
+                            if (t.missedCount >= 5) {
+                                dayPenalty += 50;
+                                t.missedCount = 0;
+                            }
+                        }
+                        if (t.donationPenalty > 0) {
+                            dayPenalty += t.donationPenalty;
+                        }
+
+                        if (dayPenalty > 0) {
+                            const res = applyPenalty(dayPenalty);
+                            addedPenalty = res.addedToPending;
+                            coveredSurplus = res.coveredBySurplus;
+                            totalPenaltyAdded += dayPenalty;
+                        }
+
+                        const missedLog = {
+                            id: (Date.now() + Math.floor(Math.random() * 1000)).toString(),
+                            taskId: t.id,
+                            category: 'tasks',
+                            taskType: t.type,
+                            timestamp: noon,
+                            missedDateKey: checkKey,
+                            title: `Missed (${checkKey}): ${t.title}`,
+                            actionType: 'missed',
+                            amount: t.baseTarget || 1,
+                            donationAdded: addedPenalty,
+                            coveredBySurplus: coveredSurplus
+                        };
+                        activityHistory.push(missedLog);
+                        syncToGoogleSheets(missedLog);
+
+                        t.currentTarget = Math.max(0, (t.currentTarget || 0) - (t.baseTarget || 1));
+                        if (t.currentTarget <= 0) t.isCompleted = true;
+
+                        if (checkKey === yesterdayKey) {
+                            yesterdayMissedTitles.push(`${t.title}${dayPenalty > 0 ? ` (₹${dayPenalty})` : ''}`);
                         }
                         needsSave = true;
+                    } else if (amountDone >= (t.baseTarget || 1)) {
+                        if (t.isMaxOnceDaily) t.missedCount = 0;
                     }
                 }
-                t.penaltyCheckDate = nextDateStr; needsSave = true;
+
+                t.lastEvaluatedDateKey = checkKey;
+                t.penaltyCheckDate = new Date(todayStart).toDateString();
+                needsSave = true;
+                cursor += 86400000;
             }
         }
     });
-    if (penaltyAdded > 0) alert(`⚠️ You missed strict daily tasks for 5 days! ₹${penaltyAdded} penalty applied.`);
+
+    // Also render morning report banner for yesterday's actual missed tasks
+    renderMorningMissedBanner(yesterdayKey, yesterdayMissedTitles, totalPenaltyAdded);
     return needsSave;
+}
+
+function renderMorningMissedBanner(yesterdayKey, newMissedList = [], penaltyAdded = 0) {
+    const banner = document.getElementById('morning-missed-banner');
+    if (!banner) return;
+
+    const { start, end } = getDayBounds(yesterdayKey);
+    const yesterdayMissedLogs = activityHistory.filter(h =>
+        h.category === 'tasks' &&
+        h.actionType === 'missed' &&
+        h.timestamp >= start &&
+        h.timestamp <= end
+    );
+
+    if (yesterdayMissedLogs.length === 0) {
+        banner.style.display = 'none';
+        return;
+    }
+
+    const itemsHtml = yesterdayMissedLogs.map(log => {
+        const task = tasks.find(t => t.id === log.taskId);
+        const taskName = task ? task.title : log.title.replace(/^Missed.*?:\s*/, '');
+        const pen = (log.donationAdded || 0) + (log.coveredBySurplus || 0);
+        return `<li style="margin-bottom:4px;"><strong>${taskName}</strong> ${pen > 0 ? `<span style="color:var(--charity);">(Penalty: ₹${pen})</span>` : ''} 
+            ${task ? `<button onclick="openTask30DayModal('${task.id}')" style="background:rgba(3,218,198,0.18); color:var(--success); border:1px solid var(--success); padding:2px 8px; font-size:0.75rem; width:auto; min-height:28px; margin:0 0 0 8px; border-radius:6px;">Fulfill Now</button>` : ''}
+        </li>`;
+    }).join('');
+
+    banner.style.display = 'block';
+    banner.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <div>
+                <div style="font-weight:bold; color:var(--danger); font-size:0.95rem; margin-bottom:6px;">
+                    ⚠️ Yesterday's Missed Tasks (${yesterdayKey})
+                </div>
+                <ul style="margin:0; padding-left:18px; font-size:0.85rem; color:#eee;">
+                    ${itemsHtml}
+                </ul>
+                <div style="font-size:0.78rem; color:#aaa; margin-top:8px;">
+                    💡 Fulfill any missed task from its <strong>📅 30-Day History</strong> to automatically refund its penalty!
+                </div>
+            </div>
+            <button class="btn-icon" onclick="document.getElementById('morning-missed-banner').style.display='none'" style="min-width:34px; min-height:34px; font-size:0.85rem;">✖</button>
+        </div>
+    `;
+
+    if (newMissedList.length > 0 && "Notification" in window && Notification.permission === "granted") {
+        const notifKey = `hisab_morning_notif_${yesterdayKey}`;
+        if (!localStorage.getItem(notifKey)) {
+            new Notification(`Hisab: Yesterday's Missed Tasks (${yesterdayKey})`, {
+                body: `Missed yesterday: ${newMissedList.join(', ')}. Tap to review or fulfill retroactively.`,
+                icon: "icon.png"
+            });
+            localStorage.setItem(notifKey, '1');
+        }
+    }
 }
 
 function saveDataLocallyOnly() { 
@@ -270,6 +443,20 @@ function applyPenalty(penaltyAmount) {
     return { addedToPending: remainingPenalty, coveredBySurplus };
 }
 
+function refundPenaltyFromLog(missedLog) {
+    if (!missedLog) return 0;
+    let totalRefunded = 0;
+    if (missedLog.donationAdded && missedLog.donationAdded > 0) {
+        charityData.pending = Math.max(0, charityData.pending - missedLog.donationAdded);
+        totalRefunded += missedLog.donationAdded;
+    }
+    if (missedLog.coveredBySurplus && missedLog.coveredBySurplus > 0) {
+        charityData.surplus = (charityData.surplus || 0) + missedLog.coveredBySurplus;
+        totalRefunded += missedLog.coveredBySurplus;
+    }
+    return totalRefunded;
+}
+
 function payDonation() {
     const input = document.getElementById('donation-pay-amount');
     const amount = parseFloat(input.value) || 0;
@@ -284,8 +471,23 @@ function payDonation() {
 }
 
 // ==========================================
-// TASKS LOGIC (FIXED EDIT & INSTANT TICKS)
+// TASKS & SPIRITUAL AUTOMATION ENGINE
 // ==========================================
+function applyDeenAutomation(taskTitle, amountDelta) {
+    const tName = (taskTitle || '').toLowerCase();
+    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+
+    if (tName.includes('hizb')) {
+        deenData.quranStats.totalHizb = Math.max(0, (deenData.quranStats.totalHizb || 0) + amountDelta);
+        deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+        deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+    }
+    if (tName.includes('swalath') || tName.includes('salawat') || tName.includes('salawaat') || tName.includes('darood') || tName.includes('durood')) {
+        deenData.swalathStats.total = Math.max(0, (deenData.swalathStats.total || 0) + amountDelta);
+    }
+}
+
 function getPeriodsLeft(type, dateObj) {
     const now = new Date(); const currentYear = now.getFullYear(); let start = new Date(dateObj);
     if (isNaN(start.getTime())) start = new Date(); 
@@ -303,9 +505,10 @@ function saveTask() {
         task.type = type; task.baseTarget = baseTarget; task.totalYearlyTarget = newTotalYearly; task.currentTarget = Math.max(0, (task.currentTarget || 0) + targetDiff); task.isCompleted = task.currentTarget <= 0;
     } else { 
         const creationTime = Date.now(); const periodsLeft = getPeriodsLeft(type, creationTime); const totalYearlyTarget = periodsLeft * baseTarget;
-        tasks.push({ id: creationTime.toString(), createdAt: creationTime, title, type, baseTarget, totalYearlyTarget, currentTarget: totalYearlyTarget, reminderTime, donationPenalty, isMaxOnceDaily, missedCount: 0, penaltyCheckDate: new Date().toDateString(), isCompleted: false, legacyMigrated: true }); 
+        const yesterdayKey = toDateKey(new Date(Date.now() - 86400000));
+        tasks.push({ id: creationTime.toString(), createdAt: creationTime, title, type, baseTarget, totalYearlyTarget, currentTarget: totalYearlyTarget, reminderTime, donationPenalty, isMaxOnceDaily, missedCount: 0, penaltyCheckDate: new Date().toDateString(), lastEvaluatedDateKey: yesterdayKey, isCompleted: false, legacyMigrated: true }); 
     } 
-    cancelEdit(); saveData(); render(); 
+    cancelEdit(); closeModal('task-modal'); saveData(); render(); 
 }
 
 function editTask(id) { 
@@ -313,37 +516,50 @@ function editTask(id) {
     document.getElementById('form-title').innerText = '✏️ Edit Task'; document.getElementById('btn-save-task').innerText = 'Save Changes'; document.getElementById('btn-cancel-edit').style.display = 'inline-block'; 
     document.getElementById('task-id').value = task.id; document.getElementById('task-title').value = task.title; document.getElementById('task-type').value = task.type || 'daily'; document.getElementById('task-base-target').value = task.baseTarget; 
     document.getElementById('task-donation').value = task.donationPenalty || ''; document.getElementById('task-reminder-time').value = task.reminderTime || ''; document.getElementById('task-is-max-once').checked = task.isMaxOnceDaily || false; 
-    
     openModal('task-modal');
-    window.scrollTo({ top: 0, behavior: 'smooth' }); 
 }
 
 function cancelEdit() { 
-    document.getElementById('form-title').innerText = '➕ Add New Task'; document.getElementById('btn-save-task').innerText = 'Add Task'; document.getElementById('btn-cancel-edit').style.display = 'none'; 
+    document.getElementById('form-title').innerText = '➕ Add New Task'; document.getElementById('btn-save-task').innerText = 'Save Task'; document.getElementById('btn-cancel-edit').style.display = 'none'; 
     document.getElementById('task-id').value = ''; document.getElementById('task-title').value = ''; document.getElementById('task-type').value = 'daily'; document.getElementById('task-base-target').value = ''; document.getElementById('task-donation').value = ''; document.getElementById('task-reminder-time').value = ''; document.getElementById('task-is-max-once').checked = false;
 }
 
 function deleteTask(id) { if (confirm("Delete this task?")) { tasks = tasks.filter(t => t.id !== id); saveData(); render(); } }
 
 function logProgress(id) {
-    const task = tasks.find(t => t.id === id); 
+    const task = tasks.find(t => t.id === id); if (!task) return;
     const inputEl = document.getElementById(`input-${id}`);
-    const amountDone = parseFloat(inputEl ? inputEl.value : task.baseTarget) || task.baseTarget || 1; 
+    const amountDone = parseFloat(inputEl ? inputEl.value : task.baseTarget) || task.baseTarget || 1;
     if (amountDone <= 0) return;
-    
+
     const todayStr = new Date().toDateString();
+    const todayKey = toDateKey(Date.now());
+    const { start, end } = getDayBounds(todayKey);
+
+    // Check if this task was already marked missed today; if so, refund today's penalty automatically!
+    const missedTodayLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= start && h.timestamp <= end);
+    missedTodayLogs.forEach(mLog => {
+        refundPenaltyFromLog(mLog);
+        task.currentTarget += (mLog.amount || 1);
+        syncToGoogleSheets({ actionType: 'undo', id: mLog.id });
+        activityHistory = activityHistory.filter(h => h.id !== mLog.id);
+    });
+
     if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
     task.lastCompletedDay = todayStr;
+    if (task.isMaxOnceDaily) task.missedCount = 0;
     
     let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), title: "Completed: " + task.title, actionType: 'complete', amount: amountDone };
     activityHistory.push(newLog);
     syncToGoogleSheets(newLog);
 
-    task.currentTarget -= amountDone; 
+    task.currentTarget = Math.max(0, (task.currentTarget || 0) - amountDone);
     if (task.currentTarget <= 0) task.isCompleted = true; 
     
-    saveData(); 
-    render();
+    // --- AUTOMATION ENGINE ---
+    applyDeenAutomation(task.title, amountDone);
+
+    saveData(); render();
 }
 
 function markMissed(id, event) {
@@ -357,13 +573,163 @@ function markMissed(id, event) {
             coveredSurplus = penaltyRes.coveredBySurplus;
         }
 
-        let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), title: "Missed: " + task.title, actionType: 'missed', amount: 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus };
+        let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), missedDateKey: toDateKey(Date.now()), title: "Missed: " + task.title, actionType: 'missed', amount: task.baseTarget || 1, donationAdded: addedPenalty, coveredBySurplus: coveredSurplus };
         activityHistory.push(newLog);
         syncToGoogleSheets(newLog);
 
-        task.currentTarget -= 1; if (task.currentTarget <= 0) task.isCompleted = true;
+        task.currentTarget = Math.max(0, (task.currentTarget || 0) - (task.baseTarget || 1));
+        if (task.currentTarget <= 0) task.isCompleted = true;
         saveData(); render();
     }
+}
+
+// ==========================================
+// 30-DAY PER-TASK INTERACTIVE CALENDAR & RETROACTIVE FULFILLMENT
+// ==========================================
+function openTask30DayModal(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    active30DayTaskId = taskId;
+
+    document.getElementById('task-30day-title').innerText = `📅 ${task.title} (Last 30 Days)`;
+    const grid = document.getElementById('task-30day-grid');
+    const summaryEl = document.getElementById('task-30day-summary');
+    grid.innerHTML = '';
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const createdDate = new Date(task.createdAt || Date.now());
+    createdDate.setHours(0, 0, 0, 0);
+
+    let doneDaysCount = 0;
+    let missedDaysCount = 0;
+    let totalPenaltyOnTask = 0;
+
+    // Render from 29 days ago up to today (30 days total)
+    for (let i = 29; i >= 0; i--) {
+        const cellDate = new Date(todayStart - i * 86400000);
+        const dateKey = toDateKey(cellDate);
+        const { start, end } = getDayBounds(dateKey);
+        const shortLabel = cellDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+        const doneLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && h.timestamp >= start && h.timestamp <= end);
+        const missedLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= start && h.timestamp <= end);
+
+        const amountDone = doneLogs.reduce((s, h) => s + (h.amount || 1), 0);
+        const penaltyDay = missedLogs.reduce((s, h) => s + (h.donationAdded || 0) + (h.coveredBySurplus || 0), 0);
+
+        const cell = document.createElement('div');
+        const isBeforeCreation = start < createdDate.getTime() && doneLogs.length === 0 && missedLogs.length === 0;
+
+        if (amountDone >= (task.baseTarget || 1) || doneLogs.length > 0) {
+            doneDaysCount++;
+            cell.className = 'cal-day-cell status-done';
+            cell.innerHTML = `
+                <div class="cal-date-label">${shortLabel}</div>
+                <div class="cal-status-icon">✅</div>
+                <div class="cal-sub-info">${amountDone} done</div>
+            `;
+            cell.title = `Completed on ${dateKey}`;
+        } else if (missedLogs.length > 0) {
+            missedDaysCount++;
+            totalPenaltyOnTask += penaltyDay;
+            cell.className = 'cal-day-cell status-missed';
+            cell.innerHTML = `
+                <div class="cal-date-label">${shortLabel}</div>
+                <div class="cal-status-icon">❌</div>
+                <div class="cal-sub-info">${penaltyDay > 0 ? `₹${penaltyDay}` : 'Missed'}</div>
+            `;
+            cell.onclick = () => fulfillMissedTaskDay(task.id, dateKey);
+        } else if (isBeforeCreation) {
+            cell.className = 'cal-day-cell status-before';
+            cell.innerHTML = `
+                <div class="cal-date-label">${shortLabel}</div>
+                <div class="cal-status-icon">—</div>
+                <div class="cal-sub-info">N/A</div>
+            `;
+        } else {
+            cell.className = 'cal-day-cell status-unlogged';
+            cell.innerHTML = `
+                <div class="cal-date-label">${shortLabel}</div>
+                <div class="cal-status-icon">${i === 0 ? '⏳' : '⚪'}</div>
+                <div class="cal-sub-info">${i === 0 ? 'Today' : 'Tap to fill'}</div>
+            `;
+            cell.onclick = () => fulfillMissedTaskDay(task.id, dateKey);
+        }
+
+        grid.appendChild(cell);
+    }
+
+    summaryEl.innerHTML = `
+        <span class="badge done-badge">✅ Completed: ${doneDaysCount}d</span>
+        <span class="badge" style="background:rgba(255,82,82,0.15); color:var(--danger);">❌ Missed: ${missedDaysCount}d</span>
+        ${totalPenaltyOnTask > 0 ? `<span class="badge donation">💸 Refundable Penalty: ₹${totalPenaltyOnTask}</span>` : ''}
+    `;
+
+    openModal('task-30day-modal');
+}
+
+function fulfillMissedTaskDay(taskId, dateKey) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const { start, end, noon } = getDayBounds(dateKey);
+    const missedLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= start && h.timestamp <= end);
+    const expectedPenaltyRefund = missedLogs.reduce((s, h) => s + (h.donationAdded || 0) + (h.coveredBySurplus || 0), 0);
+
+    const promptMsg = missedLogs.length > 0
+        ? `Fulfill missed task "${task.title}" for ${dateKey}?\n${expectedPenaltyRefund > 0 ? `💸 This will automatically decrease/refund ₹${expectedPenaltyRefund} from your penalty!` : ''}\n\nEnter units completed:`
+        : `Log "${task.title}" retroactively for ${dateKey}?\n\nEnter units completed:`;
+
+    const inputVal = prompt(promptMsg, task.baseTarget || 1);
+    if (inputVal === null) return;
+    const amountDone = parseFloat(inputVal);
+    if (isNaN(amountDone) || amountDone <= 0) return alert("Please enter a valid positive number.");
+
+    // 1. Reverse any 'missed' log on that date & refund its penalty!
+    let refundedAmount = 0;
+    missedLogs.forEach(mLog => {
+        refundedAmount += refundPenaltyFromLog(mLog);
+        // Restore target that was decremented by the missed log before applying the completion decrement
+        task.currentTarget += (mLog.amount || 1);
+        syncToGoogleSheets({ actionType: 'undo', id: mLog.id });
+        activityHistory = activityHistory.filter(h => h.id !== mLog.id);
+    });
+
+    if (missedLogs.length > 0 && task.isMaxOnceDaily && (task.missedCount || 0) > 0) {
+        task.missedCount = Math.max(0, task.missedCount - 1);
+    }
+
+    // 2. Create the retroactive completion log on that specific date
+    const retroLog = {
+        id: Date.now().toString(),
+        taskId: task.id,
+        category: 'tasks',
+        taskType: task.type,
+        timestamp: noon,
+        fulfilledRetroactively: true,
+        fulfilledDateKey: dateKey,
+        title: `Completed (${dateKey}): ${task.title}`,
+        actionType: 'complete',
+        amount: amountDone
+    };
+    activityHistory.push(retroLog);
+    syncToGoogleSheets(retroLog);
+
+    task.currentTarget = Math.max(0, (task.currentTarget || 0) - amountDone);
+    task.isCompleted = task.currentTarget <= 0;
+
+    // 3. Run spiritual automation if Hizb or Swalath
+    applyDeenAutomation(task.title, amountDone);
+
+    if (typeof confetti === 'function') confetti({ particleCount: 55, spread: 65, origin: { y: 0.75 } });
+    if (refundedAmount > 0) {
+        alert(`✅ Fulfilled "${task.title}" for ${dateKey}! ₹${refundedAmount} penalty has been deducted from your Pending Donations.`);
+    }
+
+    saveData();
+    render();
+    openTask30DayModal(taskId);
 }
 
 function renderTasks() {
@@ -397,27 +763,39 @@ function renderTasks() {
 
         filteredTasks.sort((a, b) => (a.isDoneForPeriod ? 1 : 0) - (b.isDoneForPeriod ? 1 : 0));
 
-        const section = document.createElement('div'); section.innerHTML = `<h3 style="margin-top:25px; color:#ddd; font-size:1.05rem; border-bottom:1px solid #333; padding-bottom:5px;">${cat.title}</h3>`;
+        const section = document.createElement('div'); section.innerHTML = `<h3 style="margin-top:25px; color:#ddd; font-size:1.05rem; border-bottom:1px solid var(--border); padding-bottom:6px;">${cat.title}</h3>`;
         
         filteredTasks.forEach(task => {
             const div = document.createElement('div'); div.className = `task-item ${task.isDoneForPeriod ? 'banked' : ''}`;
             let badgeLabel = "Done Today"; if (task.type === 'weekly') badgeLabel = "Done This Week"; if (task.type === 'monthly') badgeLabel = "Done This Month";
 
-            let statusHTML = task.currentTarget <= 0 ? `<span class="badge done-badge">✅ Completed for Year!</span>` : `<span class="badge target">Remaining in year: ${task.currentTarget}</span>`;
+            // Count missed days in last 30 days for quick badge visibility
+            const thirtyDaysAgo = startOfDay - 29 * 86400000;
+            const missed30Count = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= thirtyDaysAgo).length;
+
+            let statusHTML = task.currentTarget <= 0 ? `<span class="badge done-badge">✅ Completed for Year!</span>` : `<span class="badge target">Remaining in year: ${Math.round(task.currentTarget * 100) / 100}</span>`;
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
-            let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ${task.donationPenalty}</span>` : ``;
-            let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#333; color:#ccc;">Missed: ${task.missedCount || 0}/5</span>` : '';
-            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge" style="background:rgba(187, 134, 252, 0.2); color:var(--primary);">⭐ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
+            let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ₹${task.donationPenalty}</span>` : ``;
+            let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#2a2a35; color:#ccc;">Strict Streak: ${task.missedCount || 0}/5</span>` : '';
+            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge done-badge">✅ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
+            let missedBadgeHtml = missed30Count > 0 ? `<span class="badge" style="background:rgba(255,82,82,0.18); color:var(--danger); cursor:pointer;" onclick="openTask30DayModal('${task.id}')">⚠️ ${missed30Count} Missed (Tap to Fulfill)</span>` : '';
 
             div.innerHTML = `
             <div class="task-header">
                 <div>
-                    <div class="task-title" style="${task.isDoneForPeriod ? 'text-decoration:line-through; opacity:0.8;' : ''}">${task.title}</div>
-                    <div class="task-badges"><span class="badge" style="background:#333; color:#ccc;">Target: ${task.baseTarget} / ${task.type}</span>${statusHTML}${reminderHtml}${donationHtml}${strictHtml}${donePeriodHtml}</div>
+                    <div class="task-title" style="${task.isDoneForPeriod ? 'text-decoration:line-through; opacity:0.8;' : ''}">${task.isDoneForPeriod ? '✅ ' : ''}${task.title}</div>
+                    <div class="task-badges">
+                        <span class="badge" style="background:#252530; color:#ccc;">Target: ${task.baseTarget} / ${task.type}</span>
+                        ${statusHTML}${reminderHtml}${donationHtml}${strictHtml}${donePeriodHtml}${missedBadgeHtml}
+                    </div>
                 </div>
-                <div class="task-controls"><button class="btn-icon" onclick="editTask('${task.id}')">✏️</button><button class="btn-icon" onclick="deleteTask('${task.id}')">🗑️</button></div>
+                <div class="task-controls">
+                    <button class="btn-icon" onclick="openTask30DayModal('${task.id}')" title="30-Day History & Fulfill Missed">📅</button>
+                    <button class="btn-icon" onclick="editTask('${task.id}')" title="Edit Task">✏️</button>
+                    <button class="btn-icon" onclick="deleteTask('${task.id}')" title="Delete Task">🗑️</button>
+                </div>
             </div>
-            ${task.currentTarget > 0 ? `<div class="task-action-row">${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}<div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div><button class="btn-task-action done" onclick="logProgress('${task.id}')">Complete</button></div>` : ''}`;
+            ${task.currentTarget > 0 ? `<div class="task-action-row">${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}<div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div><button class="btn-task-action done" onclick="logProgress('${task.id}')">${task.isDoneForPeriod ? '➕ Log More' : '✔️ Complete'}</button></div>` : ''}`;
             section.appendChild(div);
         });
         container.appendChild(section);
@@ -425,7 +803,7 @@ function renderTasks() {
 }
 
 // ==========================================
-// GOOD & BAD HABITS LOGIC
+// GOOD HABITS & SURPLUS WALLET LOGIC
 // ==========================================
 function addGoodHabit() {
     const id = document.getElementById('good-habit-id').value;
@@ -442,7 +820,7 @@ function addGoodHabit() {
     } else {
         goodHabits.push({ id: Date.now().toString(), title, rewardType, rewardValue, annualCount: 0 });
     }
-    cancelEditGoodHabit(); saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
+    cancelEditGoodHabit(); closeModal('good-habit-modal'); saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
 
 function editGoodHabit(id) {
@@ -454,9 +832,7 @@ function editGoodHabit(id) {
     document.getElementById('good-habit-reward-value').value = habit.rewardValue || '';
     document.getElementById('btn-save-good-habit').innerText = 'Save Changes';
     document.getElementById('btn-cancel-edit-good-habit').style.display = 'block';
-    
     openModal('good-habit-modal');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function cancelEditGoodHabit() {
@@ -465,7 +841,7 @@ function cancelEditGoodHabit() {
     document.getElementById('good-habit-title').value = '';
     document.getElementById('good-habit-reward-type').value = 'reduce';
     document.getElementById('good-habit-reward-value').value = '';
-    document.getElementById('btn-save-good-habit').innerHTML = '➕ Add Good Habit';
+    document.getElementById('btn-save-good-habit').innerHTML = 'Save Good Habit';
     document.getElementById('btn-cancel-edit-good-habit').style.display = 'none';
 }
 
@@ -532,7 +908,7 @@ function renderGoodHabits() {
             <div class="task-header">
                 <div>
                     <div class="task-title" style="color:var(--success);">${habit.title}</div>
-                    <div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span><span class="badge" style="background:rgba(3, 218, 198, 0.1); color:var(--success);">${rewardText}</span>${doneTodayHtml}</div>
+                    <div class="task-badges"><span class="badge" style="background:#252530; color:#fff;">Annual Total: ${habit.annualCount}</span><span class="badge" style="background:rgba(3, 218, 198, 0.1); color:var(--success);">${rewardText}</span>${doneTodayHtml}</div>
                 </div>
                 <div class="task-controls">
                     <button class="btn-icon" onclick="editGoodHabit('${habit.id}')">✏️</button>
@@ -545,6 +921,9 @@ function renderGoodHabits() {
     });
 }
 
+// ==========================================
+// BAD HABITS / VICES LOGIC
+// ==========================================
 function addBadHabit() {
     const id = document.getElementById('bad-habit-id').value;
     const title = document.getElementById('bad-habit-title').value.trim(); 
@@ -557,7 +936,7 @@ function addBadHabit() {
     } else {
         badHabits.push({ id: Date.now().toString(), title, donationPenalty, annualCount: 0 });
     }
-    cancelEditBadHabit(); saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
+    cancelEditBadHabit(); closeModal('bad-habit-modal'); saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
 
 function editBadHabit(id) {
@@ -568,9 +947,7 @@ function editBadHabit(id) {
     document.getElementById('bad-habit-donation').value = habit.donationPenalty || '';
     document.getElementById('btn-save-bad-habit').innerText = 'Save Changes';
     document.getElementById('btn-cancel-edit-bad-habit').style.display = 'block';
-    
     openModal('bad-habit-modal');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function cancelEditBadHabit() {
@@ -578,7 +955,7 @@ function cancelEditBadHabit() {
     document.getElementById('bad-habit-id').value = '';
     document.getElementById('bad-habit-title').value = '';
     document.getElementById('bad-habit-donation').value = '';
-    document.getElementById('btn-save-bad-habit').innerHTML = '➕ Add Bad Habit';
+    document.getElementById('btn-save-bad-habit').innerHTML = 'Save Bad Habit';
     document.getElementById('btn-cancel-edit-bad-habit').style.display = 'none';
 }
 
@@ -612,75 +989,18 @@ function renderBadHabits() {
 
     badHabits.forEach(habit => {
         const div = document.createElement('div'); div.className = 'task-item bad-log';
-        let donationHtml = habit.donationPenalty ? `<span class="badge donation">💸 Penalty: ${habit.donationPenalty}</span>` : ``;
+        let donationHtml = habit.donationPenalty ? `<span class="badge donation">💸 Penalty: ₹${habit.donationPenalty}</span>` : ``;
         
         const todayLogs = activityHistory.filter(h => h.taskId === habit.id && h.actionType === 'bad' && h.timestamp >= startOfDay);
         const timesDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
         let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge" style="background:rgba(255, 82, 82, 0.2); color:var(--danger);">⚠️ Logged Today: ${timesDoneToday}</span>` : '';
 
-        div.innerHTML = `<div class="task-header"><div><div class="task-title" style="color:var(--bad);">${habit.title}</div><div class="task-badges"><span class="badge" style="background:#2c2c2c; color:#fff;">Annual Total: ${habit.annualCount}</span>${donationHtml}${doneTodayHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="editBadHabit('${habit.id}')">✏️</button><button class="btn-icon" onclick="deleteBadHabit('${habit.id}')">🗑️</button></div></div><div class="task-action-row"><button class="btn-task-action bad" onclick="logBadHabit('${habit.id}', event)">+1 Log Occurrence</button></div>`;
+        div.innerHTML = `<div class="task-header"><div><div class="task-title" style="color:var(--bad);">${habit.title}</div><div class="task-badges"><span class="badge" style="background:#252530; color:#fff;">Annual Total: ${habit.annualCount}</span>${donationHtml}${doneTodayHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="editBadHabit('${habit.id}')">✏️</button><button class="btn-icon" onclick="deleteBadHabit('${habit.id}')">🗑️</button></div></div><div class="task-action-row"><button class="btn-task-action bad" onclick="logBadHabit('${habit.id}', event)">+1 Log Occurrence</button></div>`;
         container.appendChild(div);
     });
 }
 
 function renderHabits() { renderGoodHabits(); renderBadHabits(); }
-
-// ==========================================
-// DEEN TAB DIRECT LOGGING LOGIC
-// ==========================================
-function logSwalathDirect() {
-    const input = document.getElementById('swalath-input-amount');
-    const amount = parseInt(input.value) || 0;
-    if (amount <= 0) return alert("Please enter a valid amount.");
-
-    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
-    deenData.swalathStats.total += amount;
-
-    let newLog = { 
-        id: Date.now().toString(), 
-        taskId: 'swalath-direct', 
-        category: 'deen', 
-        timestamp: Date.now(), 
-        title: `Logged Swalath (+${amount})`, 
-        actionType: 'deen_swalath', 
-        amount: amount 
-    };
-    activityHistory.push(newLog);
-    syncToGoogleSheets(newLog);
-
-    input.value = '100';
-    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['#03dac6', '#bb86fc'] });
-    saveData();
-    renderDeen();
-}
-
-function logHizbDirect() {
-    const input = document.getElementById('hizb-input-amount');
-    const amount = parseFloat(input.value) || 0;
-    if (amount <= 0) return alert("Please enter a valid Hizb amount.");
-
-    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
-    deenData.quranStats.totalHizb += amount;
-    deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
-    deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
-
-    let newLog = { 
-        id: Date.now().toString(), 
-        taskId: 'hizb-direct', 
-        category: 'deen', 
-        timestamp: Date.now(), 
-        title: `Logged Hizb (+${amount})`, 
-        actionType: 'deen_hizb', 
-        amount: amount 
-    };
-    activityHistory.push(newLog);
-    syncToGoogleSheets(newLog);
-
-    input.value = '1';
-    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['#bb86fc', '#f6e58d'] });
-    saveData();
-    renderDeen();
-}
 
 // ==========================================
 // UNDO & FILTERED HISTORY MODAL
@@ -691,35 +1011,35 @@ function undoAction(historyId) {
     if (confirm(`Undo "${entry.title}"?`)) {
         if (entry.actionType === 'complete' || entry.actionType === 'missed') {
             const task = tasks.find(t => t.id === entry.taskId);
+            
             if (task) { 
                 task.currentTarget += entry.amount; 
                 task.isCompleted = task.currentTarget <= 0; 
                 if (entry.actionType === 'complete' && task.isMaxOnceDaily) { 
                     task.lastCompletedDay = ''; 
                 } 
+                if (entry.actionType === 'complete') {
+                    applyDeenAutomation(task.title, -entry.amount);
+                }
+            } else if (entry.category === 'deen' && entry.taskId && entry.taskId.startsWith('dhikr-')) {
+                const idx = parseInt(entry.taskId.replace('dhikr-', ''));
+                if (deenData.dhikr[idx]) {
+                    deenData.dhikr[idx].current = Math.max(0, deenData.dhikr[idx].current - entry.amount);
+                    deenData.dhikr[idx].completed = deenData.dhikr[idx].current >= deenData.dhikr[idx].target;
+                }
             }
         } 
-        else if (entry.actionType === 'deen_swalath') {
-            if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
-            deenData.swalathStats.total = Math.max(0, deenData.swalathStats.total - entry.amount);
-        }
-        else if (entry.actionType === 'deen_hizb') {
-            if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
-            deenData.quranStats.totalHizb = Math.max(0, deenData.quranStats.totalHizb - entry.amount);
-            deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
-            deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
-        }
         else if (entry.actionType === 'bad') {
-            const habit = badHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount -= entry.amount; }
+            const habit = badHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount = Math.max(0, habit.annualCount - entry.amount); }
         }
         else if (entry.actionType === 'good') {
-            const habit = goodHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount -= entry.amount; }
-            if (entry.pointsAdded) bonusPoints -= entry.pointsAdded;
+            const habit = goodHabits.find(h => h.id === entry.taskId); if (habit) { habit.annualCount = Math.max(0, habit.annualCount - entry.amount); }
+            if (entry.pointsAdded) bonusPoints = Math.max(0, bonusPoints - entry.pointsAdded);
             if (entry.penaltyReduced) charityData.pending += entry.penaltyReduced;
             if (entry.surplusAdded) charityData.surplus = Math.max(0, (charityData.surplus || 0) - entry.surplusAdded);
         }
         
-        if (entry.donationAdded) { charityData.pending -= entry.donationAdded; if (charityData.pending < 0) charityData.pending = 0; }
+        if (entry.donationAdded) { charityData.pending = Math.max(0, charityData.pending - entry.donationAdded); }
         if (entry.coveredBySurplus) { charityData.surplus = (charityData.surplus || 0) + entry.coveredBySurplus; }
         
         syncToGoogleSheets({ actionType: 'undo', id: historyId });
@@ -754,8 +1074,14 @@ function openHistory(filter = 'all') {
         let borderColor = 'var(--success)';
         if (item.actionType === 'bad' || item.actionType === 'missed') borderColor = 'var(--bad)';
         
-        div.style = `background:var(--card); padding:15px; border-radius:10px; margin-bottom:10px; border-left: 5px solid ${borderColor}`;
+        div.style = `background:#252530; padding:15px; border-radius:12px; margin-bottom:10px; border-left: 5px solid ${borderColor}`;
         
+        let fulfillBtn = '';
+        if (item.actionType === 'missed' && item.taskId) {
+            const dKey = item.missedDateKey || toDateKey(item.timestamp);
+            fulfillBtn = `<button onclick="closeHistory(); fulfillMissedTaskDay('${item.taskId}', '${dKey}')" style="background:var(--success); color:#000; border:none; padding:6px 12px; font-size:0.85rem; margin:0 8px 0 0; width:auto; border-radius:6px;">✅ Fulfill & Refund Penalty</button>`;
+        }
+
         let undoBtn = `<button onclick="undoAction('${item.id}')" style="background:transparent; border:1px solid #aaa; padding:6px 12px; font-size:0.85rem; color:#ccc; margin:0; width:auto; border-radius:6px;">↩️ Undo</button>`;
         let detailText = '';
         if (item.donationAdded) detailText += `<div style="color:var(--charity); font-size:0.85rem; margin-top:4px;">💸 Added penalty: ₹${item.donationAdded}</div>`;
@@ -764,7 +1090,7 @@ function openHistory(filter = 'all') {
         if (item.penaltyReduced) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">💸 Reduced penalty by: ₹${item.penaltyReduced}</div>`;
         if (item.surplusAdded) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">🌟 Banked Surplus Credit: ₹${item.surplusAdded}</div>`;
 
-        div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.1rem; color:#fff;">${item.title}</strong></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${date}</div>${detailText}<div style="margin-top:10px;">${undoBtn}</div>`;
+        div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.05rem; color:#fff;">${item.title}</strong></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${date}</div>${detailText}<div style="margin-top:10px; display:flex; align-items:center;">${fulfillBtn}${undoBtn}</div>`;
         list.appendChild(div);
     });
 }
@@ -783,24 +1109,26 @@ function updateDashboard() {
         if (dashTab) dashTab.insertBefore(spiritContainer, dashTab.firstChild);
     }
 
-    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
-    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
-
-    spiritContainer.innerHTML = `
-        <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #bb86fc; text-align:center;">
+    const espiritualHTML = `
+        <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #bb86fc; text-align:center;">
             <div style="font-size:0.85rem; color:#aaa;">Total Khatms</div>
-            <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats.totalKhatm || 0}</div>
-            <div style="font-size:0.75rem; color:#666;">${deenData.quranStats.totalJuz || 0} Juz / ${deenData.quranStats.totalHizb || 0} Hizb</div>
+            <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats?.totalKhatm || 0}</div>
+            <div style="font-size:0.75rem; color:#888;">${deenData.quranStats?.totalJuz || 0} Juz / ${deenData.quranStats?.totalHizb || 0} Hizb</div>
         </div>
-        <div style="flex:1; background:#1e1e1e; padding:15px; border-radius:10px; border-top: 3px solid #03dac6; text-align:center;">
+        <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #03dac6; text-align:center;">
             <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
-            <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats.total || 0).toLocaleString()}</div>
+            <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
+            <div style="font-size:0.75rem; color:#888;">Automated via Tasks</div>
         </div>
     `;
+    spiritContainer.innerHTML = espiritualHTML;
+
     document.getElementById('donation-pending').innerText = charityData.pending.toLocaleString(); 
     document.getElementById('donation-paid').innerText = charityData.paid.toLocaleString();
     const dashSurplus = document.getElementById('display-surplus-wallet');
     if (dashSurplus) dashSurplus.innerText = (charityData.surplus || 0).toLocaleString();
+    const dashBonus = document.getElementById('display-bonus-points-dash');
+    if (dashBonus) dashBonus.innerText = (bonusPoints || 0).toLocaleString();
 
     let dTotal = 0, dComp = 0, wTotal = 0, wComp = 0, mTotal = 0, mComp = 0, oTotal = 0, oComp = 0;
     const now = new Date(); const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime(); const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
@@ -827,32 +1155,35 @@ function updateDashboard() {
     const tCanvas = document.getElementById('tasksProgressChart'); 
     if (tCanvas) {
         const ctx = tCanvas.getContext('2d'); if (tasksProgressChart) tasksProgressChart.destroy(); 
-        tasksProgressChart = new Chart(ctx, { type: 'bar', data: { labels: ['Daily', 'Weekly', 'Monthly', 'Once'], datasets: [{ label: 'Annual Completion (%)', data: [dPct, wPct, mPct, oPct], backgroundColor: '#03dac6', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100, grid: { color: '#333' }, ticks: { callback: v => v + "%" } } }, plugins: { legend: { labels: { color: '#fff' } } } } }); 
+        tasksProgressChart = new Chart(ctx, { type: 'bar', data: { labels: ['Daily', 'Weekly', 'Monthly', 'Once'], datasets: [{ label: 'Annual Completion (%)', data: [dPct, wPct, mPct, oPct], backgroundColor: '#03dac6', borderRadius: 6 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100, grid: { color: '#2a2a35' }, ticks: { color: '#aaa', callback: v => v + "%" } }, x: { ticks: { color: '#aaa' } } }, plugins: { legend: { labels: { color: '#fff' } } } } }); 
     }
 
     const bCanvas = document.getElementById('badHabitsChart');
     if (bCanvas && badHabits.length > 0) {
         const labels = badHabits.map(h => h.title); const data = badHabits.map(h => h.annualCount); const ctx = bCanvas.getContext('2d'); if (badHabitsChart) badHabitsChart.destroy();
-        badHabitsChart = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Occurrences This Year', data: data, backgroundColor: '#e53935', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#333' }, ticks: { stepSize: 1 } } }, plugins: { legend: { labels: { color: '#fff' } } } } });
+        badHabitsChart = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Occurrences This Year', data: data, backgroundColor: '#cf6679', borderRadius: 6 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#2a2a35' }, ticks: { color: '#aaa', stepSize: 1 } }, x: { ticks: { color: '#aaa' } } }, plugins: { legend: { labels: { color: '#fff' } } } } });
     }
 }
 
 // ==========================================
-// DEEN TAB RENDERING
+// DEEN TAB
 // ==========================================
 function renderDeen() { 
-    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
-    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
-
-    const swalathDisplay = document.getElementById('deen-total-swalath');
-    if (swalathDisplay) swalathDisplay.innerText = (deenData.swalathStats.total || 0).toLocaleString();
-
-    const hizbDisplay = document.getElementById('deen-total-hizb');
-    const juzDisplay = document.getElementById('deen-total-juz');
-    const khatmDisplay = document.getElementById('deen-total-khatm');
-    if (hizbDisplay) hizbDisplay.innerText = deenData.quranStats.totalHizb || 0;
-    if (juzDisplay) juzDisplay.innerText = deenData.quranStats.totalJuz || 0;
-    if (khatmDisplay) khatmDisplay.innerText = deenData.quranStats.totalKhatm || 0;
+    const deenSummary = document.getElementById('deen-spiritual-summary');
+    if (deenSummary) {
+        deenSummary.innerHTML = `
+            <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #bb86fc; text-align:center;">
+                <div style="font-size:0.85rem; color:#aaa;">Total Khatms</div>
+                <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats?.totalKhatm || 0}</div>
+                <div style="font-size:0.75rem; color:#888;">${deenData.quranStats?.totalJuz || 0} Juz / ${deenData.quranStats?.totalHizb || 0} Hizb</div>
+            </div>
+            <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #03dac6; text-align:center;">
+                <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
+                <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
+                <div style="font-size:0.75rem; color:#888;">Synced from Tasks</div>
+            </div>
+        `;
+    }
 
     const dhikrContainer = document.getElementById('dhikr-list-container'); dhikrContainer.innerHTML = '';
     deenData.dhikr.forEach((d, index) => {
@@ -862,22 +1193,17 @@ function renderDeen() {
         dhikrContainer.appendChild(div);
     });
 
-    const select = document.getElementById('juz-select'); 
-    if(select && select.options.length <= 1) { 
-        for(let i=1; i<=30; i++) { 
-            let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); 
-        } 
-    } 
+    const select = document.getElementById('juz-select'); if(select && select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } 
     
     const juzContainer = document.getElementById('juz-list-container'); 
     if (juzContainer) {
         juzContainer.innerHTML = ''; 
         let remainderJuz = (deenData.quranStats?.totalJuz || 0) % 30;
         let autoTracker = document.createElement('div');
-        autoTracker.style = "background:rgba(3, 218, 198, 0.05); padding:10px; border-radius:8px; margin-bottom:15px; border-left:3px solid var(--deen);";
+        autoTracker.style = "background:rgba(3, 218, 198, 0.06); padding:12px; border-radius:10px; margin-bottom:12px; border-left:3px solid var(--deen);";
         autoTracker.innerHTML = `
-            <div style="font-size:0.8rem; color:#aaa;">Automated Reading Progress</div>
-            <div style="font-weight:bold; color:var(--deen);">Currently on Juz ${remainderJuz + 1}</div>
+            <div style="font-size:0.8rem; color:#aaa;">Automated Reading Progress (via Hizb Tasks)</div>
+            <div style="font-weight:bold; color:var(--deen); margin-top:2px;">Currently on Juz ${remainderJuz + 1} (${deenData.quranStats?.totalHizb || 0} Total Hizb read)</div>
         `;
         juzContainer.appendChild(autoTracker);
 
@@ -888,7 +1214,7 @@ function renderDeen() {
             div.style.flexDirection = 'column'; 
             div.style.gap = '10px'; 
             let intentionText = q.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-top:4px;"><em>" ${q.intention} "</em></div>` : ''; 
-            div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 5px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">Complete</button><button onclick="editJuz(${index})" style="background:var(--warning); color:#000; padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:5px 10px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`; 
+            div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 6px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:6px 12px; margin:0; width:auto; font-size:0.8rem;">Complete</button><button onclick="editJuz(${index})" style="background:var(--warning); color:#000; padding:6px 12px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:6px 12px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`; 
             juzContainer.appendChild(div); 
         }); 
     }
@@ -908,6 +1234,7 @@ function logDhikr(index) {
     if (amount <= 0) return; 
     deenData.dhikr[index].current += amount; 
     if (deenData.dhikr[index].current >= deenData.dhikr[index].target) { deenData.dhikr[index].current = deenData.dhikr[index].target; deenData.dhikr[index].completed = true; } 
+    applyDeenAutomation(deenData.dhikr[index].name, amount);
     let newLog = { id: Date.now().toString(), taskId: 'dhikr-'+index, category: 'deen', timestamp: Date.now(), title: "Dhikr: " + deenData.dhikr[index].name, actionType: 'complete', amount: amount };
     activityHistory.push(newLog); syncToGoogleSheets(newLog);
     saveData(); renderDeen(); 
@@ -950,6 +1277,7 @@ function addExpense() {
     activityHistory.push(newLog); syncToGoogleSheets(newLog);
     
     document.getElementById('expense-desc').value = ''; document.getElementById('expense-amount').value = ''; document.getElementById('expense-date').value = '';
+    closeModal('expense-modal');
     saveData(); renderBudget();
 }
 
@@ -988,6 +1316,7 @@ function addDebt() {
     activityHistory.push(newLog); syncToGoogleSheets(newLog);
     
     document.getElementById('debt-desc').value = ''; document.getElementById('debt-amount').value = ''; document.getElementById('debt-date').value = '';
+    closeModal('debt-modal');
     saveData(); renderBudget();
 }
 
@@ -1040,15 +1369,15 @@ function renderBudget() {
             if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
                 monthlyTotal += exp.amount; hasExpensesThisMonth = true;
                 const div = document.createElement('div');
-                div.style = "background:#2c2c2c; padding:12px; border-radius:8px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-left:4px solid var(--danger);";
+                div.style = "background:#252530; padding:12px; border-radius:10px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-left:4px solid var(--danger);";
                 div.innerHTML = `
                     <div>
                         <div style="font-weight:bold;">${exp.desc}</div>
                         <div style="font-size:0.8rem; color:#888;">${expDate.toLocaleDateString()}</div>
                     </div>
-                    <div style="display:flex; align-items:center; gap:15px;">
+                    <div style="display:flex; align-items:center; gap:12px;">
                         <span style="color:var(--danger); font-weight:bold;">₹${exp.amount.toLocaleString()}</span>
-                        <button onclick="deleteExpense('${exp.id}')" style="background:transparent; color:#888; padding:0; margin:0; border:none; width:auto; font-size:1.2rem;">×</button>
+                        <button class="btn-icon" onclick="deleteExpense('${exp.id}')" style="min-width:36px; min-height:36px;">🗑️</button>
                     </div>
                 `;
                 listContainer.appendChild(div);
@@ -1095,7 +1424,7 @@ function renderBudget() {
             if (pending <= 0 && repaid > 0 && debt.amount > 0) return; 
             
             const div = document.createElement('div');
-            div.style = "background:#222; padding:10px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;";
+            div.style = "background:#252530; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
             let progressHtml = repaid > 0 ? `<div style="font-size:0.75rem; color:#aaa; margin-top:2px;">Original: ₹${debt.amount} | Paid: ₹${repaid}</div>` : '';
 
             div.innerHTML = `
@@ -1104,12 +1433,12 @@ function renderBudget() {
                     <div style="font-size:0.75rem; color:#888;">${dDate.toLocaleDateString()}</div>
                     ${progressHtml}
                 </div>
-                <div style="display:flex; align-items:center; gap:10px;">
+                <div style="display:flex; align-items:center; gap:8px;">
                     <div style="text-align:right;">
                         <span style="font-weight:bold; font-size:0.9rem; color:${debt.type === 'borrowed' ? 'var(--bad)' : 'var(--success)'};">₹${pending.toLocaleString()}</span>
                     </div>
-                    <button onclick="repayDebt('${debt.id}')" style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:6px; border-radius:4px; margin:0; border:none; font-size:1rem;" title="Log Repayment">💰</button>
-                    <button onclick="deleteDebt('${debt.id}')" style="background:transparent; color:#888; padding:0; margin:0; border:none; width:auto; font-size:1.1rem;" title="Delete Record">×</button>
+                    <button class="btn-icon" onclick="repayDebt('${debt.id}')" style="background:rgba(3, 218, 198, 0.15); color:var(--success);" title="Log Repayment">💰</button>
+                    <button class="btn-icon" onclick="deleteDebt('${debt.id}')" title="Delete Record">🗑️</button>
                 </div>
             `;
             if (debt.type === 'borrowed') { totalBorrowed += pending; borrowedContainer.appendChild(div); } 
@@ -1223,6 +1552,7 @@ function addBacklogItem() {
     }
 
     cancelEditBacklogItem();
+    closeModal('backlog-modal');
     saveData(); renderBacklog();
 }
 
@@ -1239,18 +1569,18 @@ function editBacklogItem(id) {
 
     document.getElementById('btn-save-backlog').innerText = 'Save Changes';
     document.getElementById('btn-cancel-edit-backlog').style.display = 'block';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    openModal('backlog-modal');
 }
 
 function cancelEditBacklogItem() {
-    document.getElementById('backlog-form-title').innerText = '📌 Add to Backlog';
+    document.getElementById('backlog-form-title').innerText = '📌 Add to Library';
     document.getElementById('backlog-id').value = '';
     document.getElementById('backlog-title').value = '';
     document.getElementById('backlog-link').value = '';
     document.getElementById('backlog-image-url').value = '';
     document.getElementById('backlog-type').value = 'video';
     document.getElementById('backlog-notes').value = '';
-    document.getElementById('btn-save-backlog').innerHTML = 'Add to Library';
+    document.getElementById('btn-save-backlog').innerHTML = 'Save to Library';
     document.getElementById('btn-cancel-edit-backlog').style.display = 'none';
 }
 
@@ -1326,13 +1656,22 @@ function renderBacklog() {
 // BACKGROUND REMINDER ENGINE
 // ==========================================
 setInterval(() => {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-    const now = new Date(); const timeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
-    tasks.forEach(t => {
-        if (t.reminderTime === timeString && !t.isCompleted && t.currentTarget > 0) {
-            if (t.lastNotified !== timeString) { new Notification("Hisab Reminder: " + t.title, { body: `You have ${t.currentTarget} pending units!`, icon: "icon.png" }); t.lastNotified = timeString; saveDataLocallyOnly(); }
-        }
-    });
+    const now = new Date();
+    const timeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    if ("Notification" in window && Notification.permission === "granted") {
+        tasks.forEach(t => {
+            const doneToday = activityHistory.some(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= startOfDay);
+            if (t.reminderTime === timeString && !t.isCompleted && !doneToday && t.currentTarget > 0) {
+                if (t.lastNotified !== timeString) {
+                    new Notification("Hisab Reminder: " + t.title, { body: `Target today: ${t.baseTarget} (${t.currentTarget} left in year)`, icon: "icon.png" });
+                    t.lastNotified = timeString;
+                    saveDataLocallyOnly();
+                }
+            }
+        });
+    }
     if (processAutomaticPenalties()) { saveData(); render(); }
 }, 60000); 
 
@@ -1358,17 +1697,17 @@ function toggleNotifications() { if (!("Notification" in window)) return alert("
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-window.openModal = openModal;
-window.closeModal = closeModal;
 function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
 
 // Exports
+window.openModal = openModal; window.closeModal = closeModal;
 window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; 
-window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed; window.undoAction = undoAction; window.openHistory = openHistory; window.closeHistory = closeHistory; window.filterHistory = filterHistory;
+window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed;
+window.openTask30DayModal = openTask30DayModal; window.fulfillMissedTaskDay = fulfillMissedTaskDay;
+window.undoAction = undoAction; window.openHistory = openHistory; window.closeHistory = closeHistory; window.filterHistory = filterHistory;
 window.payDonation = payDonation; 
 window.addGoodHabit = addGoodHabit; window.editGoodHabit = editGoodHabit; window.cancelEditGoodHabit = cancelEditGoodHabit; window.logGoodHabit = logGoodHabit; window.deleteGoodHabit = deleteGoodHabit; 
 window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.cancelEditBadHabit = cancelEditBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
-window.logSwalathDirect = logSwalathDirect; window.logHizbDirect = logHizbDirect;
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
 window.addBacklogItem = addBacklogItem; window.editBacklogItem = editBacklogItem; window.cancelEditBacklogItem = cancelEditBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;

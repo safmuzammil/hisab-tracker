@@ -2,8 +2,8 @@
 // FIREBASE CLOUD SERVER INITIALIZATION
 // ==========================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyBPw0XqzplPvH6KxbcJxwYNdyjfdPDntNo",
@@ -15,22 +15,50 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
-let currentUser = null;
+provider.setCustomParameters({ prompt: 'select_account' });
 
-document.getElementById('google-signin-button').innerHTML = `
-    <button onclick="loginWithGoogle()" style="background:#fff; color:#000; display:flex; align-items:center; gap:10px; width:100%; justify-content:center; padding:12px; border-radius:8px; font-weight:bold;">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="20"> Continue with Google
-    </button>`;
+let currentUser = null;
+let unsubscribeSnapshot = null;
+
+function setSyncIndicator(state, text) {
+    const el = document.getElementById('cloud-sync-indicator');
+    if (!el) return;
+    el.className = 'sync-pill ' + (state === 'synced' ? 'synced' : (state === 'error' ? 'error' : ''));
+    el.innerText = text;
+}
+
+const signInBtnContainer = document.getElementById('google-signin-button');
+if (signInBtnContainer) {
+    signInBtnContainer.innerHTML = `
+        <button onclick="loginWithGoogle()" style="background:#fff; color:#000; display:flex; align-items:center; gap:10px; width:100%; justify-content:center; padding:12px; border-radius:10px; font-weight:bold;">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="20" alt="G"> Continue with Google
+        </button>`;
+}
+
+// Handle Redirect Sign-In Result if popup fell back to redirect
+getRedirectResult(auth).then((result) => {
+    if (result && result.user) {
+        currentUser = result.user;
+        showProfile({ name: currentUser.displayName, email: currentUser.email, picture: currentUser.photoURL });
+        listenToFirebase();
+    }
+}).catch((err) => {
+    console.warn("Redirect auth check:", err.message);
+});
 
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
-        showProfile({ name: user.displayName, email: user.email, picture: user.photoURL });
+        showProfile({ name: user.displayName || 'Hisab User', email: user.email || '', picture: user.photoURL || 'icon.png' });
+        setSyncIndicator('synced', '⏳ Connecting...');
         listenToFirebase(); 
     } else {
         currentUser = null;
-        document.getElementById('login-prompt').style.display = 'block';
-        document.getElementById('auth-container').style.display = 'none';
+        setSyncIndicator('local', '📴 Local');
+        const loginPrompt = document.getElementById('login-prompt');
+        const authContainer = document.getElementById('auth-container');
+        if (loginPrompt) loginPrompt.style.display = 'block';
+        if (authContainer) authContainer.style.display = 'none';
         hasInitialCloudSync = true;
         migrateLegacyTasks();
         processAutomaticPenalties(); 
@@ -38,29 +66,58 @@ onAuthStateChanged(auth, async (user) => {
     }
 });
 
-function loginWithGoogle() { 
-    setPersistence(auth, browserLocalPersistence).then(() => { return signInWithPopup(auth, provider); })
-    .then((result) => { currentUser = result.user; showProfile({ name: currentUser.displayName, email: currentUser.email, picture: currentUser.photoURL }); listenToFirebase(); })
-    .catch((error) => { console.error(error); alert("Login Failed: " + error.message); }); 
+async function loginWithGoogle() {
+    const errEl = document.getElementById('auth-error-msg');
+    if (errEl) errEl.style.display = 'none';
+    try {
+        await setPersistence(auth, browserLocalPersistence);
+        const result = await signInWithPopup(auth, provider);
+        currentUser = result.user;
+        showProfile({ name: currentUser.displayName, email: currentUser.email, picture: currentUser.photoURL });
+        listenToFirebase();
+    } catch (error) {
+        console.error("Popup sign-in error:", error);
+        if (error.code === 'auth/popup-blocked' || error.code === 'auth/operation-not-supported-in-this-environment') {
+            await signInWithRedirect(auth, provider);
+            return;
+        }
+        if (errEl) {
+            errEl.style.display = 'block';
+            if (error.code === 'auth/unauthorized-domain') {
+                errEl.innerText = `⚠️ Domain "${window.location.hostname}" is not yet authorized in Firebase Console > Authentication > Settings > Authorized domains.`;
+            } else {
+                errEl.innerText = `⚠️ Sign-In Error (${error.code || 'Auth'}): ${error.message}`;
+            }
+        } else {
+            alert("Login Failed: " + error.message);
+        }
+    }
 }
 
 function logout() { signOut(auth).then(() => { location.reload(); }); }
 
 function showProfile(user) {
-    document.getElementById('login-prompt').style.display = 'none';
+    const loginPrompt = document.getElementById('login-prompt');
+    if (loginPrompt) loginPrompt.style.display = 'none';
     const authContainer = document.getElementById('auth-container');
-    authContainer.style = 'display: flex; justify-content: space-between; align-items: center; background: var(--card); padding: 10px 15px; border-radius: 12px; margin-bottom: 20px; border: 1px solid var(--border);';
+    if (!authContainer) return;
+    authContainer.style = 'display: flex; justify-content: space-between; align-items: center; background: var(--card); padding: 10px 15px; border-radius: 12px; margin-bottom: 20px; border: 1px solid var(--border); flex-wrap: wrap; gap: 10px;';
     authContainer.innerHTML = `
         <div style="display: flex; align-items: center; gap: 12px;">
-            <img src="${user.picture}" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 1px solid #333;">
+            <img src="${user.picture || 'icon.png'}" onerror="this.src='icon.png'" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 1px solid #333;">
             <div style="line-height: 1.2; text-align:left;">
-                <div style="font-weight: bold; font-size: 1rem; color: #fff;">${user.name}</div>
+                <div style="font-weight: bold; font-size: 0.95rem; color: #fff;">${user.name}</div>
                 <div style="font-size: 0.75rem; color: #aaa;">${user.email}</div>
             </div>
         </div>
-        <button onclick="logout()" style="background: transparent; border: 1px solid #444; color: #aaa; padding: 6px 12px; margin: 0; width: auto; font-size: 0.8rem; border-radius: 6px; cursor: pointer;">
-            Logout
-        </button>
+        <div style="display:flex; gap:8px; align-items:center;">
+            <button onclick="manualCloudSync()" style="background: rgba(3, 218, 198, 0.14); border: 1px solid rgba(3, 218, 198, 0.4); color: var(--success); padding: 6px 12px; margin: 0; width: auto; min-height: 38px; font-size: 0.8rem; border-radius: 8px; cursor: pointer;">
+                🔄 Sync Now
+            </button>
+            <button onclick="logout()" style="background: transparent; border: 1px solid #444; color: #aaa; padding: 6px 12px; margin: 0; width: auto; min-height: 38px; font-size: 0.8rem; border-radius: 8px; cursor: pointer;">
+                Logout
+            </button>
+        </div>
     `;
 }
 
@@ -96,6 +153,9 @@ let showAllQada = false;
 let currentHistoryFilter = 'all';
 let active30DayTaskId = null;
 let selected30DayDateKey = null;
+let active30DayHabitId = null;
+let active30DayHabitKind = 'good';
+let selectedHabit30DayDateKey = null;
 
 // ==========================================
 // DATE HELPERS FOR ACCURATE DAY BOUNDARIES
@@ -117,7 +177,7 @@ function getDayBounds(dateKey) {
 }
 
 function isLogOnDateKey(log, dateKey) {
-    if (log.missedDateKey === dateKey || log.fulfilledDateKey === dateKey) return true;
+    if (log.missedDateKey === dateKey || log.fulfilledDateKey === dateKey || log.habitDateKey === dateKey) return true;
     const { start, end } = getDayBounds(dateKey);
     return log.timestamp >= start && log.timestamp <= end;
 }
@@ -142,35 +202,39 @@ function syncToGoogleSheets(logEntry) {
 // ==========================================
 let hasInitialCloudSync = false;
 
+function applyCloudPayload(parsed) {
+    tasks = parsed.tasks || []; 
+    activityHistory = parsed.history || []; 
+    badHabits = parsed.badHabits || []; 
+    goodHabits = parsed.goodHabits || [];
+    bonusPoints = parsed.bonusPoints || 0;
+    charityData = parsed.charity || charityData;
+    if (isNaN(charityData.surplus)) charityData.surplus = 0;
+    budgetData = parsed.budget || budgetData;
+    if (!budgetData.debts) budgetData.debts = [];
+    backlogData = parsed.backlog || backlogData;
+    
+    if (parsed.deen) { 
+        deenData = parsed.deen; 
+        if (!deenData.qada) deenData.qada = { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 };
+        if (!deenData.zakatInputs) deenData.zakatInputs = { cash: 0, gold: 0, invest: 0 };
+        if (!deenData.quran) deenData.quran = [];
+        if (!deenData.dhikr) deenData.dhikr = [];
+    }
+    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+}
+
 function listenToFirebase() {
     if (!currentUser) return;
-    onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
+    if (unsubscribeSnapshot) unsubscribeSnapshot();
+    unsubscribeSnapshot = onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
         if (docSnap.exists()) {
             const parsed = docSnap.data();
             const cloudModified = parsed.lastModified || 0;
 
             if (!hasInitialCloudSync || cloudModified > lastModifiedLocal) {
-                tasks = parsed.tasks || []; 
-                activityHistory = parsed.history || []; 
-                badHabits = parsed.badHabits || []; 
-                goodHabits = parsed.goodHabits || [];
-                bonusPoints = parsed.bonusPoints || 0;
-                charityData = parsed.charity || charityData;
-                if (isNaN(charityData.surplus)) charityData.surplus = 0;
-                budgetData = parsed.budget || budgetData;
-                if (!budgetData.debts) budgetData.debts = [];
-                backlogData = parsed.backlog || backlogData;
-                
-                if (parsed.deen) { 
-                    deenData = parsed.deen; 
-                    if (!deenData.qada) deenData.qada = { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 };
-                    if (!deenData.zakatInputs) deenData.zakatInputs = { cash: 0, gold: 0, invest: 0 };
-                    if (!deenData.quran) deenData.quran = [];
-                    if (!deenData.dhikr) deenData.dhikr = [];
-                }
-                if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
-                if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
-
+                applyCloudPayload(parsed);
                 lastModifiedLocal = cloudModified;
                 localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString());
                 hasInitialCloudSync = true;
@@ -182,6 +246,7 @@ function listenToFirebase() {
                 } else {
                     saveDataLocallyOnly();
                 }
+                setSyncIndicator('synced', '☁️ Synced');
                 render();
                 return; 
             }
@@ -192,14 +257,46 @@ function listenToFirebase() {
             
             if (legacyChanged || autoChanged) { saveData(); }
             else { saveDataLocallyOnly(); }
+            setSyncIndicator('synced', '☁️ Synced');
             render();
         } else { 
             hasInitialCloudSync = true;
             migrateLegacyTasks();
             processAutomaticPenalties();
             saveData(); 
+            setSyncIndicator('synced', '☁️ Synced');
         }
+    }, (error) => {
+        console.error("Firestore listener error:", error);
+        setSyncIndicator('error', '⚠️ Sync Error');
     });
+}
+
+async function manualCloudSync() {
+    if (!currentUser) {
+        return loginWithGoogle();
+    }
+    try {
+        setSyncIndicator('synced', '⏳ Syncing...');
+        const userRef = doc(db, "users", currentUser.uid);
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+            const cloudData = snap.data();
+            if ((cloudData.lastModified || 0) > lastModifiedLocal) {
+                applyCloudPayload(cloudData);
+                lastModifiedLocal = cloudData.lastModified;
+                saveDataLocallyOnly();
+                render();
+                setSyncIndicator('synced', '☁️ Pulled Latest');
+                return;
+            }
+        }
+        await syncDataToFirebase();
+        setSyncIndicator('synced', '☁️ Synced');
+    } catch (e) {
+        console.error("Manual sync failed:", e);
+        setSyncIndicator('error', '⚠️ Sync Failed');
+    }
 }
 
 function migrateLegacyTasks() {
@@ -395,7 +492,14 @@ function saveDataLocallyOnly() {
 
 async function syncDataToFirebase() { 
     if (currentUser && hasInitialCloudSync) { 
-        try { await setDoc(doc(db, "users", currentUser.uid), { tasks, history: activityHistory, badHabits, goodHabits, bonusPoints, charity: charityData, deen: deenData, budget: budgetData, backlog: backlogData, lastModified: lastModifiedLocal }); } catch(e) { console.error("Firebase sync failed", e); } 
+        try {
+            setSyncIndicator('synced', '⏳ Saving...');
+            await setDoc(doc(db, "users", currentUser.uid), { tasks, history: activityHistory, badHabits, goodHabits, bonusPoints, charity: charityData, deen: deenData, budget: budgetData, backlog: backlogData, lastModified: lastModifiedLocal });
+            setSyncIndicator('synced', '☁️ Synced');
+        } catch(e) {
+            console.error("Firebase sync failed", e);
+            setSyncIndicator('error', '⚠️ Sync Error');
+        } 
     } 
 }
 
@@ -586,23 +690,6 @@ function markMissed(id, event) {
 }
 
 // ==========================================
-// UPGRADED 30-DAY PER-TASK INTERACTIVE CALENDAR,
-// DAY INSPECTOR, UNDO, & PENALTY DEDUCTION ENGINE
-// ==========================================
-// ==========================================
-// HELPER: CHECK IF A LOG BELONGS TO A YYYY-MM-DD DATE KEY
-// ==========================================
-let active30DayHabitId = null;
-let active30DayHabitKind = 'good'; // 'good' or 'bad'
-let selectedHabit30DayDateKey = null;
-
-function isLogOnDateKey(log, dateKey) {
-    if (log.missedDateKey === dateKey || log.fulfilledDateKey === dateKey || log.habitDateKey === dateKey) return true;
-    const { start, end } = getDayBounds(dateKey);
-    return log.timestamp >= start && log.timestamp <= end;
-}
-
-// ==========================================
 // 30-DAY PER-TASK INTERACTIVE CALENDAR,
 // DAY INSPECTOR, UNDO, & PENALTY DEDUCTION ENGINE
 // ==========================================
@@ -627,7 +714,6 @@ function openTask30DayModal(taskId, initialDateKey = null) {
     let doneDaysCount = 0;
     let missedDaysCount = 0;
 
-    // Render last 30 days (from 29 days ago up to today)
     for (let i = 29; i >= 0; i--) {
         const cellDate = new Date(todayStart - i * 86400000);
         const dateKey = toDateKey(cellDate);
@@ -659,7 +745,7 @@ function openTask30DayModal(taskId, initialDateKey = null) {
         }
 
         const isSelected = (dateKey === selected30DayDateKey);
-        cell.className = `cal-day-card ${statusClass}${isSelected ? 'selected-day' : ''}`;
+        cell.className = `cal-day-card ${statusClass} ${isSelected ? 'selected-day' : ''}`;
         cell.innerHTML = `
             <div class="cal-date-top">${shortLabel}</div>
             <div class="cal-weekday">${weekdayLabel}</div>
@@ -710,7 +796,7 @@ function render30DayInspector(task, dateKey) {
                     <div style="font-size:0.8rem; color:var(--text-muted);">Selected Date</div>
                     <div style="font-size:1.05rem; font-weight:800; color:var(--success);">✅ ${readableDate}</div>
                 </div>
-                <span class="badge done-badge" style="margin:0;">Logged: ${amountDone} /${task.baseTarget || 1}</span>
+                <span class="badge done-badge" style="margin:0;">Logged: ${amountDone} / ${task.baseTarget || 1}</span>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 <button onclick="undoTaskDayLogs('${task.id}', '${dateKey}')" style="background:rgba(255, 82, 82, 0.16); color:var(--danger); border:1px solid rgba(255, 82, 82, 0.4); flex:1; margin:0;">
@@ -824,7 +910,7 @@ function fulfillMissedTaskDay(taskId, dateKey, fromInspector = false) {
         fulfilledRetroactively: true,
         fulfilledDateKey: dateKey,
         penaltyRefunded: refundedAmount,
-        title: `Completed (${dateKey}):${task.title}`,
+        title: `Completed (${dateKey}): ${task.title}`,
         actionType: 'complete',
         amount: amountDone
     };
@@ -899,7 +985,7 @@ function markTaskMissedOnDate(taskId, dateKey) {
         taskType: task.type,
         timestamp: noon,
         missedDateKey: dateKey,
-        title: `Missed (${dateKey}):${task.title}`,
+        title: `Missed (${dateKey}): ${task.title}`,
         actionType: 'missed',
         amount: task.baseTarget || 1,
         donationAdded: addedPenalty,
@@ -920,6 +1006,7 @@ function markTaskMissedOnDate(taskId, dateKey) {
 function renderTasks() {
     const container = document.getElementById('task-list-container'); if (!container) return; container.innerHTML = '';
     const filterView = document.getElementById('task-view-filter') ? document.getElementById('task-view-filter').value : 'all';
+    const searchQuery = (document.getElementById('task-search-input')?.value || '').trim().toLowerCase();
     const categories = [ { id: 'daily', title: '📅 Daily Tasks', filter: t => t.type === 'daily' }, { id: 'weekly', title: '📆 Weekly Tasks', filter: t => t.type === 'weekly' }, { id: 'monthly', title: '🗓️ Monthly Tasks', filter: t => t.type === 'monthly' }, { id: 'once', title: '🎯 One-Time Tasks', filter: t => t.type === 'once' } ];
 
     const now = new Date();
@@ -927,9 +1014,25 @@ function renderTasks() {
     const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
+    // Update Daily Focus Progress Bar
+    const dailyTasksAll = tasks.filter(t => t.type === 'daily');
+    let dailyDoneCount = 0;
+    dailyTasksAll.forEach(t => {
+        const doneAmt = activityHistory.filter(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= startOfDay).reduce((s, l) => s + (l.amount || 1), 0);
+        if (doneAmt >= (t.baseTarget || 1) || t.currentTarget <= 0) dailyDoneCount++;
+    });
+    const focusLabel = document.getElementById('daily-focus-label');
+    const focusFill = document.getElementById('daily-focus-fill');
+    if (focusLabel && focusFill) {
+        const pct = dailyTasksAll.length > 0 ? Math.round((dailyDoneCount / dailyTasksAll.length) * 100) : 0;
+        focusLabel.innerText = `${dailyDoneCount} / ${dailyTasksAll.length} Done (${pct}%)`;
+        focusFill.style.width = `${pct}%`;
+    }
+
     categories.forEach(cat => {
         if (filterView !== 'all' && cat.id !== filterView) return;
-        const filteredTasks = tasks.filter(cat.filter); if (filteredTasks.length === 0) return;
+        const filteredTasks = tasks.filter(t => cat.filter(t) && (!searchQuery || t.title.toLowerCase().includes(searchQuery)));
+        if (filteredTasks.length === 0) return;
         
         filteredTasks.forEach(task => {
             let timeThreshold = startOfDay;
@@ -961,7 +1064,7 @@ function renderTasks() {
             let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ₹${task.donationPenalty}</span>` : ``;
             let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#2a2a35; color:#ccc;">Strict Streak: ${task.missedCount || 0}/5</span>` : '';
-            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge done-badge">✅ ${badgeLabel}:${task.amountDonePeriod}</span>` : '';
+            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge done-badge">✅ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
             let missedBadgeHtml = missed30Count > 0 ? `<span class="badge" style="background:rgba(255,82,82,0.18); color:var(--danger); border:1px solid rgba(255,82,82,0.4); cursor:pointer;" onclick="openTask30DayModal('${task.id}')">⚠️ ${missed30Count} Missed (Tap to Fulfill)</span>` : '';
 
             let miniWeekHtml = '';
@@ -975,7 +1078,7 @@ function renderTasks() {
                     const isMiss = !isDone && activityHistory.some(h => h.taskId === task.id && h.actionType === 'missed' && isLogOnDateKey(h, dKey));
                     const pClass = isDone ? 'done' : (isMiss ? 'missed' : '');
                     const pIcon = isDone ? '✅' : (isMiss ? '❌' : '⚪');
-                    pills += `<span class="day-pill ${pClass}" onclick="openTask30DayModal('${task.id}', '${dKey}')" title="Inspect ${dKey}">${pIcon}${dayShort}</span>`;
+                    pills += `<span class="day-pill ${pClass}" onclick="openTask30DayModal('${task.id}', '${dKey}')" title="Inspect ${dKey}">${pIcon} ${dayShort}</span>`;
                 }
                 miniWeekHtml = `<div class="mini-week-strip">${pills}</div>`;
             }
@@ -985,7 +1088,7 @@ function renderTasks() {
                 <div>
                     <div class="task-title" style="${task.isDoneForPeriod ? 'text-decoration:line-through; opacity:0.8;' : ''}">${task.isDoneForPeriod ? '✅ ' : ''}${task.title}</div>
                     <div class="task-badges">
-                        <span class="badge" style="background:#252530; color:#ccc;">Target: ${task.baseTarget} /${task.type}</span>
+                        <span class="badge" style="background:#252530; color:#ccc;">Target: ${task.baseTarget} / ${task.type}</span>
                         ${statusHTML}${reminderHtml}${donationHtml}${strictHtml}${donePeriodHtml}${missedBadgeHtml}
                     </div>
                 </div>
@@ -995,7 +1098,8 @@ function renderTasks() {
                     <button class="btn-icon" onclick="deleteTask('${task.id}')" title="Delete Task">🗑️</button>
                 </div>
             </div>
-            ${miniWeekHtml}${task.currentTarget > 0 ? `<div class="task-action-row">${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}<div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div><button class="btn-task-action done" onclick="logProgress('${task.id}')">${task.isDoneForPeriod ? '➕ Log More' : '✔️ Complete'}</button></div>` : ''}`;
+            ${miniWeekHtml}
+            ${task.currentTarget > 0 ? `<div class="task-action-row">${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}<div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div><button class="btn-task-action done" onclick="logProgress('${task.id}')">${task.isDoneForPeriod ? '➕ Log More' : '✔️ Complete'}</button></div>` : ''}`;
             section.appendChild(div);
         });
         container.appendChild(section);
@@ -1115,7 +1219,7 @@ function renderGoodHabits() {
             const countDay = activityHistory.filter(h => h.taskId === habit.id && h.actionType === 'good' && isLogOnDateKey(h, dKey)).reduce((s, l) => s + (l.amount || 1), 0);
             const pClass = countDay > 0 ? 'done' : '';
             const pIcon = countDay > 0 ? `🌟${countDay > 1 ? countDay : ''}` : '⚪';
-            pills += `<span class="day-pill ${pClass}" onclick="openHabit30DayModal('${habit.id}', 'good', '${dKey}')" title="Inspect ${dKey}">${pIcon}${dayShort}</span>`;
+            pills += `<span class="day-pill ${pClass}" onclick="openHabit30DayModal('${habit.id}', 'good', '${dKey}')" title="Inspect ${dKey}">${pIcon} ${dayShort}</span>`;
         }
 
         div.innerHTML = `
@@ -1408,6 +1512,7 @@ function undoHabitDayLog(habitId, kind, dateKey) {
 }
 
 function renderHabits() { renderGoodHabits(); renderBadHabits(); }
+
 // ==========================================
 // DEEN TAB DIRECT LOGGING & RENDERING
 // ==========================================
@@ -1466,8 +1571,51 @@ function logHizbDirect() {
 }
 
 // ==========================================
-// UNDO & FILTERED HISTORY MODAL
+// UNDO, BACKUP & FILTERED HISTORY MODAL
 // ==========================================
+function exportDataBackup() {
+    const backup = {
+        exportedAt: new Date().toISOString(),
+        lastModified: lastModifiedLocal,
+        tasks,
+        history: activityHistory,
+        badHabits,
+        goodHabits,
+        bonusPoints,
+        charity: charityData,
+        deen: deenData,
+        budget: budgetData,
+        backlog: backlogData
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hisab_backup_${toDateKey(Date.now())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function importDataBackup(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const parsed = JSON.parse(e.target.result);
+            if (!confirm("Restore backup? This will replace your current local state and sync to cloud.")) return;
+            applyCloudPayload(parsed);
+            saveData();
+            render();
+            openHistory(currentHistoryFilter);
+            alert("✅ Backup restored successfully!");
+        } catch (err) {
+            alert("Invalid backup JSON file: " + err.message);
+        }
+    };
+    reader.readAsText(file);
+}
+
 function undoAction(historyId) {
     const entry = activityHistory.find(h => h.id === historyId); if (!entry) return;
     
@@ -1659,29 +1807,16 @@ function renderDeen() {
     if (juzEl) juzEl.innerText = deenData.quranStats.totalJuz || 0;
     if (khatmEl) khatmEl.innerText = deenData.quranStats.totalKhatm || 0;
 
-    const deenSummary = document.getElementById('deen-spiritual-summary');
-    if (deenSummary) {
-        deenSummary.innerHTML = `
-            <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #bb86fc; text-align:center;">
-                <div style="font-size:0.85rem; color:#aaa;">Total Khatms</div>
-                <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats?.totalKhatm || 0}</div>
-                <div style="font-size:0.75rem; color:#888;">${deenData.quranStats?.totalJuz || 0} Juz / ${deenData.quranStats?.totalHizb || 0} Hizb</div>
-            </div>
-            <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #03dac6; text-align:center;">
-                <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
-                <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
-                <div style="font-size:0.75rem; color:#888;">Synced from Tasks & Deen</div>
-            </div>
-        `;
+    const dhikrContainer = document.getElementById('dhikr-list-container');
+    if (dhikrContainer) {
+        dhikrContainer.innerHTML = '';
+        deenData.dhikr.forEach((d, index) => {
+            const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--deen)'; if (d.completed) div.style.opacity = '0.6';
+            let intentionHtml = d.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-bottom:8px;"><em>" ${d.intention} "</em></div>` : ''; let deadlineHtml = d.deadline ? `<span class="badge" style="background:rgba(246, 229, 141, 0.15); color:var(--warning);">⏳ ${d.deadline}</span>` : ''; let progressHtml = d.completed ? `<span class="badge done-badge">✅ Completed</span>` : `<span class="badge target">Progress: ${d.current} / ${d.target}</span>`;
+            div.innerHTML = `<div class="task-header"><div><div class="task-title">${d.name}</div>${intentionHtml}<div class="task-badges">${progressHtml}${deadlineHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="deleteDhikr(${index})">🗑️</button></div></div>${!d.completed ? `<div class="task-action-row"><div class="task-input-box"><input type="number" id="dhikr-input-${index}" value="1" min="1"></div><button class="btn-task-action" style="flex:1; background:var(--deen); color:#000;" onclick="logDhikr(${index})">Log Dhikr</button></div>` : ''}`;
+            dhikrContainer.appendChild(div);
+        });
     }
-
-    const dhikrContainer = document.getElementById('dhikr-list-container'); dhikrContainer.innerHTML = '';
-    deenData.dhikr.forEach((d, index) => {
-        const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--deen)'; if (d.completed) div.style.opacity = '0.6';
-        let intentionHtml = d.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-bottom:8px;"><em>" ${d.intention} "</em></div>` : ''; let deadlineHtml = d.deadline ? `<span class="badge" style="background:rgba(246, 229, 141, 0.15); color:var(--warning);">⏳ ${d.deadline}</span>` : ''; let progressHtml = d.completed ? `<span class="badge done-badge">✅ Completed</span>` : `<span class="badge target">Progress: ${d.current} / ${d.target}</span>`;
-        div.innerHTML = `<div class="task-header"><div><div class="task-title">${d.name}</div>${intentionHtml}<div class="task-badges">${progressHtml}${deadlineHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="deleteDhikr(${index})">🗑️</button></div></div>${!d.completed ? `<div class="task-action-row"><div class="task-input-box"><input type="number" id="dhikr-input-${index}" value="1" min="1"></div><button class="btn-task-action" style="flex:1; background:var(--deen); color:#000;" onclick="logDhikr(${index})">Log Dhikr</button></div>` : ''}`;
-        dhikrContainer.appendChild(div);
-    });
 
     const select = document.getElementById('juz-select'); if(select && select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } 
     
@@ -1709,12 +1844,25 @@ function renderDeen() {
         }); 
     }
 
-    const qadaContainer = document.getElementById('qada-container'); qadaContainer.innerHTML = ''; const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr']; let totalQada = prayers.reduce((acc, p) => acc + deenData.qada[p], 0);
-    if (totalQada === 0 && !showAllQada) { qadaContainer.innerHTML = `<div style="text-align:center; color:#aaa; font-size:0.9rem; margin-bottom:10px;">🎉 All missed prayers are caught up!</div>`; }
-    prayers.forEach(p => { const count = deenData.qada[p]; if (!showAllQada && count === 0) return; const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div style="font-weight:bold;">${p}</div><div class="qada-controls"><span style="font-family:monospace; font-size:1.2rem; min-width:30px; text-align:center; color:${count > 0 ? 'var(--danger)' : 'var(--success)'}">${count}</span><button class="qada-btn minus" onclick="updateQada('${p}', -1)" title="Prayed Qada">✔️</button><button class="qada-btn" onclick="updateQada('${p}', 1)" title="Missed Prayer">➕</button></div>`; qadaContainer.appendChild(div); }); 
-    const toggleBtn = document.createElement('button'); toggleBtn.style = "background:transparent; border:1px solid var(--deen); color:var(--deen); padding:8px; margin-top:10px; width:100%; border-radius:8px;"; toggleBtn.innerText = showAllQada ? "⬆️ Hide Caught Up Prayers" : "⬇️ Reveal All Prayers"; toggleBtn.onclick = function() { showAllQada = !showAllQada; renderDeen(); }; qadaContainer.appendChild(toggleBtn);
+    const qadaContainer = document.getElementById('qada-container');
+    if (qadaContainer) {
+        qadaContainer.innerHTML = '';
+        const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr'];
+        let totalQada = prayers.reduce((acc, p) => acc + deenData.qada[p], 0);
+        if (totalQada === 0 && !showAllQada) { qadaContainer.innerHTML = `<div style="text-align:center; color:#aaa; font-size:0.9rem; margin-bottom:10px;">🎉 All missed prayers are caught up!</div>`; }
+        prayers.forEach(p => { const count = deenData.qada[p]; if (!showAllQada && count === 0) return; const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div style="font-weight:bold;">${p}</div><div class="qada-controls"><span style="font-family:monospace; font-size:1.2rem; min-width:30px; text-align:center; color:${count > 0 ? 'var(--danger)' : 'var(--success)'}">${count}</span><button class="qada-btn minus" onclick="updateQada('${p}', -1)" title="Prayed Qada">✔️</button><button class="qada-btn" onclick="updateQada('${p}', 1)" title="Missed Prayer">➕</button></div>`; qadaContainer.appendChild(div); }); 
+        const toggleBtn = document.createElement('button'); toggleBtn.style = "background:transparent; border:1px solid var(--deen); color:var(--deen); padding:8px; margin-top:10px; width:100%; border-radius:8px;"; toggleBtn.innerText = showAllQada ? "⬆️ Hide Caught Up Prayers" : "⬇️ Reveal All Prayers"; toggleBtn.onclick = function() { showAllQada = !showAllQada; renderDeen(); }; qadaContainer.appendChild(toggleBtn);
+    }
 
-    document.getElementById('zakat-cash').value = deenData.zakatInputs.cash; document.getElementById('zakat-gold').value = deenData.zakatInputs.gold; document.getElementById('zakat-invest').value = deenData.zakatInputs.invest; calculateZakat(); 
+    const zCash = document.getElementById('zakat-cash');
+    const zGold = document.getElementById('zakat-gold');
+    const zInvest = document.getElementById('zakat-invest');
+    if (zCash && zGold && zInvest) {
+        zCash.value = deenData.zakatInputs.cash;
+        zGold.value = deenData.zakatInputs.gold;
+        zInvest.value = deenData.zakatInputs.invest;
+        calculateZakat();
+    }
 }
 
 function updateQada(prayer, amount) { deenData.qada[prayer] += amount; if(deenData.qada[prayer] < 0) deenData.qada[prayer] = 0; saveData(); renderDeen(); }
@@ -1844,8 +1992,10 @@ function renderBudget() {
     const now = new Date(); const currentMonth = now.getMonth(); const currentYear = now.getFullYear();
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     
-    document.getElementById('budget-month-title').innerText = monthNames[currentMonth] + " " + currentYear;
-    document.getElementById('budget-limit-display').innerText = budgetData.limit.toLocaleString();
+    const monthTitleEl = document.getElementById('budget-month-title');
+    if (monthTitleEl) monthTitleEl.innerText = monthNames[currentMonth] + " " + currentYear;
+    const limitDisplayEl = document.getElementById('budget-limit-display');
+    if (limitDisplayEl) limitDisplayEl.innerText = budgetData.limit.toLocaleString();
     
     let monthlyTotal = 0;
     const listContainer = document.getElementById('expense-list-container');
@@ -1876,29 +2026,32 @@ function renderBudget() {
         if (!hasExpensesThisMonth) listContainer.innerHTML = '<p style="color:#aaa; text-align:center;">No expenses logged for this month yet.</p>';
     }
 
-    document.getElementById('budget-spent').innerText = monthlyTotal.toLocaleString();
+    const spentEl = document.getElementById('budget-spent');
+    if (spentEl) spentEl.innerText = monthlyTotal.toLocaleString();
     const fillEl = document.getElementById('budget-progress-fill');
     const remainingText = document.getElementById('budget-remaining-text');
     
-    if (budgetData.limit > 0) {
-        let percentage = (monthlyTotal / budgetData.limit) * 100;
-        let fillWidth = Math.min(percentage, 100);
-        fillEl.style.width = fillWidth + '%';
-        if (percentage >= 100) {
-            fillEl.style.background = 'var(--danger)';
-            remainingText.innerText = `Over budget by ₹${(monthlyTotal - budgetData.limit).toLocaleString()}`;
-            remainingText.style.color = 'var(--danger)';
-        } else if (percentage >= 80) {
-            fillEl.style.background = 'var(--warning)';
-            remainingText.innerText = `₹${(budgetData.limit - monthlyTotal).toLocaleString()} Remaining`;
-            remainingText.style.color = 'var(--warning)';
+    if (fillEl && remainingText) {
+        if (budgetData.limit > 0) {
+            let percentage = (monthlyTotal / budgetData.limit) * 100;
+            let fillWidth = Math.min(percentage, 100);
+            fillEl.style.width = fillWidth + '%';
+            if (percentage >= 100) {
+                fillEl.style.background = 'var(--danger)';
+                remainingText.innerText = `Over budget by ₹${(monthlyTotal - budgetData.limit).toLocaleString()}`;
+                remainingText.style.color = 'var(--danger)';
+            } else if (percentage >= 80) {
+                fillEl.style.background = 'var(--warning)';
+                remainingText.innerText = `₹${(budgetData.limit - monthlyTotal).toLocaleString()} Remaining`;
+                remainingText.style.color = 'var(--warning)';
+            } else {
+                fillEl.style.background = 'var(--budget)';
+                remainingText.innerText = `₹${(budgetData.limit - monthlyTotal).toLocaleString()} Remaining`;
+                remainingText.style.color = '#888';
+            }
         } else {
-            fillEl.style.background = 'var(--budget)';
-            remainingText.innerText = `₹${(budgetData.limit - monthlyTotal).toLocaleString()} Remaining`;
-            remainingText.style.color = '#888';
+            fillEl.style.width = '0%'; remainingText.innerText = 'Limit not set';
         }
-    } else {
-        fillEl.style.width = '0%'; remainingText.innerText = 'Limit not set';
     }
 
     let totalBorrowed = 0; let totalLent = 0;
@@ -2169,32 +2322,43 @@ setInterval(() => {
 // CORE APP ROUTING & UI
 // ==========================================
 function switchTab(tabName, element) {
-    localStorage.setItem('hisab_active_tab', tabName); document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); 
-    document.querySelectorAll('.nav-item').forEach(nav => { nav.classList.remove('active'); nav.classList.remove('active-bad'); nav.classList.remove('active-deen'); nav.classList.remove('active-budget'); nav.classList.remove('active-backlog'); });
-    document.getElementById(`tab-${tabName}`).classList.add('active');
+    const targetTab = document.getElementById(`tab-${tabName}`);
+    if (!targetTab) return;
+
+    localStorage.setItem('hisab_active_tab', tabName);
+    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); 
+    document.querySelectorAll('.nav-item').forEach(nav => {
+        nav.classList.remove('active', 'active-bad', 'active-deen', 'active-budget', 'active-backlog');
+    });
+
+    targetTab.classList.add('active');
+    const navEl = element || document.getElementById(`nav-${tabName}`);
     
-    if(tabName === 'deen') { element.classList.add('active-deen'); renderDeen(); } 
-    else if(tabName === 'bad-habits') { element.classList.add('active-bad'); renderHabits(); }
-    else if(tabName === 'budget') { element.classList.add('active-budget'); renderBudget(); }
-    else if(tabName === 'backlog') { element.classList.add('active-backlog'); renderBacklog(); }
-    else { element.classList.add('active'); }
+    if (tabName === 'deen') { if (navEl) navEl.classList.add('active-deen'); renderDeen(); } 
+    else if (tabName === 'bad-habits') { if (navEl) navEl.classList.add('active-bad'); renderHabits(); }
+    else if (tabName === 'budget') { if (navEl) navEl.classList.add('active-budget'); renderBudget(); }
+    else if (tabName === 'backlog') { if (navEl) navEl.classList.add('active-backlog'); renderBacklog(); }
+    else { if (navEl) navEl.classList.add('active'); }
     
+    if (tabName === 'tasks') renderTasks();
     if (tabName === 'dashboard') updateDashboard();
 }
 
-function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }
+function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!btn) return; if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }
 function toggleNotifications() { if (!("Notification" in window)) return alert("Browser does not support notifications."); if (Notification.permission === "granted") { alert("Notifications already enabled!"); } else if (Notification.permission !== "denied") { Notification.requestPermission().then(p => { if (p === "granted") { const btn = document.getElementById('btn-notifications'); btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }); } else { alert("Notifications blocked in device settings."); } }
-function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function openModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'flex'; }
+function closeModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
-function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard(); }
+function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard(); }
 
 // Exports
 window.openModal = openModal; window.closeModal = closeModal;
-window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.switchTab = switchTab; 
+window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.manualCloudSync = manualCloudSync; window.switchTab = switchTab; 
 window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed;
 window.openTask30DayModal = openTask30DayModal; window.fulfillMissedTaskDay = fulfillMissedTaskDay; window.undoTaskDayLogs = undoTaskDayLogs; window.markTaskMissedOnDate = markTaskMissedOnDate;
+window.openHabit30DayModal = openHabit30DayModal; window.logHabitOnDate = logHabitOnDate; window.undoHabitDayLog = undoHabitDayLog;
 window.undoAction = undoAction; window.openHistory = openHistory; window.closeHistory = closeHistory; window.filterHistory = filterHistory;
+window.exportDataBackup = exportDataBackup; window.importDataBackup = importDataBackup;
 window.payDonation = payDonation; 
 window.addGoodHabit = addGoodHabit; window.editGoodHabit = editGoodHabit; window.cancelEditGoodHabit = cancelEditGoodHabit; window.logGoodHabit = logGoodHabit; window.deleteGoodHabit = deleteGoodHabit; 
 window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.cancelEditBadHabit = cancelEditBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
@@ -2202,8 +2366,8 @@ window.logSwalathDirect = logSwalathDirect; window.logHizbDirect = logHizbDirect
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
 window.addBacklogItem = addBacklogItem; window.editBacklogItem = editBacklogItem; window.cancelEditBacklogItem = cancelEditBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;
-window.openTask30DayModal = openTask30DayModal; window.fulfillMissedTaskDay = fulfillMissedTaskDay; window.undoTaskDayLogs = undoTaskDayLogs; window.markTaskMissedOnDate = markTaskMissedOnDate;
-window.openHabit30DayModal = openHabit30DayModal; window.logHabitOnDate = logHabitOnDate; window.undoHabitDayLog = undoHabitDayLog;
 
 initNotifications();
-const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard'; const savedNavElement = document.getElementById('nav-' + savedTab); if (savedNavElement) switchTab(savedTab, savedNavElement);
+const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+const savedNavElement = document.getElementById('nav-' + savedTab);
+switchTab(savedTab, savedNavElement);

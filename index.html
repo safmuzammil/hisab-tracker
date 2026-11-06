@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Hisab">
+    <link rel="apple-touch-icon" href="icon.png">
     <title>Hisab - Ultimate Life Tracker</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" href="icon.png">
@@ -767,6 +772,56 @@
             color: var(--primary);
         }
 
+    
+        /* Mobile Touch & Safe Area Enhancements */
+        body {
+            padding-top: env(safe-area-inset-top, 0px);
+            padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+            overscroll-behavior-y: contain;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        input, textarea, select {
+            -webkit-user-select: text;
+            user-select: text;
+        }
+        header {
+            padding-top: calc(12px + env(safe-area-inset-top, 0px));
+        }
+        nav {
+            padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        nav::-webkit-scrollbar { display: none; }
+        .nav-item {
+            min-width: 50px;
+            min-height: 48px;
+            padding: 4px 6px;
+        }
+        .nav-item:active { transform: scale(0.92); }
+        .btn-task-action:active, .main-action-btn:active, .qada-btn:active {
+            transform: scale(0.96);
+        }
+        .modal-content {
+            padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+        }
+        #btn-install-pwa {
+            display: none;
+            background: linear-gradient(135deg, rgba(0, 229, 163, 0.2), rgba(187, 134, 252, 0.2));
+            border: 1px solid var(--success);
+            color: var(--success);
+            padding: 5px 10px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border-radius: 999px;
+            margin: 0;
+            cursor: pointer;
+            width: auto;
+            min-height: 32px;
+        }
+
     </style>
 </head>
 <body data-theme="obsidian">
@@ -775,6 +830,7 @@
         <div class="brand-wrap">
             <img src="icon.png" class="brand-logo" alt="Hisab" onerror="this.style.display='none'">
             <h1>HISAB</h1>
+            <button id="btn-install-pwa" onclick="promptPWAInstall()" title="Install app on your phone">📲 Install</button>
             <span id="cloud-sync-indicator" class="sync-pill" onclick="manualCloudSync()" style="cursor:pointer;" title="Tap to force sync">📴 Local</span>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">

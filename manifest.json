@@ -3,7 +3,7 @@
   "short_name": "Hisab",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#121212",
+  "background_color": "#0b0e11",
   "theme_color": "#bb86fc",
   "icons": [
     {
@@ -12,5 +12,15 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
+  ],
+  "id": "hisab-life-tracker",
+  "orientation": "portrait-primary",
+  "categories": [
+    "productivity",
+    "lifestyle"
+  ],
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
   ]
 }

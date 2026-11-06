@@ -819,6 +819,7 @@ function logProgress(id) {
         activityHistory = activityHistory.filter(h => h.id !== mLog.id);
     });
 
+    triggerHaptic([20, 40, 20]);
     if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
     task.lastCompletedDay = todayStr;
     if (task.isMaxOnceDaily) task.missedCount = 0;
@@ -3348,10 +3349,51 @@ function updateNavBadges() {
     }
 }
 
+
+// ==========================================
+// MOBILE HAPTIC & PWA INSTALL ENGINE
+// ==========================================
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    const installBtn = document.getElementById('btn-install-pwa');
+    if (installBtn) installBtn.style.display = 'inline-flex';
+});
+
+window.addEventListener('appinstalled', () => {
+    deferredPrompt = null;
+    const installBtn = document.getElementById('btn-install-pwa');
+    if (installBtn) installBtn.style.display = 'none';
+});
+
+function promptPWAInstall() {
+    if (deferredPrompt) {
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === 'accepted') {
+                const installBtn = document.getElementById('btn-install-pwa');
+                if (installBtn) installBtn.style.display = 'none';
+            }
+            deferredPrompt = null;
+        });
+    } else {
+        alert("To install this app on your phone:\n• On Chrome: Tap the 3 dots (⋮) > Add to Home screen / Install app.\n• On Safari: Tap Share (📤) > Add to Home Screen.");
+    }
+}
+
+function triggerHaptic(ms = 12) {
+    if (navigator.vibrate) {
+        try { navigator.vibrate(ms); } catch (e) {}
+    }
+}
+
 function switchTab(tabName, element) {
     const targetTab = document.getElementById(`tab-${tabName}`);
     if (!targetTab) return;
 
+    triggerHaptic(10);
     localStorage.setItem('hisab_active_tab', tabName);
     document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); 
     document.querySelectorAll('.nav-item').forEach(nav => {
@@ -3406,6 +3448,8 @@ window.renderJournal = renderJournal; window.journalNavigateDay = journalNavigat
 window.openShareModal = openShareModal; window.generateShareCard = generateShareCard; window.downloadShareCard = downloadShareCard;
 window.saveWeeklyGoal = saveWeeklyGoal; window.updateWeeklyGoalBanner = updateWeeklyGoalBanner; window.checkWeeklyGoalPrompt = checkWeeklyGoalPrompt;
 window.openNotifSettings = openNotifSettings; window.saveEveningNotifTime = saveEveningNotifTime; window.updateNavBadges = updateNavBadges;
+window.promptPWAInstall = promptPWAInstall;
+window.triggerHaptic = triggerHaptic;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard';

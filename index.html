@@ -822,25 +822,282 @@
             min-height: 32px;
         }
 
+    
+        /* =========================================================
+           MINIMAL MOBILE DESIGN SYSTEM REFINEMENT
+           ========================================================= */
+        :root {
+            --card-radius: 18px;
+        }
+        body {
+            font-size: 15px;
+            letter-spacing: -0.01em;
+            -webkit-font-smoothing: antialiased;
+        }
+        .container {
+            padding: 12px 14px;
+            max-width: 560px;
+            margin: auto;
+        }
+
+        /* Minimal Header */
+        .app-header {
+            background: rgba(11, 14, 17, 0.88);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 10px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .brand-logo {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            object-fit: contain;
+        }
+        .brand-text-wrap {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.1;
+        }
+        .brand-title {
+            margin: 0;
+            font-size: 1.15rem;
+            font-weight: 800;
+            letter-spacing: 1.2px;
+            background: linear-gradient(135deg, #ffffff 20%, var(--success) 70%, var(--primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .sync-status-dot {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .sync-status-dot.synced { color: var(--success); }
+        .sync-status-dot.error { color: var(--danger); }
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .header-icon-btn {
+            background: var(--card-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            width: 36px;
+            height: 36px;
+            min-height: 36px;
+            min-width: 36px;
+            padding: 0;
+            margin: 0;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .header-icon-btn:active { transform: scale(0.9); }
+        .header-icon-btn.install-pill {
+            width: auto;
+            border-radius: 999px;
+            padding: 0 10px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            background: rgba(0, 229, 163, 0.15);
+            color: var(--success);
+            border-color: rgba(0, 229, 163, 0.4);
+            display: none;
+        }
+
+        /* Minimal Card Aesthetics */
+        .task-item {
+            background: var(--card);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-left: 3.5px solid var(--primary);
+            border-radius: var(--card-radius);
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+            transition: transform 0.2s, opacity 0.2s;
+        }
+        .task-item.banked {
+            opacity: 0.65;
+            border-left-color: var(--success);
+        }
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+            gap: 8px;
+        }
+        .task-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--text-main);
+            line-height: 1.3;
+        }
+        .task-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 6px;
+            align-items: center;
+        }
+        .badge {
+            font-size: 0.68rem;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 999px;
+            margin: 0;
+        }
+        .task-controls {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .btn-icon {
+            background: var(--card-elevated);
+            border: 1px solid rgba(255,255,255,0.06);
+            color: var(--text-muted);
+            width: 34px;
+            height: 34px;
+            min-width: 34px;
+            min-height: 34px;
+            padding: 0;
+            margin: 0;
+            font-size: 0.85rem;
+            border-radius: 10px;
+        }
+        .btn-icon:hover { color: var(--text-main); border-color: var(--primary); }
+
+        /* Minimal Action Row */
+        .task-action-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .btn-task-action {
+            margin: 0;
+            padding: 11px 16px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            border-radius: 12px;
+            min-height: 44px;
+            letter-spacing: -0.01em;
+        }
+        .btn-task-action.done {
+            background: linear-gradient(135deg, var(--success), #00b894);
+            color: #03130e;
+        }
+
+        /* Minimal Mini Week Strip */
+        .mini-week-strip {
+            display: flex;
+            gap: 4px;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255,255,255,0.04);
+            align-items: center;
+            justify-content: space-between;
+        }
+        .day-pill {
+            font-size: 0.65rem;
+            font-weight: 600;
+            padding: 4px 6px;
+            min-height: 26px;
+            border-radius: 6px;
+            background: var(--card-elevated);
+            color: var(--text-muted);
+            border: 1px solid rgba(255,255,255,0.05);
+            flex: 1;
+            justify-content: center;
+        }
+
+        /* Sleek Floating Glass Nav */
+        nav {
+            background: rgba(13, 16, 22, 0.92);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 4px 6px calc(6px + env(safe-area-inset-bottom, 0px)) 6px;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .nav-item {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.65rem;
+            font-weight: 600;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            cursor: pointer;
+            padding: 4px 6px;
+            min-width: 48px;
+            min-height: 44px;
+            border-radius: 12px;
+            transition: all 0.15s ease;
+            position: relative;
+        }
+        .nav-item .nav-icon { font-size: 1.15rem; line-height: 1; }
+        .nav-item.active {
+            color: #ffffff;
+            background: rgba(187, 134, 252, 0.14);
+        }
+        .nav-item.active-bad { color: #ffffff; background: rgba(255, 92, 119, 0.14); }
+        .nav-item.active-deen { color: #ffffff; background: rgba(0, 210, 184, 0.14); }
+        .nav-item.active-budget { color: #ffffff; background: rgba(56, 189, 248, 0.14); }
+        .nav-item.active-backlog { color: #ffffff; background: rgba(251, 146, 60, 0.14); }
+
     </style>
 </head>
 <body data-theme="obsidian">
 
-    <header>
-        <div class="brand-wrap">
+    <header class="app-header">
+        <div class="header-brand">
             <img src="icon.png" class="brand-logo" alt="Hisab" onerror="this.style.display='none'">
-            <h1>HISAB</h1>
-            <button id="btn-install-pwa" onclick="promptPWAInstall()" title="Install app on your phone">📲 Install</button>
-            <span id="cloud-sync-indicator" class="sync-pill" onclick="manualCloudSync()" style="cursor:pointer;" title="Tap to force sync">📴 Local</span>
+            <div class="brand-text-wrap">
+                <h1 class="brand-title">HISAB</h1>
+                <span id="cloud-sync-indicator" class="sync-status-dot" onclick="manualCloudSync()" title="Tap to force sync">● Local</span>
+            </div>
         </div>
-        <div style="display:flex; gap:8px; align-items:center;">
-            <!-- Live Theme Switcher Button -->
-            <button id="btn-theme-toggle" class="theme-switch-btn" onclick="toggleDesignTheme()" title="Switch between Stitch Obsidian and Classic Dark theme">
-                ⚡ Obsidian UI
-            </button>
-            <button id="btn-notifications" onclick="openNotifSettings()" style="background:var(--card-elevated); border:1px solid var(--border); color:var(--text-muted); padding:6px 10px; margin:0; font-size:0.78rem; width:auto; min-height:44px; border-radius:10px;">🔕 Alerts</button>
-            <button onclick="openShareModal()" title="Share Progress Card" style="background:var(--card-elevated); font-size:1.25rem; padding:0; margin:0; width:auto; border:1px solid var(--border); min-width:44px; min-height:44px; border-radius:10px;">📤</button>
-            <button onclick="openHistory()" title="Activity History & Backup" style="background:var(--card-elevated); font-size:1.25rem; padding:0; margin:0; width:auto; border:1px solid var(--border); min-width:44px; min-height:44px; border-radius:10px;">📜</button>
+        <div class="header-actions">
+            <button id="btn-install-pwa" onclick="promptPWAInstall()" class="header-icon-btn install-pill" title="Install App">📲 Install</button>
+            <button id="btn-theme-toggle" class="header-icon-btn" onclick="toggleDesignTheme()" title="Switch Theme">⚡</button>
+            <button id="btn-notifications" class="header-icon-btn" onclick="openNotifSettings()" title="Alerts & Reminders">🔔</button>
+            <button class="header-icon-btn" onclick="openShareModal()" title="Share Progress Card">📤</button>
+            <button class="header-icon-btn" onclick="openHistory()" title="Activity History">📜</button>
         </div>
     </header>
 
@@ -1556,8 +1813,8 @@
             localStorage.setItem('hisab_theme', themeName);
             const btn = document.getElementById('btn-theme-toggle');
             if (btn) {
-                const labels = { obsidian: '⚡ Obsidian', classic: '🏛️ Classic', ramadan: '🌙 Ramadan' };
-                btn.innerHTML = labels[themeName] || '⚡ Obsidian';
+                const labels = { obsidian: '⚡', classic: '🏛️', ramadan: '🌙' };
+                btn.innerHTML = labels[themeName] || '⚡';
             }
         }
         function toggleDesignTheme() {

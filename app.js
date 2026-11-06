@@ -1389,7 +1389,7 @@ function renderTasks() {
             const missed30Count = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= thirtyDaysAgo).length;
 
             let statusHTML = task.currentTarget <= 0 ? `<span class="badge done-badge">✅ Completed for Year!</span>` : `<span class="badge target">Remaining in year: ${Math.round(task.currentTarget * 100) / 100}</span>`;
-            let reminderHtml = task.reminderTime ? `<span class="badge reminder">🔔 ${task.reminderTime}</span>` : ``;
+            let reminderHtml = task.reminderTime ? `<span class="badge reminder" onclick="addToGoogleCalendar('${task.id}')" style="cursor:pointer;" title="Tap to set Google Calendar Alarm">🔔 ${task.reminderTime} (Sync)</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ₹${task.donationPenalty}</span>` : ``;
             let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#2a2a35; color:#ccc;">Strict Streak: ${task.missedCount || 0}/5</span>` : '';
             let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge done-badge">✅ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
@@ -1424,6 +1424,7 @@ function renderTasks() {
                     </div>
                 </div>
                 <div class="task-controls">
+                    <button class="btn-icon" onclick="addToGoogleCalendar('${task.id}')" title="Add to Google Calendar / Phone Alarm" style="color:var(--primary);">🗓️</button>
                     <button class="btn-icon" onclick="openPomodoroTimer('${task.id}')" title="Start 25m Pomodoro" style="color:var(--warning);">🍅</button>
                     <button class="btn-icon" onclick="openTask30DayModal('${task.id}')" title="30-Day History & Fulfill Missed">📅</button>
                     <button class="btn-icon" onclick="editTask('${task.id}')" title="Edit Task">✏️</button>
@@ -2979,6 +2980,52 @@ const POMODORO_WORK = 25 * 60;
 const POMODORO_BREAK = 5 * 60;
 let pomodoroSessionsToday = parseInt(localStorage.getItem(`hisab_pomo_${toDateKey(Date.now())}`) || '0');
 
+
+// ==========================================
+// 1-TAP GOOGLE CALENDAR ALARM SYNC ENGINE
+// ==========================================
+function addToGoogleCalendar(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    triggerHaptic(15);
+
+    const now = new Date();
+    let hours = 9, minutes = 0;
+    if (task.reminderTime && task.reminderTime.includes(':')) {
+        const parts = task.reminderTime.split(':').map(Number);
+        if (!isNaN(parts[0])) hours = parts[0];
+        if (!isNaN(parts[1])) minutes = parts[1];
+    }
+
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
+    const end = new Date(start.getTime() + 30 * 60000); // 30 min duration
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const formatCalDate = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+
+    let rrule = 'RRULE:FREQ=DAILY';
+    if (task.activeDays && task.activeDays.length > 0) {
+        const dayMap = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+        const days = task.activeDays.map(d => dayMap[d]).join(',');
+        rrule = `RRULE:FREQ=WEEKLY;BYDAY=${days}`;
+    } else if (task.type === 'weekly') {
+        rrule = 'RRULE:FREQ=WEEKLY';
+    } else if (task.type === 'monthly') {
+        rrule = 'RRULE:FREQ=MONTHLY';
+    } else if (task.type === 'once') {
+        rrule = '';
+    }
+
+    const title = encodeURIComponent(`Hisab: ${task.title}`);
+    const details = encodeURIComponent(`Daily Target: ${task.baseTarget} / ${task.type}\n\nAuto-synced from Hisab Life Tracker.\nOpen App: ${window.location.href}`);
+    const dates = `${formatCalDate(start)}/${formatCalDate(end)}`;
+
+    let url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&dates=${dates}`;
+    if (rrule) url += `&recur=${encodeURIComponent(rrule)}`;
+
+    window.open(url, '_blank');
+}
+
 function openPomodoroTimer(taskId) {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
@@ -3500,6 +3547,7 @@ window.archiveTask = archiveTask; window.unarchiveTask = unarchiveTask; window.o
 window.computeHabitStreak = computeHabitStreak;
 window.renderHeatmap = renderHeatmap; window.createProgressRing = createProgressRing;
 window.loadPrayerTimes = loadPrayerTimes; window.renderPrayerTimes = renderPrayerTimes;
+window.addToGoogleCalendar = addToGoogleCalendar;
 window.openPomodoroTimer = openPomodoroTimer; window.closePomodoroTimer = closePomodoroTimer; window.togglePomodoroTimer = togglePomodoroTimer; window.resetPomodoroTimer = resetPomodoroTimer;
 window.renderJournal = renderJournal; window.journalNavigateDay = journalNavigateDay; window.journalAutoSave = journalAutoSave;
 window.openShareModal = openShareModal; window.generateShareCard = generateShareCard; window.downloadShareCard = downloadShareCard;

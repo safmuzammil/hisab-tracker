@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hisab-v4';
+const CACHE_NAME = 'hisab-v5';
 const urlsToCache = [
     './',
     './index.html',
@@ -32,5 +32,18 @@ self.addEventListener('fetch', event => {
                 return response;
             })
             .catch(() => caches.match(event.request))
+    );
+});
+
+// Notification Click Handler - Focus or open app
+self.addEventListener('notificationclick', event => {
+    event.notification.close();
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+            for (const client of clientList) {
+                if ('focus' in client) return client.focus();
+            }
+            if (clients.openWindow) return clients.openWindow('./');
+        })
     );
 });

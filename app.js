@@ -2933,7 +2933,7 @@ setInterval(() => {
             const doneToday = activityHistory.some(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= startOfDay);
             if (t.reminderTime === timeString && !t.isCompleted && !doneToday && t.currentTarget > 0) {
                 if (t.lastNotified !== timeString) {
-                    new Notification("Hisab Reminder: " + t.title, { body: `Target today: ${t.baseTarget} (${t.currentTarget} left in year)`, icon: "icon.png" });
+                    sendAppNotification("⏰ Hisab Reminder: " + t.title, { body: `Target today: ${t.baseTarget} (${t.currentTarget} remaining in year)`, tag: 'task-' + t.id });
                     t.lastNotified = timeString;
                     saveDataLocallyOnly();
                 }
@@ -2951,9 +2951,9 @@ setInterval(() => {
                     return doneAmt < (t.baseTarget || 1);
                 });
                 if (incompleteTasks.length > 0) {
-                    new Notification(`Hisab: ${incompleteTasks.length} task(s) incomplete today!`, {
+                    sendAppNotification(`🌙 Hisab: ${incompleteTasks.length} task(s) remaining today!`, {
                         body: incompleteTasks.slice(0, 3).map(t => `• ${t.title}`).join('\n') + (incompleteTasks.length > 3 ? `\n+${incompleteTasks.length - 3} more` : ''),
-                        icon: 'icon.png'
+                        tag: 'eod-summary'
                     });
                     localStorage.setItem(eodKey, '1');
                 }
@@ -3368,6 +3368,63 @@ window.addEventListener('appinstalled', () => {
     if (installBtn) installBtn.style.display = 'none';
 });
 
+
+// ==========================================
+// ALARM CHIME & RELIABLE NOTIFICATION ENGINE
+// ==========================================
+function playAlarmChime() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const now = ctx.currentTime;
+
+        // Play a gentle 3-tone melodic chime (C5 -> E5 -> G5)
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.16);
+            gain.gain.setValueAtTime(0.3, now + idx * 0.16);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.16 + 0.45);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.16);
+            osc.stop(now + idx * 0.16 + 0.5);
+        });
+    } catch (e) {
+        console.warn("Alarm audio chime:", e);
+    }
+}
+
+async function sendAppNotification(title, options = {}) {
+    playAlarmChime();
+    if (navigator.vibrate) {
+        try { navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) {}
+    }
+    const defaultOptions = {
+        icon: 'icon.png',
+        badge: 'icon.png',
+        vibrate: [200, 100, 200, 100, 400],
+        requireInteraction: true,
+        ...options
+    };
+    if ('serviceWorker' in navigator) {
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            if (reg && reg.showNotification) {
+                return reg.showNotification(title, defaultOptions);
+            }
+        } catch (e) {
+            console.warn("SW showNotification error:", e);
+        }
+    }
+    if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(title, defaultOptions);
+    }
+}
+
 function promptPWAInstall() {
     if (deferredPrompt) {
         deferredPrompt.prompt();
@@ -3450,6 +3507,8 @@ window.saveWeeklyGoal = saveWeeklyGoal; window.updateWeeklyGoalBanner = updateWe
 window.openNotifSettings = openNotifSettings; window.saveEveningNotifTime = saveEveningNotifTime; window.updateNavBadges = updateNavBadges;
 window.promptPWAInstall = promptPWAInstall;
 window.triggerHaptic = triggerHaptic;
+window.sendAppNotification = sendAppNotification;
+window.playAlarmChime = playAlarmChime;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard';

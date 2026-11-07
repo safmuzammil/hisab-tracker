@@ -3527,6 +3527,235 @@ function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget();
 
 // Exports
 window.openModal = openModal; window.closeModal = closeModal;
+
+// ==========================================
+// TOAST NOTIFICATION HELPER
+// ==========================================
+function showToast(msg, icon = '✨') {
+    const toast = document.getElementById('app-toast');
+    if (!toast) return;
+    toast.innerHTML = `<span style="font-size:1.1rem;">${icon}</span> <span>${msg}</span>`;
+    toast.style.transform = 'translateX(-50%) translateY(0)';
+    clearTimeout(window._toastTimeout);
+    window._toastTimeout = setTimeout(() => {
+        toast.style.transform = 'translateX(-50%) translateY(-100px)';
+    }, 3200);
+}
+
+// ==========================================
+// OPTION 1: NATIVE WEB SHARE TARGET HANDLER
+// ==========================================
+function handleIncomingShare() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const shareTitle = urlParams.get('share_title') || '';
+    const shareText = urlParams.get('share_text') || '';
+    const shareUrl = urlParams.get('share_url') || '';
+
+    if (!shareTitle && !shareText && !shareUrl) return;
+
+    let targetUrl = shareUrl;
+    if (!targetUrl) {
+        const urlMatch = shareText.match(/(https?:\/\/[^\s]+)/);
+        if (urlMatch) targetUrl = urlMatch[1];
+    }
+
+    if (!targetUrl && !shareTitle && !shareText) return;
+
+    // Check for YouTube video / shorts
+    const ytMatch = targetUrl ? targetUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/) : null;
+    let cleanTitle = shareTitle || shareText || 'Shared Item';
+    if (targetUrl) {
+        cleanTitle = cleanTitle.replace(targetUrl, '').trim();
+    }
+    // Clean YouTube app share text wrapper
+    cleanTitle = cleanTitle.replace(/^Watch\s*["“]?/i, '').replace(/["”]?\s*on\s*YouTube$/i, '').trim();
+    if (!cleanTitle && ytMatch) cleanTitle = 'YouTube Video';
+
+    const vidId = ytMatch ? ytMatch[1] : null;
+    const coverUrl = vidId ? `https://img.youtube.com/vi/${vidId}/hqdefault.jpg` : '';
+
+    const newItem = {
+        id: Date.now().toString(),
+        title: cleanTitle || 'Shared Video',
+        link: targetUrl || '',
+        imageUrl: coverUrl,
+        type: ytMatch ? 'video' : 'article',
+        notes: 'Saved via YouTube Share to Hisab',
+        addedAt: Date.now(),
+        completed: false
+    };
+
+    const exists = targetUrl && backlogData.some(b => b.link === targetUrl);
+    if (!exists) {
+        backlogData.unshift(newItem);
+        let newLog = { 
+            id: Date.now().toString(), 
+            taskId: 'backlog-' + Date.now(), 
+            category: 'backlog', 
+            taskType: newItem.type, 
+            timestamp: Date.now(), 
+            title: newItem.title, 
+            actionType: 'add_backlog', 
+            amount: 1 
+        };
+        activityHistory.push(newLog);
+        syncToGoogleSheets(newLog);
+        saveData();
+    }
+
+    // Switch to library tab and notify
+    const backlogNav = document.getElementById('nav-backlog');
+    switchTab('backlog', backlogNav);
+    renderBacklog();
+    triggerHaptic(50);
+
+    setTimeout(() => {
+        showToast(exists ? `Already in Library: "${cleanTitle}"` : `Saved to Library: "${cleanTitle}"`, exists ? 'ℹ️' : '🎬');
+    }, 400);
+
+    // Clean URL query params so reload doesn't duplicate
+    window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+// ==========================================
+// OPTION 2: YOUTUBE PLAYLIST SYNC ENGINE
+// ==========================================
+function openYouTubePlaylistModal() {
+    const savedPlaylist = localStorage.getItem('hisab_yt_playlist') || '';
+    const savedKey = localStorage.getItem('hisab_yt_api_key') || '';
+    const input = document.getElementById('yt-playlist-input');
+    const keyInput = document.getElementById('yt-api-key-input');
+    if (input) input.value = savedPlaylist;
+    if (keyInput) keyInput.value = savedKey;
+    const status = document.getElementById('yt-sync-status');
+    if (status) status.innerHTML = '';
+    openModal('yt-playlist-modal');
+}
+
+function saveYouTubePlaylistConfig() {
+    const input = document.getElementById('yt-playlist-input');
+    const keyInput = document.getElementById('yt-api-key-input');
+    if (!input) return;
+    const val = input.value.trim();
+    const keyVal = keyInput ? keyInput.value.trim() : '';
+    localStorage.setItem('hisab_yt_playlist', val);
+    localStorage.setItem('hisab_yt_api_key', keyVal);
+    const status = document.getElementById('yt-sync-status');
+    if (status) status.innerHTML = `<span style="color:var(--success);">✅ Settings saved!</span>`;
+    triggerHaptic(20);
+}
+
+async function syncYouTubePlaylist() {
+    const input = document.getElementById('yt-playlist-input');
+    const keyInput = document.getElementById('yt-api-key-input');
+    let playlistVal = (input ? input.value.trim() : '') || localStorage.getItem('hisab_yt_playlist') || '';
+    const apiKey = (keyInput ? keyInput.value.trim() : '') || localStorage.getItem('hisab_yt_api_key') || '';
+    const status = document.getElementById('yt-sync-status');
+    const syncBtn = document.getElementById('btn-sync-yt-now');
+
+    if (!playlistVal) {
+        openYouTubePlaylistModal();
+        if (status) status.innerHTML = `<span style="color:var(--danger);">⚠️ Please enter your Playlist link or ID first!</span>`;
+        return;
+    }
+
+    localStorage.setItem('hisab_yt_playlist', playlistVal);
+    if (apiKey) localStorage.setItem('hisab_yt_api_key', apiKey);
+
+    // Extract playlist ID if full URL passed
+    let playlistId = playlistVal;
+    const listMatch = playlistVal.match(/[?&]list=([^#&?]+)/);
+    if (listMatch) playlistId = listMatch[1];
+
+    if (syncBtn) {
+        syncBtn.disabled = true;
+        syncBtn.innerText = '⏳ Syncing...';
+    }
+    if (status) status.innerHTML = `<span style="color:var(--text-muted);">Fetching videos from YouTube...</span>`;
+
+    try {
+        let videos = [];
+
+        // Strategy 1: Google API Key provided
+        if (apiKey) {
+            const apiUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=${encodeURIComponent(playlistId)}&key=${encodeURIComponent(apiKey)}`;
+            const res = await fetch(apiUrl);
+            if (!res.ok) throw new Error(`YouTube API error (${res.status})`);
+            const data = await res.json();
+            if (data.items) {
+                videos = data.items.map(item => {
+                    const snippet = item.snippet || {};
+                    const vidId = snippet.resourceId ? snippet.resourceId.videoId : null;
+                    return {
+                        id: vidId,
+                        title: snippet.title || 'YouTube Video',
+                        link: vidId ? `https://www.youtube.com/watch?v=${vidId}` : '',
+                        imageUrl: vidId ? `https://img.youtube.com/vi/${vidId}/hqdefault.jpg` : ''
+                    };
+                }).filter(v => v.id && v.link);
+            }
+        } else {
+            // Strategy 2: Call Vercel serverless function /api/youtube-sync
+            const apiEndpoint = `/api/youtube-sync?playlistId=${encodeURIComponent(playlistId)}`;
+            const res = await fetch(apiEndpoint);
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || `Failed to fetch playlist (${res.status})`);
+            }
+            videos = data.videos || [];
+        }
+
+        if (!videos || videos.length === 0) {
+            if (status) status.innerHTML = `<span style="color:var(--warning);">No videos found in this playlist. Ensure it's Public or Unlisted.</span>`;
+            return;
+        }
+
+        // Merge new videos into backlogData without duplicates
+        let addedCount = 0;
+        videos.forEach(v => {
+            const alreadyExists = backlogData.some(b => b.link === v.link || (b.title === v.title && b.type === 'video'));
+            if (!alreadyExists) {
+                backlogData.unshift({
+                    id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 4),
+                    title: v.title,
+                    link: v.link,
+                    imageUrl: v.imageUrl,
+                    type: 'video',
+                    notes: 'Synced from YouTube Playlist',
+                    addedAt: Date.now(),
+                    completed: false
+                });
+                addedCount++;
+            }
+        });
+
+        if (addedCount > 0) {
+            saveData();
+            renderBacklog();
+            triggerHaptic(40);
+            showToast(`Added ${addedCount} new YouTube video(s)!`, '🎉');
+            if (status) status.innerHTML = `<span style="color:var(--success); font-weight:700;">🎉 Added ${addedCount} new video(s)!</span>`;
+            setTimeout(() => closeModal('yt-playlist-modal'), 1200);
+        } else {
+            showToast('Library is up to date! (No new videos)', '✅');
+            if (status) status.innerHTML = `<span style="color:var(--success);">✅ Playlist is up to date! (No new videos)</span>`;
+        }
+    } catch (err) {
+        console.error('Playlist sync failed:', err);
+        if (status) status.innerHTML = `<span style="color:var(--danger);">❌ Error: ${err.message || 'Sync failed'}</span>`;
+    } finally {
+        if (syncBtn) {
+            syncBtn.disabled = false;
+            syncBtn.innerText = '🔄 Sync Now';
+        }
+    }
+}
+
+window.showToast = showToast;
+window.handleIncomingShare = handleIncomingShare;
+window.openYouTubePlaylistModal = openYouTubePlaylistModal;
+window.saveYouTubePlaylistConfig = saveYouTubePlaylistConfig;
+window.syncYouTubePlaylist = syncYouTubePlaylist;
 window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.manualCloudSync = manualCloudSync; window.switchTab = switchTab; 
 window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed;
 window.openTask30DayModal = openTask30DayModal; window.fulfillMissedTaskDay = fulfillMissedTaskDay; window.undoTaskDayLogs = undoTaskDayLogs; window.markTaskMissedOnDate = markTaskMissedOnDate;
@@ -3562,4 +3791,5 @@ initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
 const savedNavElement = document.getElementById('nav-' + savedTab);
 switchTab(savedTab, savedNavElement);
+handleIncomingShare();
 setTimeout(checkWeeklyGoalPrompt, 1500);

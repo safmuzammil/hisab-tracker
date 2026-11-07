@@ -1101,6 +1101,9 @@
         </div>
     </header>
 
+    <!-- Floating Top Toast Notification -->
+    <div id="app-toast" style="position:fixed; top:18px; left:50%; transform:translateX(-50%) translateY(-100px); background:rgba(20,24,30,0.96); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); color:#fff; border:1px solid rgba(255,255,255,0.14); padding:10px 18px; border-radius:999px; font-size:0.85rem; font-weight:600; box-shadow:0 10px 32px rgba(0,0,0,0.5); z-index:9999; transition:transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events:none; display:flex; align-items:center; gap:8px;"></div>
+
     <div class="container">
         
         <div class="auth-box" id="login-prompt">
@@ -1594,9 +1597,19 @@
                 </select>
             </div>
 
-            <button class="main-action-btn" onclick="cancelEditBacklogItem(); openModal('backlog-modal');" style="border-color:var(--backlog); color:var(--backlog); background:rgba(255,138,101,0.06);">
-                📌 Save Link / Book / Video
-            </button>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
+                <button class="main-action-btn" onclick="cancelEditBacklogItem(); openModal('backlog-modal');" style="margin:0; border-color:var(--backlog); color:var(--backlog); background:rgba(255,138,101,0.08); font-size:0.86rem; padding:11px 8px;">
+                    📌 Add Item
+                </button>
+                <button class="main-action-btn" onclick="openYouTubePlaylistModal()" style="margin:0; border-color:#ff4444; color:#ff5252; background:rgba(255,0,0,0.08); font-size:0.86rem; padding:11px 8px;">
+                    ▶️ Sync YouTube
+                </button>
+            </div>
+
+            <!-- YouTube Mobile Share Pro-Tip -->
+            <div style="font-size:0.75rem; color:var(--text-muted); text-align:center; margin-bottom:14px; background:rgba(255,255,255,0.03); padding:8px 12px; border-radius:10px; border:1px dashed var(--border); line-height:1.4;">
+                💡 <b>Mobile Tip:</b> In YouTube app, tap <b>Share ➡️ Hisab</b> to save any video here instantly!
+            </div>
 
             <div id="backlog-list-container" class="dashboard-grid"></div>
         </div>
@@ -1628,6 +1641,37 @@
         </div>
     </div>
 
+
+        
+        <!-- YouTube Playlist Sync Modal -->
+        <div id="yt-playlist-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('yt-playlist-modal')">
+            <div class="modal-content" style="max-width:440px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:1.4rem;">▶️</span>
+                        <h2 style="margin:0; font-size:1.15rem; color:#ff5252;">Sync YouTube Playlist</h2>
+                    </div>
+                    <button class="btn-icon" onclick="closeModal('yt-playlist-modal')">❌</button>
+                </div>
+                <p style="font-size:0.82rem; color:var(--text-muted); line-height:1.4; margin-top:0; margin-bottom:14px;">
+                    Create a custom playlist on YouTube (e.g. <i>"Hisab Queue"</i> or <i>"Save for Later"</i>), make it <b>Unlisted</b> or <b>Public</b>, and paste the link below.
+                </p>
+                <div style="margin-bottom:12px;">
+                    <label style="font-size:0.75rem; color:var(--text-muted); font-weight:600; display:block; margin-bottom:4px;">PLAYLIST LINK OR ID</label>
+                    <input type="text" id="yt-playlist-input" placeholder="https://www.youtube.com/playlist?list=PL... or PL..." style="margin:0;">
+                </div>
+                <div style="margin-bottom:16px;">
+                    <label style="font-size:0.75rem; color:var(--text-muted); font-weight:600; display:block; margin-bottom:4px;">GOOGLE API KEY (OPTIONAL)</label>
+                    <input type="text" id="yt-api-key-input" placeholder="Optional YouTube Data API Key" style="margin:0;">
+                    <span style="font-size:0.7rem; color:var(--text-muted);">Leave empty to use automatic cloud sync.</span>
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <button id="btn-sync-yt-now" onclick="syncYouTubePlaylist()" style="flex:2; background:#ff4444; color:#fff; font-weight:700;">🔄 Sync Now</button>
+                    <button onclick="saveYouTubePlaylistConfig()" style="flex:1; background:var(--card-elevated); border:1px solid var(--border); color:var(--text-main);">Save</button>
+                </div>
+                <div id="yt-sync-status" style="margin-top:12px; font-size:0.8rem; text-align:center; min-height:18px;"></div>
+            </div>
+        </div>
 
         <!-- Custom Confirm Bottom Sheet -->
         <div id="confirm-sheet" class="modal-overlay" style="z-index:2000;">

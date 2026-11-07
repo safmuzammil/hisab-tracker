@@ -20,11 +20,15 @@ provider.setCustomParameters({ prompt: 'select_account' });
 let currentUser = null;
 let unsubscribeSnapshot = null;
 
-function setSyncIndicator(state, text) {
+let lastCloudError = null;
+
+function setSyncIndicator(state, text, err = null) {
     const el = document.getElementById('cloud-sync-indicator');
     if (!el) return;
-    el.className = 'sync-pill ' + (state === 'synced' ? 'synced' : (state === 'error' ? 'error' : ''));
-    el.innerText = text;
+    el.className = 'sync-status-dot ' + (state === 'synced' ? 'synced' : (state === 'error' ? 'error' : ''));
+    const dot = state === 'synced' ? '● ' : (state === 'error' ? '⚠️ ' : '● ');
+    el.innerText = dot + text;
+    if (err) lastCloudError = err;
 }
 
 const signInBtnContainer = document.getElementById('google-signin-button');
@@ -275,16 +279,14 @@ function listenToFirebase() {
         }
     }, (error) => {
         console.error("Firestore listener error:", error);
-        setSyncIndicator('error', '⚠️ Sync Error');
+        setSyncIndicator('error', 'Sync Error', error);
     });
 }
 
-async function manualCloudSync() {
-    if (!currentUser) {
-        return loginWithGoogle();
-    }
+async function triggerCloudSyncNow() {
+    setSyncIndicator('synced', 'Syncing...');
     try {
-        setSyncIndicator('synced', '⏳ Syncing...');
+        lastCloudError = null;
         const userRef = doc(db, "users", currentUser.uid);
         const snap = await getDoc(userRef);
         if (snap.exists()) {
@@ -294,16 +296,67 @@ async function manualCloudSync() {
                 lastModifiedLocal = cloudData.lastModified;
                 saveDataLocallyOnly();
                 render();
-                setSyncIndicator('synced', '☁️ Pulled Latest');
+                setSyncIndicator('synced', 'Synced');
+                if (typeof showToast === 'function') showToast('Pulled latest cloud data!', '☁️');
                 return;
             }
         }
         await syncDataToFirebase();
-        setSyncIndicator('synced', '☁️ Synced');
+        setSyncIndicator('synced', 'Synced');
+        if (typeof showToast === 'function') showToast('Cloud data synced successfully!', '☁️');
     } catch (e) {
         console.error("Manual sync failed:", e);
-        setSyncIndicator('error', '⚠️ Sync Failed');
+        setSyncIndicator('error', 'Sync Failed', e);
+        if (typeof showToast === 'function') showToast('Sync failed: ' + (e.message || 'Check connection'), '⚠️');
     }
+}
+
+async function manualCloudSync() {
+    if (!currentUser) {
+        showConfirmSheet(
+            "<b>You are in Local (Offline) Mode.</b><br><br>All tasks and progress are safely saved on this device, but won't sync to your other devices until you sign in with Google.<br><br>Would you like to connect with Google now?",
+            { title: 'Cloud Sync (Local Mode)', icon: '📴', okText: 'Sign In with Google', danger: false }
+        ).then(ok => {
+            if (ok) loginWithGoogle();
+        });
+        return;
+    }
+
+    if (lastCloudError) {
+        const errCode = lastCloudError.code || '';
+        const errMsg = lastCloudError.message || String(lastCloudError);
+
+        let fixDetails = '';
+        if (errCode.includes('permission-denied') || errMsg.includes('insufficient permissions')) {
+            fixDetails = `<b>Reason:</b> Cloud Firestore rules are blocking access.<br><br>` +
+                         `<b>Quick 30-Second Fix:</b><br>` +
+                         `1. Open <a href="https://console.firebase.google.com" target="_blank" style="color:var(--primary); text-decoration:underline;">console.firebase.google.com</a><br>` +
+                         `2. Click <b>hisab-1127d</b> ➡️ <b>Firestore Database</b> ➡️ <b>Rules</b><br>` +
+                         `3. Paste this rule:<br>` +
+                         `<div style="background:#14171d; padding:8px 10px; border-radius:8px; font-family:monospace; font-size:0.72rem; margin:8px 0; text-align:left; border:1px solid #333; color:#a8ff78; line-height:1.4;">` +
+                         `rules_version = '2';<br>service cloud.firestore {<br>&nbsp;&nbsp;match /databases/{database}/documents {<br>&nbsp;&nbsp;&nbsp;&nbsp;match /users/{userId} {<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;allow read, write: if request.auth != null && request.auth.uid == userId;<br>&nbsp;&nbsp;&nbsp;&nbsp;}<br>&nbsp;&nbsp;}<br>}` +
+                         `</div>` +
+                         `4. Click <b>Publish</b> and tap Retry.`;
+        } else if (errCode.includes('unauthorized-domain') || errMsg.includes('unauthorized domain')) {
+            fixDetails = `<b>Reason:</b> Domain <code>${window.location.hostname}</code> is not in Firebase authorized domains.<br><br>` +
+                         `<b>Quick Fix:</b><br>` +
+                         `1. Open <a href="https://console.firebase.google.com" target="_blank" style="color:var(--primary); text-decoration:underline;">Firebase Console</a><br>` +
+                         `2. Go to <b>Authentication ➡️ Settings ➡️ Authorized Domains</b><br>` +
+                         `3. Click <b>Add domain</b> and paste <code>${window.location.hostname}</code>.`;
+        } else {
+            fixDetails = `<b>Details:</b> ${errCode ? `(${errCode}) ` : ''}${errMsg}<br><br>Check your internet connection or try syncing again.`;
+        }
+
+        showConfirmSheet(
+            fixDetails,
+            { title: 'Cloud Sync Diagnostics', icon: '⚠️', okText: 'Retry Sync Now', cancelText: 'Close', danger: false }
+        ).then(ok => {
+            if (ok) triggerCloudSyncNow();
+        });
+        return;
+    }
+
+    triggerCloudSyncNow();
 }
 
 function migrateLegacyTasks() {
@@ -510,7 +563,7 @@ async function syncDataToFirebase() {
             setSyncIndicator('synced', '☁️ Synced');
         } catch(e) {
             console.error("Firebase sync failed", e);
-            setSyncIndicator('error', '⚠️ Sync Error');
+            setSyncIndicator('error', 'Sync Error', e);
         } 
     } 
 }
@@ -782,7 +835,7 @@ function showConfirmSheet(message, options = {}) {
         const titleEl = document.getElementById('confirm-sheet-title');
         const iconEl = document.getElementById('confirm-sheet-icon');
         const okBtn = document.getElementById('confirm-sheet-ok');
-        if (msgEl) msgEl.innerText = message;
+        if (msgEl) msgEl.innerHTML = message;
         if (titleEl) titleEl.innerText = options.title || 'Are you sure?';
         if (iconEl) iconEl.innerText = options.icon || '❓';
         if (okBtn) {

@@ -311,6 +311,7 @@ async function triggerCloudSyncNow() {
                 return;
             }
         }
+        hasInitialCloudSync = true;
         await syncDataToFirebase();
         setSyncIndicator('synced', 'Synced');
         if (typeof showToast === 'function') showToast('Cloud data synced successfully!', '☁️');
@@ -565,17 +566,34 @@ function saveDataLocallyOnly() {
     localStorage.setItem('hisab_weekly_goal', JSON.stringify(weeklyGoalData));
 }
 
-async function syncDataToFirebase() { 
-    if (currentUser && hasInitialCloudSync) { 
+async function syncDataToFirebase() {
+    if (currentUser) {
         try {
-            setSyncIndicator('synced', '⏳ Saving...');
-            await setDoc(doc(db, "users", currentUser.uid), { tasks, history: activityHistory, badHabits, goodHabits, bonusPoints, charity: charityData, deen: deenData, budget: budgetData, backlog: backlogData, archivedTasks, journal: journalData, weeklyGoal: weeklyGoalData, lastModified: lastModifiedLocal });
-            setSyncIndicator('synced', '☁️ Synced');
+            setSyncIndicator('synced', 'Saving...');
+            const rawPayload = {
+                tasks,
+                history: activityHistory,
+                badHabits,
+                goodHabits,
+                bonusPoints,
+                charity: charityData,
+                deen: deenData,
+                budget: budgetData,
+                backlog: backlogData,
+                archivedTasks,
+                journal: journalData,
+                weeklyGoal: weeklyGoalData,
+                lastModified: lastModifiedLocal
+            };
+            const cleanPayload = JSON.parse(JSON.stringify(rawPayload));
+            await setDoc(doc(db, 'users', currentUser.uid), cleanPayload);
+            lastCloudError = null;
+            setSyncIndicator('synced', 'Synced');
         } catch(e) {
-            console.error("Firebase sync failed", e);
+            console.error('Firebase sync failed', e);
             setSyncIndicator('error', 'Sync Error', e);
-        } 
-    } 
+        }
+    }
 }
 
 function saveData() { lastModifiedLocal = Date.now(); localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString()); saveDataLocallyOnly(); syncDataToFirebase(); }
@@ -890,7 +908,7 @@ function logProgress(id) {
     const noteInput = document.getElementById(`note-${task.id}`);
     const noteText = noteInput ? noteInput.value.trim() : '';
     if (noteInput) noteInput.value = '';
-    let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), fulfilledDateKey: todayKey, title: "Completed: " + task.title, actionType: 'complete', amount: amountDone, note: noteText || undefined };
+    let newLog = { id: Date.now().toString(), taskId: task.id, category: 'tasks', taskType: task.type, timestamp: Date.now(), fulfilledDateKey: todayKey, title: "Completed: " + task.title, actionType: 'complete', amount: amountDone, note: noteText || "" };
     activityHistory.push(newLog);
     syncToGoogleSheets(newLog);
 

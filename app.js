@@ -220,7 +220,17 @@ function applyCloudPayload(parsed) {
     if (isNaN(charityData.surplus)) charityData.surplus = 0;
     budgetData = parsed.budget || budgetData;
     if (!budgetData.debts) budgetData.debts = [];
-    backlogData = parsed.backlog || backlogData;
+    if (parsed.backlog && Array.isArray(parsed.backlog)) {
+        // Safe Merge: Never erase local items that aren't in the cloud document yet
+        const localUnsynced = (backlogData || []).filter(local => 
+            !parsed.backlog.some(cloud => cloud.id === local.id || (local.link && cloud.link && local.link === cloud.link))
+        );
+        backlogData = [...localUnsynced, ...parsed.backlog];
+        localStorage.setItem('hisab_backlog', JSON.stringify(backlogData));
+        if (localUnsynced.length > 0) {
+            setTimeout(syncDataToFirebase, 800);
+        }
+    }
     archivedTasks = parsed.archivedTasks || archivedTasks;
     journalData = parsed.journal || journalData;
     weeklyGoalData = parsed.weeklyGoal || weeklyGoalData;
@@ -3600,9 +3610,9 @@ function showToast(msg, icon = '✨') {
 // ==========================================
 function handleIncomingShare() {
     const urlParams = new URLSearchParams(window.location.search);
-    const shareTitle = urlParams.get('share_title') || '';
-    const shareText = urlParams.get('share_text') || '';
-    const shareUrl = urlParams.get('share_url') || '';
+    const shareTitle = urlParams.get('share_title') || urlParams.get('title') || '';
+    const shareText = urlParams.get('share_text') || urlParams.get('text') || '';
+    const shareUrl = urlParams.get('share_url') || urlParams.get('url') || '';
 
     if (!shareTitle && !shareText && !shareUrl) return;
 
@@ -3624,13 +3634,19 @@ function handleIncomingShare() {
     cleanTitle = cleanTitle.replace(/^Watch\s*["“]?/i, '').replace(/["”]?\s*on\s*YouTube$/i, '').trim();
     if (!cleanTitle && ytMatch) cleanTitle = 'YouTube Video';
 
+    let finalLink = targetUrl || '';
+    let coverUrl = '';
     const vidId = ytMatch ? ytMatch[1] : null;
-    const coverUrl = vidId ? `https://img.youtube.com/vi/${vidId}/hqdefault.jpg` : '';
+
+    if (vidId) {
+        finalLink = `https://www.youtube.com/watch?v=${vidId}`;
+        coverUrl = `https://img.youtube.com/vi/${vidId}/hqdefault.jpg`;
+    }
 
     const newItem = {
         id: Date.now().toString(),
         title: cleanTitle || 'Shared Video',
-        link: targetUrl || '',
+        link: finalLink,
         imageUrl: coverUrl,
         type: ytMatch ? 'video' : 'article',
         notes: 'Saved via YouTube Share to Hisab',
@@ -3638,9 +3654,12 @@ function handleIncomingShare() {
         completed: false
     };
 
-    const exists = targetUrl && backlogData.some(b => b.link === targetUrl);
+    // Check duplicate by canonical link or video ID
+    const exists = finalLink && backlogData.some(b => b.link === finalLink || (vidId && b.link && b.link.includes(vidId)));
     if (!exists) {
         backlogData.unshift(newItem);
+        localStorage.setItem('hisab_backlog', JSON.stringify(backlogData));
+        
         let newLog = { 
             id: Date.now().toString(), 
             taskId: 'backlog-' + Date.now(), 
@@ -3654,19 +3673,44 @@ function handleIncomingShare() {
         activityHistory.push(newLog);
         syncToGoogleSheets(newLog);
         saveData();
+
+        // If title is generic or missing, fetch real YouTube title in background
+        if (vidId && (!cleanTitle || cleanTitle === 'YouTube Video')) {
+            fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${vidId}`)
+                .then(r => r.json())
+                .then(d => {
+                    if (d && d.title) {
+                        newItem.title = d.title;
+                        const idx = backlogData.findIndex(b => b.id === newItem.id);
+                        if (idx !== -1) {
+                            backlogData[idx].title = d.title;
+                            saveDataLocallyOnly();
+                            renderBacklog();
+                        }
+                    }
+                }).catch(() => {});
+        }
     }
 
-    // Switch to library tab and notify
+    // Switch to Saved tab immediately
+    localStorage.setItem('hisab_active_tab', 'backlog');
     const backlogNav = document.getElementById('nav-backlog');
     switchTab('backlog', backlogNav);
     renderBacklog();
     triggerHaptic(50);
 
+    // Re-assert Saved tab after initial cloud sync arrives to avoid being overwritten
+    setTimeout(() => {
+        const navEl = document.getElementById('nav-backlog');
+        switchTab('backlog', navEl);
+        renderBacklog();
+    }, 600);
+
     setTimeout(() => {
         showToast(exists ? `Already in Library: "${cleanTitle}"` : `Saved to Library: "${cleanTitle}"`, exists ? 'ℹ️' : '🎬');
     }, 400);
 
-    // Clean URL query params so reload doesn't duplicate
+    // Clean URL query params so browser reload doesn't re-trigger
     window.history.replaceState({}, document.title, window.location.pathname);
 }
 

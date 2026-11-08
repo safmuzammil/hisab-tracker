@@ -769,6 +769,18 @@ function payDonation() {
     if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 80, origin: { y: 0.5 }, colors: ['#f6e58d', '#03dac6', '#ffffff'] });
 }
 
+function deductFromSurplus() {
+    if ((charityData.surplus || 0) <= 0 || (charityData.pending || 0) <= 0) return;
+    const toCover = Math.min(charityData.surplus, charityData.pending);
+    charityData.surplus -= toCover;
+    charityData.pending -= toCover;
+    charityData.paid = (charityData.paid || 0) + toCover;
+    saveData();
+    if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard();
+    if (typeof confetti === 'function') confetti({ particleCount: 70, spread: 70, origin: { y: 0.5 }, colors: ['#03dac6', '#ffffff'] });
+    showToast('Deducted ₹' + toCover.toLocaleString() + ' penalty using Surplus Wallet!', '✨');
+}
+
 // ==========================================
 // TASKS & SPIRITUAL AUTOMATION ENGINE
 // ==========================================
@@ -2453,20 +2465,112 @@ function updateDashboard() {
             : 'No daily tasks set';
     }
 
-    // Hero Overview Bar
-    const heroStats = document.getElementById('dash-hero-stats');
-    if (heroStats) heroStats.innerText = `${completedDailyCount} / ${dailyTasksList.length} Done`;
-    const heroBar = document.getElementById('dash-hero-bar');
-    if (heroBar) {
-        const heroPct = dailyTasksList.length > 0 ? (completedDailyCount / dailyTasksList.length) * 100 : 0;
-        heroBar.style.width = `${heroPct}%`;
+    // Top Charity Penalty Banner (Immediate Visibility on Top of Overview)
+    const bannerWrap = document.getElementById('dash-penalty-banner-wrap');
+    if (bannerWrap) {
+        if ((charityData.pending || 0) > 0) {
+            bannerWrap.innerHTML = `
+                <div style="background: linear-gradient(135deg, rgba(235, 77, 75, 0.18), rgba(255, 107, 129, 0.08)); border: 1px solid rgba(235, 77, 75, 0.45); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 14px rgba(235, 77, 75, 0.15);">
+                    <div>
+                        <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; color:#ff6b81; font-weight:800; display:flex; align-items:center; gap:5px;">
+                            <span>⚖️</span> <span>Pending Charity Penalty</span>
+                        </div>
+                        <div style="font-size:1.35rem; font-weight:800; color:#fff; font-family:var(--font-mono); margin-top:2px;">
+                            ₹${charityData.pending.toLocaleString()}
+                            ${(charityData.surplus || 0) > 0 ? `<span style="font-size:0.75rem; color:#03dac6; font-weight:600; margin-left:6px; font-family:var(--font-base);">(Surplus: ₹${charityData.surplus.toLocaleString()})</span>` : ''}
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:6px; flex-shrink:0;">
+                        ${(charityData.surplus || 0) >= charityData.pending ? `
+                            <button onclick="deductFromSurplus()" class="btn" style="padding:6px 12px; font-size:0.78rem; background:rgba(3,218,198,0.2); color:#03dac6; border:1px solid rgba(3,218,198,0.4); border-radius:8px; font-weight:700; cursor:pointer;">Pay via Surplus</button>
+                        ` : ''}
+                        <button onclick="toggleAnalyticsView()" class="btn" style="padding:6px 12px; font-size:0.78rem; background:rgba(235,77,75,0.25); color:#ff6b81; border:1px solid rgba(235,77,75,0.5); border-radius:8px; font-weight:700; cursor:pointer;">Pay / Resolve</button>
+                    </div>
+                </div>
+            `;
+        } else {
+            bannerWrap.innerHTML = `
+                <div style="background: linear-gradient(135deg, rgba(3, 218, 198, 0.1), rgba(0, 229, 163, 0.04)); border: 1px solid rgba(3, 218, 198, 0.25); border-radius: 14px; padding: 10px 14px; margin-bottom: 14px; display:flex; justify-content:space-between; align-items:center;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:1.15rem;">✨</span>
+                        <div>
+                            <div style="font-size:0.82rem; font-weight:700; color:#03dac6;">Charity Balance: Clean Slate</div>
+                            <div style="font-size:0.72rem; color:var(--text-muted);">No penalties pending ${(charityData.surplus || 0) > 0 ? `• Surplus Wallet: ₹${charityData.surplus.toLocaleString()}` : ''}</div>
+                        </div>
+                    </div>
+                    <button onclick="toggleAnalyticsView()" class="btn" style="padding:5px 10px; font-size:0.75rem; background:rgba(255,255,255,0.06); color:var(--text-muted); border:1px solid rgba(255,255,255,0.1); border-radius:8px; cursor:pointer;">Ledger</button>
+                </div>
+            `;
+        }
     }
+
+    // Unified Daily Completion Score across ALL Tabs (Tasks, Habits, Deen, Journal, Saved)
+    const todayKeyTiles = toDateKey(nowTiles);
+    const completedHabitsCount = (goodHabits || []).filter(h => {
+        return activityHistory.some(log => log.taskId === h.id && log.actionType === 'good' && (log.habitDateKey === todayKeyTiles || toDateKey(log.timestamp) === todayKeyTiles));
+    }).length;
+    const totalHabitsGoal = (goodHabits || []).length;
+
+    const hasDeenActivityToday = activityHistory.some(log => (log.category === 'deen' || (log.actionType && log.actionType.startsWith('deen_'))) && log.timestamp >= startOfDayTiles);
+    const totalDeenGoal = 1;
+    const completedDeenCount = hasDeenActivityToday ? 1 : 0;
+
+    const todayKeyJournal = todayKeyTiles;
+    const hasTodayJournal = !!(journalData && journalData[todayKeyJournal] && journalData[todayKeyJournal].trim().length > 0);
+    const totalJournalGoal = 1;
+    const completedJournalCount = hasTodayJournal ? 1 : 0;
+
+    const completedSavedToday = activityHistory.filter(h => h.category === 'backlog' && h.actionType === 'complete' && h.timestamp >= startOfDayTiles).length;
+
+    const totalUnifiedGoals = dailyTasksList.length + totalHabitsGoal + totalDeenGoal + totalJournalGoal + (completedSavedToday > 0 ? completedSavedToday : 0);
+    const completedUnifiedGoals = completedDailyCount + completedHabitsCount + completedDeenCount + completedJournalCount + completedSavedToday;
+    const unifiedPct = totalUnifiedGoals > 0 ? Math.min(100, Math.round((completedUnifiedGoals / totalUnifiedGoals) * 100)) : 0;
+
+    // Hero Overview Bar & Stats
+    const heroStats = document.getElementById('dash-hero-stats');
+    if (heroStats) heroStats.innerText = `${completedUnifiedGoals} / ${totalUnifiedGoals} Goals (${unifiedPct}%)`;
+    const heroBar = document.getElementById('dash-hero-bar');
+    if (heroBar) heroBar.style.width = `${unifiedPct}%`;
     const heroDate = document.getElementById('dash-greeting-date');
     if (heroDate) {
         heroDate.innerText = nowTiles.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     }
     const heroPenalty = document.getElementById('donation-pending-hero');
     if (heroPenalty) heroPenalty.innerText = (charityData.pending || 0).toLocaleString();
+
+    // Unified Breakdown Pills
+    const goalsBreakdown = document.getElementById('dash-goals-breakdown');
+    if (goalsBreakdown) {
+        goalsBreakdown.innerHTML = `
+            <div onclick="switchTab('tasks')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:${completedDailyCount >= dailyTasksList.length && dailyTasksList.length > 0 ? 'rgba(0,229,163,0.18)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${completedDailyCount >= dailyTasksList.length && dailyTasksList.length > 0 ? 'rgba(0,229,163,0.4)' : 'rgba(255,255,255,0.1)'}; color:${completedDailyCount >= dailyTasksList.length && dailyTasksList.length > 0 ? 'var(--success)' : 'var(--text-muted)'};">
+                <span>${completedDailyCount >= dailyTasksList.length && dailyTasksList.length > 0 ? '✅' : '📋'}</span>
+                <span>Tasks: <b>${completedDailyCount}/${dailyTasksList.length}</b></span>
+            </div>
+            <div onclick="switchTab('bad-habits')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:${completedHabitsCount >= totalHabitsGoal && totalHabitsGoal > 0 ? 'rgba(0,229,163,0.18)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${completedHabitsCount >= totalHabitsGoal && totalHabitsGoal > 0 ? 'rgba(0,229,163,0.4)' : 'rgba(255,255,255,0.1)'}; color:${completedHabitsCount >= totalHabitsGoal && totalHabitsGoal > 0 ? 'var(--success)' : 'var(--text-muted)'};">
+                <span>${completedHabitsCount >= totalHabitsGoal && totalHabitsGoal > 0 ? '✅' : '🛡️'}</span>
+                <span>Habits: <b>${completedHabitsCount}/${totalHabitsGoal}</b></span>
+            </div>
+            <div onclick="switchTab('deen')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:${completedDeenCount > 0 ? 'rgba(0,229,163,0.18)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${completedDeenCount > 0 ? 'rgba(0,229,163,0.4)' : 'rgba(255,255,255,0.1)'}; color:${completedDeenCount > 0 ? 'var(--success)' : 'var(--text-muted)'};">
+                <span>${completedDeenCount > 0 ? '✅' : '🕌'}</span>
+                <span>Deen: <b>${completedDeenCount}/1</b></span>
+            </div>
+            <div onclick="switchTab('journal')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:${completedJournalCount > 0 ? 'rgba(0,229,163,0.18)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${completedJournalCount > 0 ? 'rgba(0,229,163,0.4)' : 'rgba(255,255,255,0.1)'}; color:${completedJournalCount > 0 ? 'var(--success)' : 'var(--text-muted)'};">
+                <span>${completedJournalCount > 0 ? '✅' : '📓'}</span>
+                <span>Journal: <b>${completedJournalCount}/1</b></span>
+            </div>
+            ${completedSavedToday > 0 ? `
+                <div onclick="switchTab('backlog')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:rgba(0,229,163,0.18); border:1px solid rgba(0,229,163,0.4); color:var(--success);">
+                    <span>✅</span>
+                    <span>Saved: <b>+${completedSavedToday}</b></span>
+                </div>
+            ` : `
+                <div onclick="switchTab('backlog')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:var(--text-muted);">
+                    <span>🔖</span>
+                    <span>Saved: <b>0 done</b></span>
+                </div>
+            `}
+        `;
+    }
 
     // Habits Tile
     let maxGoodStreak = 0;
@@ -3128,6 +3232,7 @@ function toggleBacklogStatus(id) {
         activityHistory.push(newLog); syncToGoogleSheets(newLog);
         
         saveData(); renderBacklog();
+        if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard();
         if (item.completed && typeof confetti === 'function') confetti({ particleCount: 30, spread: 50, origin: { y: 0.8 } });
     }
 }
@@ -3294,13 +3399,12 @@ function addToGoogleCalendar(taskId) {
 }
 
 function openPomodoroTimer(taskId) {
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
-    pomodoroTaskId = taskId;
+    const task = taskId ? tasks.find(t => t.id === taskId) : (tasks.find(t => t.type === 'daily' && t.currentTarget > 0) || tasks[0]);
+    pomodoroTaskId = task ? task.id : null;
     const widget = document.getElementById('pomodoro-widget');
     const nameEl = document.getElementById('pomodoro-task-name');
     if (widget) widget.classList.add('visible');
-    if (nameEl) nameEl.innerText = task.title;
+    if (nameEl) nameEl.innerText = task ? task.title : 'Deep Focus Session';
     updatePomodoroDisplay();
     const countEl = document.getElementById('pomodoro-count');
     if (countEl) countEl.innerText = pomodoroSessionsToday;
@@ -3460,6 +3564,7 @@ function journalAutoSave() {
         journalData[currentJournalDateKey] = textarea.value;
         if (!textarea.value.trim()) delete journalData[currentJournalDateKey];
         saveData();
+        if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard();
         if (statusEl) statusEl.innerText = '✅ Saved';
         setTimeout(() => { if (statusEl) statusEl.innerText = 'Auto-saved'; }, 2000);
     }, 800);
@@ -3793,7 +3898,7 @@ function closeModal(id) { const el = document.getElementById(id); if (el) el.sty
 function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard(); updateNavBadges(); }
 
 // Exports
-window.openModal = openModal; window.closeModal = closeModal;
+window.deductFromSurplus = deductFromSurplus; window.openModal = openModal; window.closeModal = closeModal;
 
 // ==========================================
 // TOAST NOTIFICATION HELPER

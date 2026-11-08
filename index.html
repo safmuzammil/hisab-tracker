@@ -1318,6 +1318,9 @@
         <div id="tab-dashboard" class="tab-content active">
             <!-- Hero Daily Progress & Streak Header -->
             <div class="dashboard-hero-card">
+                <!-- Top Charity Penalty Banner (Immediate Visibility) -->
+                <div id="dash-penalty-banner-wrap"></div>
+
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
                     <div>
                         <div id="dash-greeting-date" style="font-size:0.8rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Today</div>
@@ -1325,7 +1328,6 @@
                     </div>
                     <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
                         <span id="dash-streak-pill" class="badge" style="background:rgba(255,107,129,0.15); color:#ff6b81; border:1px solid rgba(255,107,129,0.3); font-weight:700;">🔥 Streak: 0d</span>
-                        <span id="dash-charity-pill" onclick="toggleAnalyticsView()" class="badge" style="background:rgba(255,177,66,0.15); color:var(--charity); border:1px solid rgba(255,177,66,0.3); cursor:pointer;">⚖️ Penalty: ₹<span id="donation-pending-hero">0</span></span>
                     </div>
                 </div>
 
@@ -1338,6 +1340,8 @@
                     <div style="width:100%; height:8px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
                         <div id="dash-hero-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--primary), var(--success)); border-radius:999px; transition:width 0.4s ease;"></div>
                     </div>
+                    <!-- Unified Breakdown Pills -->
+                    <div id="dash-goals-breakdown" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;"></div>
                 </div>
             </div>
 

@@ -7,7 +7,7 @@ function openNavDrawer() {
     const overlay = document.getElementById('drawer-overlay');
     if (drawer) drawer.classList.add('open');
     if (overlay) overlay.classList.add('open');
-    if (typeof triggerHaptic === 'function') triggerHaptic(10);
+    if (typeof triggerHaptic === 'function') triggerHaptic(12);
 }
 
 function closeNavDrawer() {
@@ -31,22 +31,28 @@ function toggleAnalyticsView() {
     }
 }
 
-// Android Back Gesture & Browser Back Interceptor: Go to Home instead of exiting app!
+// Android Back Gesture & Popstate Interceptor (Never closes app on subpages!)
 window.addEventListener('popstate', (event) => {
     // 1. If drawer is open, close it!
     const drawer = document.getElementById('nav-drawer');
     if (drawer && drawer.classList.contains('open')) {
         closeNavDrawer();
+        history.pushState({ tab: localStorage.getItem('hisab_active_tab') || 'dashboard' }, '', window.location.hash);
         return;
     }
 
     // 2. If any modal is open, close it!
     const openModals = document.querySelectorAll('.modal-overlay');
+    let modalClosed = false;
     for (const m of openModals) {
         if (m.style.display === 'flex' || m.style.display === 'block') {
             m.style.display = 'none';
-            return;
+            modalClosed = true;
         }
+    }
+    if (modalClosed) {
+        history.pushState({ tab: localStorage.getItem('hisab_active_tab') || 'dashboard' }, '', window.location.hash);
+        return;
     }
 
     // 3. If currently NOT on dashboard, always go back to Home Dashboard!
@@ -56,6 +62,39 @@ window.addEventListener('popstate', (event) => {
         return;
     }
 });
+
+// Edge Swipe Gesture: Swiping right from screen left edge returns to Home or opens menu!
+let edgeTouchStartX = 0;
+let edgeTouchStartY = 0;
+
+window.addEventListener('touchstart', (e) => {
+    if (e.touches && e.touches.length === 1) {
+        edgeTouchStartX = e.touches[0].clientX;
+        edgeTouchStartY = e.touches[0].clientY;
+    }
+}, { passive: true });
+
+window.addEventListener('touchend', (e) => {
+    if (edgeTouchStartX > 0 && e.changedTouches && e.changedTouches.length === 1) {
+        const endX = e.changedTouches[0].clientX;
+        const endY = e.changedTouches[0].clientY;
+        const diffX = endX - edgeTouchStartX;
+        const diffY = Math.abs(endY - edgeTouchStartY);
+
+        // Edge swipe started within 45px of screen left, swiped right > 65px
+        if (edgeTouchStartX < 45 && diffX > 65 && diffY < 55) {
+            const currentTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+            if (currentTab !== 'dashboard') {
+                if (typeof triggerHaptic === 'function') triggerHaptic(15);
+                switchTab('dashboard');
+            } else {
+                openNavDrawer();
+            }
+        }
+        edgeTouchStartX = 0;
+    }
+}, { passive: true });
+
 
 // ==========================================
 // FIREBASE CLOUD SERVER INITIALIZATION
@@ -4054,8 +4093,17 @@ window.playAlarmChime = playAlarmChime;
 
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
-const savedNavElement = document.getElementById('nav-' + savedTab);
-switchTab(savedTab, savedNavElement);
+
+// Establish #dashboard as the base root of the history stack
+if (window.history && window.history.replaceState) {
+    history.replaceState({ tab: 'dashboard', root: true }, '', '#dashboard');
+}
+
+if (savedTab !== 'dashboard') {
+    switchTab(savedTab, null, true);
+} else {
+    switchTab('dashboard', null, false);
+}
+
 handleIncomingShare();
-if (window.history && window.history.replaceState) history.replaceState({ tab: "dashboard" }, "", "#dashboard");
 setTimeout(checkWeeklyGoalPrompt, 1500);

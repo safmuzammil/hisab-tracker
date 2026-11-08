@@ -1270,24 +1270,25 @@
             padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)) !important;
         }
 
+    nav, .bottom-nav { display: none !important; }
     </style>
 </head>
 <body data-theme="obsidian">
 
     <header class="app-header">
         <div class="header-brand">
+            <button class="header-icon-btn hamburger-btn" onclick="openNavDrawer()" title="Open Navigation Menu">☰</button>
             <img src="icon.png" class="brand-logo" alt="Hisab" onerror="this.style.display='none'">
-            <div class="brand-text-wrap">
+            <div class="brand-text-wrap" onclick="switchTab('dashboard')" style="cursor:pointer;" title="Go to Dashboard">
                 <h1 class="brand-title">HISAB</h1>
-                <span id="cloud-sync-indicator" class="sync-status-dot" onclick="manualCloudSync()" title="Tap to force sync">● Local</span>
+                <span id="cloud-sync-indicator" class="sync-status-dot" onclick="manualCloudSync()" title="Tap to check sync">● Local</span>
             </div>
         </div>
         <div class="header-actions">
             <button id="btn-install-pwa" onclick="promptPWAInstall()" class="header-icon-btn install-pill" title="Install App">📲 Install</button>
+            <button class="header-icon-btn" onclick="openPomodoroTimer()" title="Focus Timer" style="color:var(--warning);">🍅</button>
             <button id="btn-theme-toggle" class="header-icon-btn" onclick="toggleDesignTheme()" title="Switch Theme">⚡</button>
             <button id="btn-notifications" class="header-icon-btn" onclick="openNotifSettings()" title="Alerts & Reminders">🔔</button>
-            <button class="header-icon-btn" onclick="openShareModal()" title="Share Progress Card">📤</button>
-            <button class="header-icon-btn" onclick="openHistory()" title="Activity History">📜</button>
         </div>
     </header>
 
@@ -2127,33 +2128,7 @@
         </div>
     </div>
 
-    <!-- Navigation Bar -->
-    <nav>
-        <button class="nav-item active" id="nav-dashboard" onclick="switchTab('dashboard', this)">
-            <span class="nav-icon">📊</span> <span>Dash</span>
-            <span class="nav-badge-dot"></span>
-        </button>
-        <button class="nav-item" id="nav-tasks" onclick="switchTab('tasks', this)">
-            <span class="nav-icon">✅</span> <span>Tasks</span>
-            <span class="nav-badge-dot"></span>
-        </button>
-        <button class="nav-item" id="nav-bad-habits" onclick="switchTab('bad-habits', this)">
-            <span class="nav-icon">🚭</span> <span>Habits</span>
-        </button>
-        <button class="nav-item" id="nav-deen" onclick="switchTab('deen', this)">
-            <span class="nav-icon">🕌</span> <span>Deen</span>
-        </button>
-        <button class="nav-item" id="nav-budget" onclick="switchTab('budget', this)">
-            <span class="nav-icon">💳</span> <span>Budget</span>
-            <span class="nav-badge-dot"></span>
-        </button>
-        <button class="nav-item" id="nav-backlog" onclick="switchTab('backlog', this)">
-            <span class="nav-icon">🔖</span> <span>Saved</span>
-        </button>
-        <button class="nav-item" id="nav-journal" onclick="switchTab('journal', this)">
-            <span class="nav-icon">📓</span> <span>Journal</span>
-        </button>
-    </nav>
+    
 
     <script>
         // Instant Theme Switcher Engine (Persisted in localStorage)

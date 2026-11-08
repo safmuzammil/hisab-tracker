@@ -1303,6 +1303,17 @@
         window.openNavDrawer = openNavDrawer;
         window.closeNavDrawer = closeNavDrawer;
         window.scrollToCharity = scrollToCharity;
+        function openHistory(filter = 'all') {
+            const m = document.getElementById('history-modal');
+            if (m) m.style.display = 'block';
+            if (typeof window.filterHistory === 'function') window.filterHistory(filter);
+        }
+        function closeHistory() {
+            const m = document.getElementById('history-modal');
+            if (m) m.style.display = 'none';
+        }
+        window.openHistory = openHistory;
+        window.closeHistory = closeHistory;
     </script>
 </head>
 <body data-theme="obsidian">
@@ -1318,6 +1329,7 @@
         </div>
         <div class="header-actions">
             <button id="btn-install-pwa" onclick="promptPWAInstall()" class="header-icon-btn install-pill" title="Install App">📲 Install</button>
+            <button class="header-icon-btn" onclick="openHistory()" title="Activity History & Logs">📜</button>
             <button class="header-icon-btn" onclick="openPomodoroTimer()" title="Focus Timer" style="color:var(--warning);">🍅</button>
             <button id="btn-theme-toggle" class="header-icon-btn" onclick="toggleDesignTheme()" title="Switch Theme">⚡</button>
             <button id="btn-notifications" class="header-icon-btn" onclick="openNotifSettings()" title="Alerts & Reminders">🔔</button>
@@ -1360,6 +1372,7 @@
                     </div>
                     <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
                         <span id="dash-streak-pill" class="badge" style="background:rgba(255,107,129,0.15); color:#ff6b81; border:1px solid rgba(255,107,129,0.3); font-weight:700;">🔥 Streak: 0d</span>
+                        <span onclick="openHistory()" class="badge" style="background:rgba(187,134,252,0.15); color:var(--primary); border:1px solid rgba(187,134,252,0.3); font-weight:700; cursor:pointer;" title="View Activity History">📜 History</span>
                     </div>
                 </div>
 
@@ -1451,17 +1464,7 @@
                     </div>
                 </div>
 
-                <!-- Tile 7: Charity Penalty Wallet -->
-                <div class="bento-tile tile-charity" onclick="scrollToCharity()">
-                    <div class="bento-tile-icon">
-                        <span>⚖️</span>
-                        <span class="bento-tile-badge" id="tile-charity-badge" style="color:var(--charity); background:rgba(255,177,66,0.12);">Penalty</span>
-                    </div>
-                    <div>
-                        <div class="bento-tile-title">Charity</div>
-                        <div class="bento-tile-sub" id="tile-charity-sub">₹0 Pending</div>
-                    </div>
-                </div>
+
             </div>
 
             <!-- Standalone Dedicated Charity Penalty Card (Always visible, never hidden!) -->
@@ -2261,8 +2264,8 @@
             <button class="drawer-item" id="drawer-nav-journal" onclick="switchTab('journal'); closeNavDrawer();">
                 <span style="font-size:1.25rem;">📓</span> <span>Daily Journal</span>
             </button>
-            <button class="drawer-item" id="drawer-nav-charity" onclick="scrollToCharity(); closeNavDrawer();">
-                <span style="font-size:1.25rem;">⚖️</span> <span>Charity Penalty Wallet</span>
+            <button class="drawer-item" id="drawer-nav-history" onclick="openHistory(); closeNavDrawer();">
+                <span style="font-size:1.25rem;">📜</span> <span>Activity History</span>
             </button>
 
             <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>

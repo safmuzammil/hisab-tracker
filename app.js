@@ -29,6 +29,30 @@ function scrollToCharity() {
     }
 }
 window.scrollToCharity = scrollToCharity;
+
+// Automatic Background & Tab-Return Cloud Sync
+window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && currentUser && navigator.onLine) {
+        manualCloudSync();
+    }
+});
+window.addEventListener('focus', () => {
+    if (currentUser && navigator.onLine) {
+        manualCloudSync();
+    }
+});
+window.addEventListener('online', () => {
+    if (currentUser) {
+        showToast("Internet connected. Syncing data...", "🌐");
+        manualCloudSync();
+    }
+});
+setInterval(() => {
+    if (currentUser && navigator.onLine && !document.hidden) {
+        manualCloudSync();
+    }
+}, 60000);
+
 window.openNavDrawer = openNavDrawer;
 window.closeNavDrawer = closeNavDrawer;
 
@@ -71,7 +95,12 @@ window.addEventListener('popstate', (event) => {
         return;
     }
 
-    // 2. If any modal is open, close it!
+    // 2. If history modal or any other modal is open, close it!
+    const histModal = document.getElementById('history-modal');
+    if (histModal && histModal.style.display === 'block') {
+        closeHistory();
+        return;
+    }
     const openModals = document.querySelectorAll('.modal-overlay');
     let modalClosed = false;
     for (const m of openModals) {
@@ -341,39 +370,102 @@ function syncToGoogleSheets(logEntry) {
 let hasInitialCloudSync = false;
 
 function applyCloudPayload(parsed) {
-    tasks = parsed.tasks || []; 
-    activityHistory = parsed.history || []; 
-    badHabits = parsed.badHabits || []; 
-    goodHabits = parsed.goodHabits || [];
-    bonusPoints = parsed.bonusPoints || 0;
-    charityData = parsed.charity || charityData;
-    if (isNaN(charityData.surplus)) charityData.surplus = 0;
+    if (!parsed) return;
+    const todayStr = new Date().toDateString();
+
+    // 1. Smart Bidirectional History Merge (Never drop any finished log from either phone or desktop)
+    const cloudHistory = parsed.history || [];
+    const localHistory = activityHistory || [];
+    const historyMap = new Map();
+    cloudHistory.forEach(h => { if (h && h.id) historyMap.set(h.id, h); });
+    localHistory.forEach(h => { if (h && h.id) historyMap.set(h.id, h); });
+    activityHistory = Array.from(historyMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    localStorage.setItem('hisab_history', JSON.stringify(activityHistory));
+
+    // 2. Smart Task Merge: Retain today's completions and lowest remaining targets
+    const cloudTasks = parsed.tasks || [];
+    const localTasks = tasks || [];
+    const taskMap = new Map();
+
+    cloudTasks.forEach(ct => { if (ct && ct.id) taskMap.set(ct.id, ct); });
+    localTasks.forEach(lt => {
+        if (!lt || !lt.id) return;
+        if (!taskMap.has(lt.id)) {
+            taskMap.set(lt.id, lt);
+        } else {
+            const ct = taskMap.get(lt.id);
+            const isLocalDoneToday = lt.lastCompletedDay === todayStr;
+            const isCloudDoneToday = ct.lastCompletedDay === todayStr;
+            const effectiveCompletedDay = isLocalDoneToday ? lt.lastCompletedDay : (isCloudDoneToday ? ct.lastCompletedDay : lt.lastCompletedDay || ct.lastCompletedDay);
+
+            let mergedTarget = ct.currentTarget;
+            if (isLocalDoneToday && !isCloudDoneToday) {
+                mergedTarget = lt.currentTarget;
+            } else if (typeof lt.currentTarget === 'number' && typeof ct.currentTarget === 'number') {
+                mergedTarget = Math.min(lt.currentTarget, ct.currentTarget);
+            }
+
+            taskMap.set(lt.id, {
+                ...ct,
+                ...lt,
+                lastCompletedDay: effectiveCompletedDay,
+                currentTarget: mergedTarget,
+                isCompleted: (mergedTarget <= 0) || lt.isCompleted || ct.isCompleted
+            });
+        }
+    });
+    tasks = Array.from(taskMap.values());
+    localStorage.setItem('hisab_tasks', JSON.stringify(tasks));
+
+    // 3. Habits, Charity & Storage Merge
+    badHabits = parsed.badHabits || badHabits;
+    goodHabits = parsed.goodHabits || goodHabits;
+    bonusPoints = Math.max(bonusPoints || 0, parsed.bonusPoints || 0);
+
+    if (parsed.charity) {
+        charityData = {
+            pending: typeof parsed.charity.pending === 'number' ? parsed.charity.pending : (charityData.pending || 0),
+            paid: Math.max(charityData.paid || 0, parsed.charity.paid || 0),
+            surplus: typeof parsed.charity.surplus === 'number' ? parsed.charity.surplus : (charityData.surplus || 0)
+        };
+    }
     budgetData = parsed.budget || budgetData;
     if (!budgetData.debts) budgetData.debts = [];
+
+    // Backlog safe merge
     if (parsed.backlog && Array.isArray(parsed.backlog)) {
-        // Safe Merge: Never erase local items that aren't in the cloud document yet
         const localUnsynced = (backlogData || []).filter(local => 
             !parsed.backlog.some(cloud => cloud.id === local.id || (local.link && cloud.link && local.link === cloud.link))
         );
         backlogData = [...localUnsynced, ...parsed.backlog];
         localStorage.setItem('hisab_backlog', JSON.stringify(backlogData));
-        if (localUnsynced.length > 0) {
-            setTimeout(syncDataToFirebase, 800);
-        }
     }
+
     archivedTasks = parsed.archivedTasks || archivedTasks;
-    journalData = parsed.journal || journalData;
-    weeklyGoalData = parsed.weeklyGoal || weeklyGoalData;
     
-    if (parsed.deen) { 
-        deenData = parsed.deen; 
-        if (!deenData.qada) deenData.qada = { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 };
-        if (!deenData.zakatInputs) deenData.zakatInputs = { cash: 0, gold: 0, invest: 0 };
-        if (!deenData.quran) deenData.quran = [];
-        if (!deenData.dhikr) deenData.dhikr = [];
+    // Journal safe union
+    if (parsed.journal) {
+        journalData = { ...(journalData || {}), ...parsed.journal };
+        localStorage.setItem('hisab_journal', JSON.stringify(journalData));
     }
-    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
-    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+    weeklyGoalData = parsed.weeklyGoal || weeklyGoalData;
+
+    // Deen safe merge
+    if (parsed.deen) {
+        deenData = {
+            ...deenData,
+            ...parsed.deen,
+            quranStats: {
+                totalHizb: Math.max(deenData.quranStats?.totalHizb || 0, parsed.deen.quranStats?.totalHizb || 0),
+                totalJuz: Math.max(deenData.quranStats?.totalJuz || 0, parsed.deen.quranStats?.totalJuz || 0),
+                totalKhatm: Math.max(deenData.quranStats?.totalKhatm || 0, parsed.deen.quranStats?.totalKhatm || 0)
+            },
+            swalathStats: {
+                total: Math.max(deenData.swalathStats?.total || 0, parsed.deen.swalathStats?.total || 0)
+            }
+        };
+    }
+    localStorage.setItem('hisab_deen', JSON.stringify(deenData));
 }
 
 function listenToFirebase() {
@@ -1566,9 +1658,12 @@ function renderTasks() {
     // Update Daily Focus Progress Bar
     const dailyTasksAll = tasks.filter(t => t.type === 'daily');
     let dailyDoneCount = 0;
+    const todayStrNow = new Date().toDateString();
     dailyTasksAll.forEach(t => {
-        const doneAmt = activityHistory.filter(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= startOfDay).reduce((s, l) => s + (l.amount || 1), 0);
-        if (doneAmt >= (t.baseTarget || 1) || t.currentTarget <= 0) dailyDoneCount++;
+        const isDoneToday = (t.lastCompletedDay === todayStrNow) ||
+            activityHistory.some(h => h.taskId === t.id && h.actionType === 'complete' && (isLogOnDateKey(h, todayKey) || h.timestamp >= startOfDay)) ||
+            (t.currentTarget <= 0);
+        if (isDoneToday) dailyDoneCount++;
     });
     const focusLabel = document.getElementById('daily-focus-label');
     const focusFill = document.getElementById('daily-focus-fill');
@@ -1588,11 +1683,13 @@ function renderTasks() {
             if (task.type === 'weekly') timeThreshold = startOfWeek;
             if (task.type === 'monthly') timeThreshold = startOfMonth;
 
-            const periodLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && h.timestamp >= timeThreshold);
+            const periodLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && (h.timestamp >= timeThreshold || (task.type === 'daily' && isLogOnDateKey(h, todayKey))));
             task.amountDonePeriod = periodLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
             
             if (task.type === 'once') {
                 task.isDoneForPeriod = task.currentTarget <= 0;
+            } else if (task.type === 'daily') {
+                task.isDoneForPeriod = (task.lastCompletedDay === todayStrNow) || (task.amountDonePeriod >= (task.baseTarget || 1)) || (task.currentTarget <= 0);
             } else {
                 task.isDoneForPeriod = (task.amountDonePeriod >= (task.baseTarget || 1)) || (task.currentTarget <= 0);
             }
@@ -2485,8 +2582,11 @@ function updateDashboard() {
     
     // Tasks Tile
     const dailyTasksList = tasks.filter(t => t.type === 'daily');
+    const todayStrTiles = new Date().toDateString();
     const completedDailyCount = dailyTasksList.filter(t => {
-        const doneToday = activityHistory.filter(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= startOfDayTiles).reduce((s, h) => s + (h.amount || 1), 0);
+        if (t.lastCompletedDay === todayStrTiles) return true;
+        if (t.currentTarget <= 0) return true;
+        const doneToday = activityHistory.filter(h => h.taskId === t.id && h.actionType === 'complete' && (h.timestamp >= startOfDayTiles || isLogOnDateKey(h, todayKeyTiles))).reduce((s, h) => s + (h.amount || 1), 0);
         return doneToday >= (t.baseTarget || 1);
     }).length;
     const pendingDailyCount = Math.max(0, dailyTasksList.length - completedDailyCount);

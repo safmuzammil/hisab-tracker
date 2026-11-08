@@ -2555,8 +2555,8 @@ function updateDashboard() {
     `;
     spiritContainer.innerHTML = espiritualHTML;
 
-    document.getElementById('donation-pending').innerText = charityData.pending.toLocaleString(); 
-    document.getElementById('donation-paid').innerText = charityData.paid.toLocaleString();
+    const elPen = document.getElementById('donation-pending'); if (elPen) elPen.innerText = (charityData.pending || 0).toLocaleString(); 
+    const elPaid = document.getElementById('donation-paid'); if (elPaid) elPaid.innerText = (charityData.paid || 0).toLocaleString();
     const dashSurplus = document.getElementById('display-surplus-wallet');
     if (dashSurplus) dashSurplus.innerText = (charityData.surplus || 0).toLocaleString();
     const dashBonus = document.getElementById('display-bonus-points-dash');
@@ -2586,7 +2586,7 @@ function updateDashboard() {
         ringsRow.style = 'display:flex; gap:12px; justify-content:space-around; align-items:center; background:var(--card); border:1px solid var(--border); border-radius:var(--card-radius); padding:16px; margin-bottom:20px; flex-wrap:wrap;';
         const dashTab = document.getElementById('tab-dashboard');
         const heat = document.getElementById('heatmap-card');
-        if (dashTab && heat) dashTab.insertBefore(ringsRow, heat);
+        if (heat && heat.parentNode) heat.parentNode.insertBefore(ringsRow, heat);
     }
     if (ringsRow) ringsRow.innerHTML = createProgressRing(dPct, 'var(--primary)', 'Daily') + createProgressRing(wPct, 'var(--success)', 'Weekly') + createProgressRing(mPct, 'var(--budget)', 'Monthly') + createProgressRing(oPct, 'var(--backlog)', 'Projects');
 
@@ -2681,7 +2681,7 @@ function updateDashboard() {
 
     // Hero Overview Bar & Stats
     const heroStats = document.getElementById('dash-hero-stats');
-    if (heroStats) heroStats.innerText = `${completedUnifiedGoals} / ${totalUnifiedGoals} Goals (${unifiedPct}%)`;
+    if (heroStats) heroStats.innerText = `${completedUnifiedGoals} / ${totalUnifiedGoals} Completed (${unifiedPct}%)`;
     const heroBar = document.getElementById('dash-hero-bar');
     if (heroBar) heroBar.style.width = `${unifiedPct}%`;
     const heroDate = document.getElementById('dash-greeting-date');

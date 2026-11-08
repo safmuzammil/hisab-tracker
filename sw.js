@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hisab-v17';
+const CACHE_NAME = 'hisab-v18';
 const urlsToCache = [
     './',
     './index.html',

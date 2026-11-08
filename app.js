@@ -206,6 +206,7 @@ function setSyncIndicator(state, text, err = null) {
     const dot = state === 'synced' ? '● ' : (state === 'error' ? '⚠️ ' : '● ');
     el.innerText = dot + text;
     if (err) lastCloudError = err;
+    if (state === 'synced') lastCloudError = null;
 }
 
 const signInBtnContainer = document.getElementById('google-signin-button');
@@ -415,6 +416,7 @@ function applyCloudPayload(parsed) {
         }
     });
     tasks = Array.from(taskMap.values());
+    if (tasks.length === 0 && activityHistory.length > 0) { recoverMissingTasks(true); }
     localStorage.setItem('hisab_tasks', JSON.stringify(tasks));
 
     // 3. Habits, Charity & Storage Merge
@@ -544,6 +546,40 @@ async function triggerCloudSyncNow() {
     }
 }
 
+function showSyncDiagnostics(err) {
+    if (!err) return;
+    const errCode = err.code || '';
+    const errMsg = err.message || String(err);
+
+    let fixDetails = '';
+    if (errCode.includes('permission-denied') || errMsg.includes('insufficient permissions')) {
+        fixDetails = '<b>Reason:</b> Cloud Firestore rules are blocking access.<br><br>' +
+                     '<b>Quick 30-Second Fix:</b><br>' +
+                     '1. Open <a href="https://console.firebase.google.com" target="_blank" style="color:var(--primary); text-decoration:underline;">console.firebase.google.com</a><br>' +
+                     '2. Click <b>hisab-1127d</b> ➡️ <b>Firestore Database</b> ➡️ <b>Rules</b><br>' +
+                     '3. Paste this rule:<br>' +
+                     '<div style="background:#14171d; padding:8px 10px; border-radius:8px; font-family:monospace; font-size:0.72rem; margin:8px 0; text-align:left; border:1px solid #333; color:#a8ff78; line-height:1.4;">' +
+                     "rules_version = '2';<br>service cloud.firestore {<br>&nbsp;&nbsp;match /databases/{database}/documents {<br>&nbsp;&nbsp;&nbsp;&nbsp;match /users/{userId} {<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;allow read, write: if request.auth != null && request.auth.uid == userId;<br>&nbsp;&nbsp;&nbsp;&nbsp;}<br>&nbsp;&nbsp;}<br>}" +
+                     '</div>' +
+                     '4. Click <b>Publish</b> and tap Retry.';
+    } else if (errCode.includes('unauthorized-domain') || errMsg.includes('unauthorized domain')) {
+        fixDetails = '<b>Reason:</b> Domain <code>' + window.location.hostname + '</code> is not in Firebase authorized domains.<br><br>' +
+                     '<b>Quick Fix:</b><br>' +
+                     '1. Open <a href="https://console.firebase.google.com" target="_blank" style="color:var(--primary); text-decoration:underline;">Firebase Console</a><br>' +
+                     '2. Go to <b>Authentication ➡️ Settings ➡️ Authorized Domains</b><br>' +
+                     '3. Click <b>Add domain</b> and paste <code>' + window.location.hostname + '</code>.';
+    } else {
+        fixDetails = '<b>Details:</b> ' + (errCode ? '(' + errCode + ') ' : '') + errMsg + '<br><br>Check your internet connection or try syncing again.';
+    }
+
+    showConfirmSheet(
+        fixDetails,
+        { title: 'Cloud Sync Diagnostics', icon: '⚠️', okText: 'Retry Sync Now', cancelText: 'Close', danger: false }
+    ).then(ok => {
+        if (ok) triggerCloudSyncNow();
+    });
+}
+
 async function manualCloudSync() {
     if (!currentUser) {
         showConfirmSheet(
@@ -555,37 +591,9 @@ async function manualCloudSync() {
         return;
     }
 
-    if (lastCloudError) {
-        const errCode = lastCloudError.code || '';
-        const errMsg = lastCloudError.message || String(lastCloudError);
-
-        let fixDetails = '';
-        if (errCode.includes('permission-denied') || errMsg.includes('insufficient permissions')) {
-            fixDetails = `<b>Reason:</b> Cloud Firestore rules are blocking access.<br><br>` +
-                         `<b>Quick 30-Second Fix:</b><br>` +
-                         `1. Open <a href="https://console.firebase.google.com" target="_blank" style="color:var(--primary); text-decoration:underline;">console.firebase.google.com</a><br>` +
-                         `2. Click <b>hisab-1127d</b> ➡️ <b>Firestore Database</b> ➡️ <b>Rules</b><br>` +
-                         `3. Paste this rule:<br>` +
-                         `<div style="background:#14171d; padding:8px 10px; border-radius:8px; font-family:monospace; font-size:0.72rem; margin:8px 0; text-align:left; border:1px solid #333; color:#a8ff78; line-height:1.4;">` +
-                         `rules_version = '2';<br>service cloud.firestore {<br>&nbsp;&nbsp;match /databases/{database}/documents {<br>&nbsp;&nbsp;&nbsp;&nbsp;match /users/{userId} {<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;allow read, write: if request.auth != null && request.auth.uid == userId;<br>&nbsp;&nbsp;&nbsp;&nbsp;}<br>&nbsp;&nbsp;}<br>}` +
-                         `</div>` +
-                         `4. Click <b>Publish</b> and tap Retry.`;
-        } else if (errCode.includes('unauthorized-domain') || errMsg.includes('unauthorized domain')) {
-            fixDetails = `<b>Reason:</b> Domain <code>${window.location.hostname}</code> is not in Firebase authorized domains.<br><br>` +
-                         `<b>Quick Fix:</b><br>` +
-                         `1. Open <a href="https://console.firebase.google.com" target="_blank" style="color:var(--primary); text-decoration:underline;">Firebase Console</a><br>` +
-                         `2. Go to <b>Authentication ➡️ Settings ➡️ Authorized Domains</b><br>` +
-                         `3. Click <b>Add domain</b> and paste <code>${window.location.hostname}</code>.`;
-        } else {
-            fixDetails = `<b>Details:</b> ${errCode ? `(${errCode}) ` : ''}${errMsg}<br><br>Check your internet connection or try syncing again.`;
-        }
-
-        showConfirmSheet(
-            fixDetails,
-            { title: 'Cloud Sync Diagnostics', icon: '⚠️', okText: 'Retry Sync Now', cancelText: 'Close', danger: false }
-        ).then(ok => {
-            if (ok) triggerCloudSyncNow();
-        });
+    lastCloudError = null;
+    await triggerCloudSyncNow();
+});
         return;
     }
 
@@ -788,6 +796,22 @@ function saveDataLocallyOnly() {
     localStorage.setItem('hisab_weekly_goal', JSON.stringify(weeklyGoalData));
 }
 
+function sanitizeForFirestore(val) {
+    if (val === undefined) return null;
+    if (val === null || typeof val !== 'object') return val;
+    if (Array.isArray(val)) {
+        return val.filter(item => item !== undefined).map(item => sanitizeForFirestore(item));
+    }
+    const clean = {};
+    for (const key of Object.keys(val)) {
+        const item = val[key];
+        if (item !== undefined) {
+            clean[key] = sanitizeForFirestore(item);
+        }
+    }
+    return clean;
+}
+
 async function syncDataToFirebase() {
     if (currentUser) {
         try {
@@ -807,7 +831,7 @@ async function syncDataToFirebase() {
                 weeklyGoal: weeklyGoalData,
                 lastModified: lastModifiedLocal
             };
-            const cleanPayload = JSON.parse(JSON.stringify(rawPayload));
+            const cleanPayload = sanitizeForFirestore(rawPayload);
             await setDoc(doc(db, 'users', currentUser.uid), cleanPayload);
             lastCloudError = null;
             setSyncIndicator('synced', 'Synced');
@@ -1651,6 +1675,7 @@ function renderTasks() {
     updateWeeklyGoalBanner();
 
     const now = new Date();
+    const todayKey = toDateKey(Date.now());
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
@@ -2579,6 +2604,7 @@ function updateDashboard() {
     // Update Bento Quick-Access Launcher Tiles with live metrics
     const nowTiles = new Date();
     const startOfDayTiles = new Date(nowTiles.getFullYear(), nowTiles.getMonth(), nowTiles.getDate()).getTime();
+    const todayKeyTiles = toDateKey(nowTiles);
     
     // Tasks Tile
     const dailyTasksList = tasks.filter(t => t.type === 'daily');
@@ -2637,7 +2663,7 @@ function updateDashboard() {
     }
 
     // Unified Daily Completion Score across ALL Tabs (Tasks, Habits, Deen, Journal, Saved)
-    const todayKeyTiles = toDateKey(nowTiles);
+    // todayKeyTiles initialized above
     const completedHabitsCount = (goodHabits || []).filter(h => {
         return activityHistory.some(log => log.taskId === h.id && log.actionType === 'good' && (log.habitDateKey === todayKeyTiles || toDateKey(log.timestamp) === todayKeyTiles));
     }).length;
@@ -4390,3 +4416,85 @@ onAuthStateChanged(auth, async (user) => {
         render();
     }
 });
+
+// ==========================================
+// SELF-HEALING TASK RECOVERY ENGINE
+// Automatically detects and restores missing tasks from history or presets
+// ==========================================
+function recoverMissingTasks(silent = false) {
+    let recoveredCount = 0;
+    const existingIds = new Set((tasks || []).map(t => String(t.id)));
+    const existingTitles = new Set((tasks || []).map(t => (t.title || '').trim().toLowerCase()));
+
+    // 1. Recover from activityHistory
+    const taskLogs = (activityHistory || []).filter(h => h && (h.category === 'tasks' || h.taskId));
+    taskLogs.forEach(h => {
+        const rawTitle = h.title || '';
+        const cleanTitle = rawTitle.replace(/^(Completed:\s*|Missed:\s*|Task:\s*)/i, '').trim();
+        const taskId = String(h.taskId || h.id);
+        if (!cleanTitle || taskId === 'unknown') return;
+
+        if (!existingIds.has(taskId) && !existingTitles.has(cleanTitle.toLowerCase())) {
+            const taskType = h.taskType || 'daily';
+            const baseTarget = h.amount || 1;
+            const createdAt = h.timestamp || Date.now();
+            const periodsLeft = getPeriodsLeft(taskType, createdAt);
+            const totalYearlyTarget = periodsLeft * baseTarget;
+
+            tasks.push({
+                id: taskId,
+                title: cleanTitle,
+                type: taskType,
+                baseTarget: baseTarget,
+                totalYearlyTarget: totalYearlyTarget,
+                currentTarget: totalYearlyTarget,
+                donation: 50,
+                createdAt: createdAt,
+                legacyMigrated: true,
+                isCompleted: false
+            });
+            existingIds.add(taskId);
+            existingTitles.add(cleanTitle.toLowerCase());
+            recoveredCount++;
+        }
+    });
+
+    // 2. Confirmed user tasks from history/screenshots
+    const confirmedDefaults = [
+        { title: 'Excercise', type: 'daily', baseTarget: 1, donation: 50 },
+        { title: 'خشوع', type: 'daily', baseTarget: 1, donation: 50 }
+    ];
+    confirmedDefaults.forEach(preset => {
+        if (!existingTitles.has(preset.title.toLowerCase())) {
+            const newId = Date.now().toString() + Math.floor(Math.random() * 1000);
+            const periodsLeft = getPeriodsLeft(preset.type, Date.now());
+            tasks.push({
+                id: newId,
+                title: preset.title,
+                type: preset.type,
+                baseTarget: preset.baseTarget,
+                totalYearlyTarget: periodsLeft * preset.baseTarget,
+                currentTarget: periodsLeft * preset.baseTarget,
+                donation: preset.donation,
+                createdAt: Date.now(),
+                legacyMigrated: true,
+                isCompleted: false
+            });
+            existingIds.add(newId);
+            existingTitles.add(preset.title.toLowerCase());
+            recoveredCount++;
+        }
+    });
+
+    if (recoveredCount > 0) {
+        saveData();
+        render();
+        if (!silent && typeof showToast === 'function') {
+            showToast('Restored ' + recoveredCount + ' tasks!', '🎉');
+        }
+    } else if (!silent && typeof showToast === 'function') {
+        showToast('All tasks are already active and visible!', '✅');
+    }
+    return recoveredCount;
+}
+window.recoverMissingTasks = recoverMissingTasks;

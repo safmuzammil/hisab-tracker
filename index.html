@@ -1584,6 +1584,7 @@
             
             <div style="display:flex; gap:10px; margin-bottom:14px; align-items:center;">
                 <button id="btn-open-archive" onclick="openArchive()" style="background:var(--card-elevated); color:var(--success); border:1px solid rgba(3,218,198,0.3); padding:8px 16px; margin:0; width:auto; min-height:40px; font-size:0.82rem; border-radius:10px;">🗃️ Archived (<span id="archive-count">0</span>)</button>
+                <button id="btn-recover-tasks" onclick="recoverMissingTasks(false)" style="background:rgba(187,134,252,0.14); color:var(--primary); border:1px solid rgba(187,134,252,0.35); padding:8px 16px; margin:0; width:auto; min-height:40px; font-size:0.82rem; border-radius:10px; cursor:pointer; font-weight:600;" title="Scan history and restore any missing tasks">🔄 Recover Missing Tasks</button>
             </div>
 
             <button class="main-action-btn" onclick="cancelEdit(); openModal('task-modal');">

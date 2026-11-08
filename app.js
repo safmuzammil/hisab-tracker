@@ -198,25 +198,7 @@ getRedirectResult(auth).then((result) => {
     console.warn("Redirect auth check:", err.message);
 });
 
-onAuthStateChanged(auth, async (user) => {
-    if (user) {
-        currentUser = user;
-        showProfile({ name: user.displayName || 'Hisab User', email: user.email || '', picture: user.photoURL || 'icon.png' });
-        setSyncIndicator('synced', '⏳ Connecting...');
-        listenToFirebase(); 
-    } else {
-        currentUser = null;
-        setSyncIndicator('local', '📴 Local');
-        const loginPrompt = document.getElementById('login-prompt');
-        const authContainer = document.getElementById('auth-container');
-        if (loginPrompt) loginPrompt.style.display = 'block';
-        if (authContainer) authContainer.style.display = 'none';
-        hasInitialCloudSync = true;
-        migrateLegacyTasks();
-        processAutomaticPenalties(); 
-        render();
-    }
-});
+// onAuthStateChanged relocated to end of script after state initialization
 
 async function loginWithGoogle() {
     const errEl = document.getElementById('auth-error-msg');
@@ -2677,8 +2659,6 @@ function updateDashboard() {
     }
 
     // Journal Tile
-    const todayKeyJournal = toDateKey(Date.now());
-    const hasTodayJournal = journalData && journalData[todayKeyJournal] && journalData[todayKeyJournal].trim().length > 0;
     const tileJournalSub = document.getElementById('tile-journal-sub');
     if (tileJournalSub) {
         tileJournalSub.innerText = hasTodayJournal ? 'Today logged ✨' : 'Reflect today ✍️';
@@ -2821,7 +2801,7 @@ function renderDeen() {
         });
     }
 
-    const select = document.getElementById('juz-select'); if(select && select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } 
+    const select = document.getElementById('juz-select'); if(select && select.options && select.options.length <= 1) { for(let i=1; i<=30; i++) { let opt = document.createElement('option'); opt.value = i; opt.innerHTML = `Juz ${i}`; select.appendChild(opt); } } 
     
     const juzContainer = document.getElementById('juz-list-container'); 
     if (juzContainer) {
@@ -3963,7 +3943,7 @@ function switchTab(tabName, element, fromPopState = false) {
     if (tabName === 'dashboard') updateDashboard();
     if (tabName === 'journal') { currentJournalDateKey = toDateKey(Date.now()); renderJournal(); }
 
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 window.switchTab = switchTab;
 
@@ -4289,3 +4269,24 @@ if (savedTab !== 'dashboard') {
 
 handleIncomingShare();
 setTimeout(checkWeeklyGoalPrompt, 1500);
+
+// Initialize Firebase Auth Listener safely after all state & functions are defined
+onAuthStateChanged(auth, async (user) => {
+    if (user) {
+        currentUser = user;
+        showProfile({ name: user.displayName || 'Hisab User', email: user.email || '', picture: user.photoURL || 'icon.png' });
+        setSyncIndicator('synced', '⏳ Connecting...');
+        listenToFirebase(); 
+    } else {
+        currentUser = null;
+        setSyncIndicator('local', '📴 Local');
+        const loginPrompt = document.getElementById('login-prompt');
+        const authContainer = document.getElementById('auth-container');
+        if (loginPrompt) loginPrompt.style.display = 'block';
+        if (authContainer) authContainer.style.display = 'none';
+        hasInitialCloudSync = true;
+        migrateLegacyTasks();
+        processAutomaticPenalties(); 
+        render();
+    }
+});

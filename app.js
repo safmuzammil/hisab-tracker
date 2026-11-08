@@ -8,6 +8,10 @@ function openNavDrawer() {
     if (drawer) drawer.classList.add('open');
     if (overlay) overlay.classList.add('open');
     if (typeof triggerHaptic === 'function') triggerHaptic(12);
+    // Push drawer state to history so Android back button closes the drawer!
+    if (window.history && window.history.pushState) {
+        history.pushState({ drawer: true }, '', '#menu');
+    }
 }
 
 function closeNavDrawer() {
@@ -15,6 +19,13 @@ function closeNavDrawer() {
     const overlay = document.getElementById('drawer-overlay');
     if (drawer) drawer.classList.remove('open');
     if (overlay) overlay.classList.remove('open');
+    // If current hash is #menu, safely restore the hash to the active tab
+    if (window.location.hash === '#menu') {
+        const currentTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+        if (window.history && window.history.replaceState) {
+            history.replaceState({ tab: currentTab }, '', '#' + currentTab);
+        }
+    }
 }
 
 function toggleAnalyticsView() {
@@ -32,12 +43,13 @@ function toggleAnalyticsView() {
 }
 
 // Android Back Gesture & Popstate Interceptor (Never closes app on subpages!)
+let lastBackPressTime = 0;
+
 window.addEventListener('popstate', (event) => {
     // 1. If drawer is open, close it!
     const drawer = document.getElementById('nav-drawer');
     if (drawer && drawer.classList.contains('open')) {
         closeNavDrawer();
-        history.pushState({ tab: localStorage.getItem('hisab_active_tab') || 'dashboard' }, '', window.location.hash);
         return;
     }
 
@@ -50,16 +62,36 @@ window.addEventListener('popstate', (event) => {
             modalClosed = true;
         }
     }
-    if (modalClosed) {
-        history.pushState({ tab: localStorage.getItem('hisab_active_tab') || 'dashboard' }, '', window.location.hash);
+    if (modalClosed) return;
+
+    // 3. Tab navigation on back
+    const currentTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+    const stateTab = event.state && event.state.tab;
+
+    if (stateTab && stateTab !== currentTab) {
+        switchTab(stateTab, null, true);
         return;
     }
 
-    // 3. If currently NOT on dashboard, always go back to Home Dashboard!
-    const currentTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+    // If on a sub-tab (Tasks, Habits, Deen, etc.), always return to Dashboard!
     if (currentTab !== 'dashboard') {
-        switchTab('dashboard', null, false);
+        switchTab('dashboard', null, true);
         return;
+    }
+
+    // 4. Double-back exit prevention on Dashboard
+    const now = Date.now();
+    if (now - lastBackPressTime < 2000) {
+        // User confirmed exit
+        history.back();
+    } else {
+        lastBackPressTime = now;
+        if (typeof showToast === 'function') {
+            showToast("Press back again to exit Hisab", "👋");
+        }
+        if (window.history && window.history.pushState) {
+            history.pushState({ tab: 'dashboard', root: true }, '', '#dashboard');
+        }
     }
 });
 
@@ -3865,12 +3897,23 @@ function triggerHaptic(ms = 12) {
     }
 }
 
-function switchTab(tabName, element) {
+function switchTab(tabName, element, fromPopState = false) {
     const targetTab = document.getElementById(`tab-${tabName}`);
     if (!targetTab) return;
 
+    // 1. ALWAYS close the drawer immediately on tab navigation
+    closeNavDrawer();
+
     triggerHaptic(10);
     localStorage.setItem('hisab_active_tab', tabName);
+
+    // 2. Manage history stack so mobile back gestures work reliably
+    if (window.history && window.history.pushState && !fromPopState) {
+        if (window.location.hash !== '#' + tabName) {
+            history.pushState({ tab: tabName }, '', '#' + tabName);
+        }
+    }
+
     document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); 
     document.querySelectorAll('.nav-item').forEach(nav => {
         nav.classList.remove('active', 'active-bad', 'active-deen', 'active-budget', 'active-backlog');
@@ -3885,9 +3928,16 @@ function switchTab(tabName, element) {
     else if (tabName === 'backlog') { if (navEl) navEl.classList.add('active-backlog'); renderBacklog(); }
     else { if (navEl) navEl.classList.add('active'); }
     
+    // Update active highlight in the drawer
+    document.querySelectorAll('.drawer-item').forEach(item => item.classList.remove('active'));
+    const drawerItem = document.getElementById(`drawer-nav-${tabName}`);
+    if (drawerItem) drawerItem.classList.add('active');
+
     if (tabName === 'tasks') renderTasks();
     if (tabName === 'dashboard') updateDashboard();
     if (tabName === 'journal') { currentJournalDateKey = toDateKey(Date.now()); renderJournal(); }
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!btn) return; if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }

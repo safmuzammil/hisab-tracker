@@ -1314,6 +1314,35 @@
         }
         window.openHistory = openHistory;
         window.closeHistory = closeHistory;
+        function switchTab(tabName, element, fromPopState = false) {
+            closeNavDrawer();
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            const target = document.getElementById('tab-' + tabName);
+            if (target) target.classList.add('active');
+            localStorage.setItem('hisab_active_tab', tabName);
+            if (window.history && window.history.pushState && !fromPopState) {
+                if (window.location.hash !== '#' + tabName) {
+                    history.pushState({ tab: tabName }, '', '#' + tabName);
+                }
+            }
+            document.querySelectorAll('.drawer-item').forEach(item => item.classList.remove('active'));
+            const drawerItem = document.getElementById('drawer-nav-' + tabName);
+            if (drawerItem) drawerItem.classList.add('active');
+            if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (typeof window.fullSwitchTab === 'function') {
+                window.fullSwitchTab(tabName, element, fromPopState);
+            }
+        }
+        function openModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'flex'; }
+        function closeModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+        function openPomodoroTimer() { const m = document.getElementById('pomodoro-modal'); if (m) m.style.display = 'flex'; }
+        function closePomodoroTimer() { const m = document.getElementById('pomodoro-modal'); if (m) m.style.display = 'none'; }
+
+        window.switchTab = switchTab;
+        window.openModal = openModal;
+        window.closeModal = closeModal;
+        window.openPomodoroTimer = openPomodoroTimer;
+        window.closePomodoroTimer = closePomodoroTimer;
     </script>
 </head>
 <body data-theme="obsidian">

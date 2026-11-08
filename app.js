@@ -593,11 +593,6 @@ async function manualCloudSync() {
 
     lastCloudError = null;
     await triggerCloudSyncNow();
-});
-        return;
-    }
-
-    triggerCloudSyncNow();
 }
 
 function migrateLegacyTasks() {
@@ -2791,13 +2786,13 @@ function updateDashboard() {
     }
 
     const tCanvas = document.getElementById('tasksProgressChart'); 
-    if (tCanvas) {
+    if (tCanvas && typeof Chart !== 'undefined') {
         const ctx = tCanvas.getContext('2d'); if (tasksProgressChart) tasksProgressChart.destroy(); 
         tasksProgressChart = new Chart(ctx, { type: 'bar', data: { labels: ['Daily', 'Weekly', 'Monthly', 'Once'], datasets: [{ label: 'Annual Completion (%)', data: [dPct, wPct, mPct, oPct], backgroundColor: '#03dac6', borderRadius: 6 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100, grid: { color: '#2a2a35' }, ticks: { color: '#aaa', callback: v => v + "%" } }, x: { ticks: { color: '#aaa' } } }, plugins: { legend: { labels: { color: '#fff' } } } } }); 
     }
 
     const bCanvas = document.getElementById('badHabitsChart');
-    if (bCanvas && badHabits.length > 0) {
+    if (bCanvas && typeof Chart !== 'undefined' && badHabits.length > 0) {
         const labels = badHabits.map(h => h.title); const data = badHabits.map(h => h.annualCount); const ctx = bCanvas.getContext('2d'); if (badHabitsChart) badHabitsChart.destroy();
         badHabitsChart = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Occurrences This Year', data: data, backgroundColor: '#cf6679', borderRadius: 6 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#2a2a35' }, ticks: { color: '#aaa', stepSize: 1 } }, x: { ticks: { color: '#aaa' } } }, plugins: { legend: { labels: { color: '#fff' } } } } });
     }
@@ -3161,7 +3156,7 @@ function renderBudget() {
         });
         const ctx2 = catCanvas.getContext('2d');
         if (expenseCategoryChart) expenseCategoryChart.destroy();
-        if (data.length > 0) {
+        if (typeof Chart !== 'undefined' && data.length > 0) {
             expenseCategoryChart = new Chart(ctx2, { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#aaa', font: { size: 10 } }, position: 'right' } } } });
         }
         const breakdownEl = document.getElementById('category-breakdown-list');
@@ -4072,6 +4067,7 @@ function switchTab(tabName, element, fromPopState = false) {
     if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 window.switchTab = switchTab;
+window.fullSwitchTab = switchTab;
 
 function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!btn) return; if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }
 function toggleNotifications() { if (!("Notification" in window)) return alert("Browser does not support notifications."); if (Notification.permission === "granted") { alert("Notifications already enabled!"); } else if (Notification.permission !== "denied") { Notification.requestPermission().then(p => { if (p === "granted") { const btn = document.getElementById('btn-notifications'); btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }); } else { alert("Notifications blocked in device settings."); } }
@@ -4348,7 +4344,8 @@ window.handleIncomingShare = handleIncomingShare;
 window.openYouTubePlaylistModal = openYouTubePlaylistModal;
 window.saveYouTubePlaylistConfig = saveYouTubePlaylistConfig;
 window.syncYouTubePlaylist = syncYouTubePlaylist;
-window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.manualCloudSync = manualCloudSync; window.switchTab = switchTab; 
+window.loginWithGoogle = loginWithGoogle; window.logout = logout; window.manualCloudSync = manualCloudSync; window.switchTab = switchTab;
+window.fullSwitchTab = switchTab; 
 window.saveTask = saveTask; window.editTask = editTask; window.cancelEdit = cancelEdit; window.deleteTask = deleteTask; window.logProgress = logProgress; window.markMissed = markMissed;
 window.openTask30DayModal = openTask30DayModal; window.fulfillMissedTaskDay = fulfillMissedTaskDay; window.undoTaskDayLogs = undoTaskDayLogs; window.markTaskMissedOnDate = markTaskMissedOnDate;
 window.openHabit30DayModal = openHabit30DayModal; window.logHabitOnDate = logHabitOnDate; window.undoHabitDayLog = undoHabitDayLog;

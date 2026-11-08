@@ -14,6 +14,24 @@ function openNavDrawer() {
     }
 }
 
+
+function scrollToCharity() {
+    const card = document.getElementById('charity-dashboard-card');
+    if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.style.transition = 'box-shadow 0.4s ease, border-color 0.4s ease';
+        card.style.borderColor = 'var(--charity)';
+        card.style.boxShadow = '0 0 24px rgba(255, 177, 66, 0.4)';
+        setTimeout(() => {
+            card.style.borderColor = 'rgba(255, 177, 66, 0.3)';
+            card.style.boxShadow = '0 4px 18px rgba(0,0,0,0.2)';
+        }, 1500);
+    }
+}
+window.scrollToCharity = scrollToCharity;
+window.openNavDrawer = openNavDrawer;
+window.closeNavDrawer = closeNavDrawer;
+
 function closeNavDrawer() {
     const drawer = document.getElementById('nav-drawer');
     const overlay = document.getElementById('drawer-overlay');
@@ -2455,6 +2473,13 @@ function updateDashboard() {
         }
     }); 
     
+    tasks.forEach(t => {
+        let total = t.totalYearlyTarget || 1; let pending = Math.max(0, t.currentTarget || 0); let completed = Math.max(0, Math.min(total, total - pending)); 
+        if(t.type === 'daily') { dTotal += total; dComp += completed; } if(t.type === 'weekly') { wTotal += total; wComp += completed; } if(t.type === 'monthly') { mTotal += total; mComp += completed; } if(t.type === 'once') { oTotal += total; oComp += completed; }
+    });
+    
+    const dPct = dTotal > 0 ? parseFloat(((dComp / dTotal) * 100).toFixed(1)) : 0; const wPct = wTotal > 0 ? parseFloat(((wComp / wTotal) * 100).toFixed(1)) : 0; const mPct = mTotal > 0 ? parseFloat(((mComp / mTotal) * 100).toFixed(1)) : 0; const oPct = oTotal > 0 ? parseFloat(((oComp / oTotal) * 100).toFixed(1)) : 0;
+
     let ringsRow = document.getElementById('dashboard-rings-row');
     if (!ringsRow) {
         ringsRow = document.createElement('div');
@@ -2469,14 +2494,7 @@ function updateDashboard() {
     const elDay = document.getElementById('day-completed'); if (elDay) elDay.innerText = Math.round(dayPts*100)/100; 
     const elWeek = document.getElementById('week-completed'); if (elWeek) elWeek.innerText = Math.round(weekPts*100)/100; 
     const elMonth = document.getElementById('month-completed'); if (elMonth) elMonth.innerText = Math.round(monthPts*100)/100; 
-    const elYear = document.getElementById('year-completed'); if (elYear) elYear.innerText = Math.round(yearPts*100)/100; 
-
-    tasks.forEach(t => {
-        let total = t.totalYearlyTarget || 1; let pending = Math.max(0, t.currentTarget || 0); let completed = Math.max(0, Math.min(total, total - pending)); 
-        if(t.type === 'daily') { dTotal += total; dComp += completed; } if(t.type === 'weekly') { wTotal += total; wComp += completed; } if(t.type === 'monthly') { mTotal += total; mComp += completed; } if(t.type === 'once') { oTotal += total; oComp += completed; }
-    });
-    
-    const dPct = dTotal > 0 ? parseFloat(((dComp / dTotal) * 100).toFixed(1)) : 0; const wPct = wTotal > 0 ? parseFloat(((wComp / wTotal) * 100).toFixed(1)) : 0; const mPct = mTotal > 0 ? parseFloat(((mComp / mTotal) * 100).toFixed(1)) : 0; const oPct = oTotal > 0 ? parseFloat(((oComp / oTotal) * 100).toFixed(1)) : 0;
+    const elYear = document.getElementById('year-completed'); if (elYear) elYear.innerText = Math.round(yearPts*100)/100;
 
     
     // Update Bento Quick-Access Launcher Tiles with live metrics
@@ -2602,6 +2620,14 @@ function updateDashboard() {
                 </div>
             `}
         `;
+    }
+
+    // Charity Tile
+    const tileCharitySub = document.getElementById('tile-charity-sub');
+    if (tileCharitySub) {
+        tileCharitySub.innerText = (charityData.pending > 0)
+            ? `₹${charityData.pending.toLocaleString()} pending`
+            : `Clean Slate • ₹${(charityData.surplus || 0).toLocaleString()} surplus`;
     }
 
     // Habits Tile
@@ -3939,6 +3965,7 @@ function switchTab(tabName, element, fromPopState = false) {
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+window.switchTab = switchTab;
 
 function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!btn) return; if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }
 function toggleNotifications() { if (!("Notification" in window)) return alert("Browser does not support notifications."); if (Notification.permission === "granted") { alert("Notifications already enabled!"); } else if (Notification.permission !== "denied") { Notification.requestPermission().then(p => { if (p === "granted") { const btn = document.getElementById('btn-notifications'); btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }); } else { alert("Notifications blocked in device settings."); } }

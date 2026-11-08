@@ -1201,6 +1201,7 @@
         .tile-budget { border-left: 3.5px solid var(--budget); }
         .tile-backlog { border-left: 3.5px solid var(--backlog); }
         .tile-journal { border-left: 3.5px solid #f6e58d; }
+        .tile-charity { border-left: 3.5px solid var(--charity); }
 
         .bento-tile-icon {
             font-size: 1.5rem;
@@ -1272,6 +1273,37 @@
 
     nav, .bottom-nav { display: none !important; }
     </style>
+    <script>
+        // Instant global navigation fallbacks (zero dependency, executes immediately)
+        function openNavDrawer() {
+            const d = document.getElementById('nav-drawer');
+            const o = document.getElementById('drawer-overlay');
+            if (d) d.classList.add('open');
+            if (o) o.classList.add('open');
+            if (window.history && window.history.pushState) history.pushState({ drawer: true }, '', '#menu');
+        }
+        function closeNavDrawer() {
+            const d = document.getElementById('nav-drawer');
+            const o = document.getElementById('drawer-overlay');
+            if (d) d.classList.remove('open');
+            if (o) o.classList.remove('open');
+        }
+        function scrollToCharity() {
+            const card = document.getElementById('charity-dashboard-card');
+            if (card) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                card.style.borderColor = 'var(--charity)';
+                card.style.boxShadow = '0 0 24px rgba(255, 177, 66, 0.4)';
+                setTimeout(() => {
+                    card.style.borderColor = 'rgba(255, 177, 66, 0.3)';
+                    card.style.boxShadow = '0 4px 18px rgba(0,0,0,0.2)';
+                }, 1500);
+            }
+        }
+        window.openNavDrawer = openNavDrawer;
+        window.closeNavDrawer = closeNavDrawer;
+        window.scrollToCharity = scrollToCharity;
+    </script>
 </head>
 <body data-theme="obsidian">
 
@@ -1418,6 +1450,49 @@
                         <div class="bento-tile-sub" id="tile-journal-sub">Daily Reflections</div>
                     </div>
                 </div>
+
+                <!-- Tile 7: Charity Penalty Wallet -->
+                <div class="bento-tile tile-charity" onclick="scrollToCharity()">
+                    <div class="bento-tile-icon">
+                        <span>⚖️</span>
+                        <span class="bento-tile-badge" id="tile-charity-badge" style="color:var(--charity); background:rgba(255,177,66,0.12);">Penalty</span>
+                    </div>
+                    <div>
+                        <div class="bento-tile-title">Charity</div>
+                        <div class="bento-tile-sub" id="tile-charity-sub">₹0 Pending</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Standalone Dedicated Charity Penalty Card (Always visible, never hidden!) -->
+            <div id="charity-dashboard-card" style="background:rgba(255, 177, 66, 0.06); border:1px solid rgba(255, 177, 66, 0.3); border-radius:18px; padding:16px; margin-bottom:20px; box-shadow:0 4px 18px rgba(0,0,0,0.2);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:1.25rem;">⚖️</span>
+                        <div>
+                            <div style="color:var(--charity); font-weight:800; font-size:0.95rem;">Charity Penalty Wallet</div>
+                            <div style="font-size:0.72rem; color:var(--text-muted);">Self-Accountability Ledger</div>
+                        </div>
+                    </div>
+                    <span style="font-size:0.8rem; color:var(--success); font-weight:700; background:rgba(0,229,163,0.12); border:1px solid rgba(0,229,163,0.25); padding:3px 10px; border-radius:999px;">Surplus: ₹<span id="display-surplus-wallet">0</span></span>
+                </div>
+                
+                <div style="display:flex; justify-content:space-between; align-items:flex-end; margin:14px 0 16px 0; background:rgba(0,0,0,0.2); padding:12px 14px; border-radius:14px; border:1px solid rgba(255,255,255,0.05);">
+                    <div>
+                        <div style="font-size:0.72rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; font-weight:700;">Pending Penalty</div>
+                        <div style="font-size:2rem; font-weight:800; color:#fff; font-family:var(--font-mono); line-height:1.1; margin-top:3px;">₹<span id="donation-pending">0</span></div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:0.72rem; color:var(--text-muted);">Lifetime Paid</div>
+                        <div style="font-size:1.05rem; font-weight:700; color:#aaa; font-family:var(--font-mono);">₹<span id="donation-paid">0</span></div>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <input type="number" id="donation-pay-amount" placeholder="Amount to pay (₹)..." style="margin:0; font-size:0.85rem; flex:1; min-width:140px;">
+                    <button onclick="payDonation()" class="btn" style="background:var(--charity); color:#000; margin:0; width:auto; padding:0 18px; font-size:0.85rem; font-weight:800; border-radius:10px;">Pay</button>
+                    <button onclick="deductFromSurplus()" class="btn" style="background:rgba(3,218,198,0.2); color:#03dac6; border:1px solid rgba(3,218,198,0.4); margin:0; width:auto; padding:0 14px; font-size:0.82rem; font-weight:700; border-radius:10px;">Clear via Surplus</button>
+                </div>
             </div>
 
             <!-- Collapsible Analytics & History (Keeps home clean and free of cognitive overload!) -->
@@ -1431,20 +1506,6 @@
                 </div>
                 
                 <div id="analytics-content" style="display:none; margin-top:16px; border-top:1px solid rgba(255,255,255,0.06); padding-top:16px;">
-                    <!-- Charity Penalty Wallet -->
-                    <div style="background:rgba(255, 177, 66, 0.06); border:1px solid rgba(255, 177, 66, 0.3); border-radius:14px; padding:14px; margin-bottom:16px; text-align:center;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                            <span style="color:var(--charity); font-weight:700; font-size:0.85rem;">⚖️ Charity Penalty Wallet</span>
-                            <span style="font-size:0.8rem; color:var(--success);">Surplus: ₹<span id="display-surplus-wallet">0</span></span>
-                        </div>
-                        <div style="font-size:2rem; font-weight:800; color:#fff; margin:6px 0;">₹<span id="donation-pending">0</span></div>
-                        <div style="color:var(--text-muted); font-size:0.8rem; margin-bottom:12px;">Total Paid Lifetime: ₹<span id="donation-paid">0</span></div>
-                        <div style="display:flex; gap:8px;">
-                            <input type="number" id="donation-pay-amount" placeholder="Amount paid (₹)..." style="margin:0; font-size:0.85rem;">
-                            <button onclick="payDonation()" style="background:var(--charity); color:#000; margin:0; width:auto; padding:0 16px; font-size:0.85rem;">Pay</button>
-                        </div>
-                    </div>
-
                     <!-- 12-Week Heatmap -->
                     <div id="heatmap-card" style="margin-bottom:16px;"></div>
 
@@ -2199,6 +2260,9 @@
             </button>
             <button class="drawer-item" id="drawer-nav-journal" onclick="switchTab('journal'); closeNavDrawer();">
                 <span style="font-size:1.25rem;">📓</span> <span>Daily Journal</span>
+            </button>
+            <button class="drawer-item" id="drawer-nav-charity" onclick="scrollToCharity(); closeNavDrawer();">
+                <span style="font-size:1.25rem;">⚖️</span> <span>Charity Penalty Wallet</span>
             </button>
 
             <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>

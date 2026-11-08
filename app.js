@@ -1,3 +1,62 @@
+
+// ==========================================
+// NAVIGATION DRAWER & MINIMAL UI HELPERS
+// ==========================================
+function openNavDrawer() {
+    const drawer = document.getElementById('nav-drawer');
+    const overlay = document.getElementById('drawer-overlay');
+    if (drawer) drawer.classList.add('open');
+    if (overlay) overlay.classList.add('open');
+    if (typeof triggerHaptic === 'function') triggerHaptic(10);
+}
+
+function closeNavDrawer() {
+    const drawer = document.getElementById('nav-drawer');
+    const overlay = document.getElementById('drawer-overlay');
+    if (drawer) drawer.classList.remove('open');
+    if (overlay) overlay.classList.remove('open');
+}
+
+function toggleAnalyticsView() {
+    const content = document.getElementById('analytics-content');
+    const arrow = document.getElementById('analytics-toggle-arrow');
+    if (!content) return;
+    const isHidden = content.style.display === 'none' || !content.style.display;
+    content.style.display = isHidden ? 'block' : 'none';
+    if (arrow) arrow.innerText = isHidden ? '▲' : '▼';
+    if (isHidden) {
+        if (typeof renderHeatmap === 'function') renderHeatmap();
+        if (tasksProgressChart && typeof tasksProgressChart.resize === 'function') tasksProgressChart.resize();
+        if (badHabitsChart && typeof badHabitsChart.resize === 'function') badHabitsChart.resize();
+    }
+}
+
+// Android Back Gesture & Browser Back Interceptor: Go to Home instead of exiting app!
+window.addEventListener('popstate', (event) => {
+    // 1. If drawer is open, close it!
+    const drawer = document.getElementById('nav-drawer');
+    if (drawer && drawer.classList.contains('open')) {
+        closeNavDrawer();
+        return;
+    }
+
+    // 2. If any modal is open, close it!
+    const openModals = document.querySelectorAll('.modal-overlay');
+    for (const m of openModals) {
+        if (m.style.display === 'flex' || m.style.display === 'block') {
+            m.style.display = 'none';
+            return;
+        }
+    }
+
+    // 3. If currently NOT on dashboard, always go back to Home Dashboard!
+    const currentTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+    if (currentTab !== 'dashboard') {
+        switchTab('dashboard', null, false);
+        return;
+    }
+});
+
 // ==========================================
 // FIREBASE CLOUD SERVER INITIALIZATION
 // ==========================================
@@ -2336,6 +2395,94 @@ function updateDashboard() {
     
     const dPct = dTotal > 0 ? parseFloat(((dComp / dTotal) * 100).toFixed(1)) : 0; const wPct = wTotal > 0 ? parseFloat(((wComp / wTotal) * 100).toFixed(1)) : 0; const mPct = mTotal > 0 ? parseFloat(((mComp / mTotal) * 100).toFixed(1)) : 0; const oPct = oTotal > 0 ? parseFloat(((oComp / oTotal) * 100).toFixed(1)) : 0;
 
+    
+    // Update Bento Quick-Access Launcher Tiles with live metrics
+    const nowTiles = new Date();
+    const startOfDayTiles = new Date(nowTiles.getFullYear(), nowTiles.getMonth(), nowTiles.getDate()).getTime();
+    
+    // Tasks Tile
+    const dailyTasksList = tasks.filter(t => t.type === 'daily');
+    const completedDailyCount = dailyTasksList.filter(t => {
+        const doneToday = activityHistory.filter(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= startOfDayTiles).reduce((s, h) => s + (h.amount || 1), 0);
+        return doneToday >= (t.baseTarget || 1);
+    }).length;
+    const pendingDailyCount = Math.max(0, dailyTasksList.length - completedDailyCount);
+    const tileTasksSub = document.getElementById('tile-tasks-sub');
+    if (tileTasksSub) {
+        tileTasksSub.innerText = dailyTasksList.length > 0 
+            ? (pendingDailyCount === 0 ? 'All done today! 🎉' : `${pendingDailyCount} pending today`) 
+            : 'No daily tasks set';
+    }
+
+    // Hero Overview Bar
+    const heroStats = document.getElementById('dash-hero-stats');
+    if (heroStats) heroStats.innerText = `${completedDailyCount} / ${dailyTasksList.length} Done`;
+    const heroBar = document.getElementById('dash-hero-bar');
+    if (heroBar) {
+        const heroPct = dailyTasksList.length > 0 ? (completedDailyCount / dailyTasksList.length) * 100 : 0;
+        heroBar.style.width = `${heroPct}%`;
+    }
+    const heroDate = document.getElementById('dash-greeting-date');
+    if (heroDate) {
+        heroDate.innerText = nowTiles.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    }
+    const heroPenalty = document.getElementById('donation-pending-hero');
+    if (heroPenalty) heroPenalty.innerText = (charityData.pending || 0).toLocaleString();
+
+    // Habits Tile
+    let maxGoodStreak = 0;
+    (goodHabits || []).forEach(h => {
+        const { currentStreak } = computeHabitStreak(h.id, 'good');
+        if (currentStreak > maxGoodStreak) maxGoodStreak = currentStreak;
+    });
+    let maxCleanStreak = 0;
+    (badHabits || []).forEach(h => {
+        const { currentStreak } = computeHabitStreak(h.id, 'bad');
+        if (currentStreak > maxCleanStreak) maxCleanStreak = currentStreak;
+    });
+    const tileHabitsSub = document.getElementById('tile-habits-sub');
+    if (tileHabitsSub) {
+        if (maxGoodStreak > 0 || maxCleanStreak > 0) {
+            tileHabitsSub.innerText = `🔥 ${maxGoodStreak}d streak | 🛡️ ${maxCleanStreak}d clean`;
+        } else {
+            tileHabitsSub.innerText = `${(goodHabits||[]).length + (badHabits||[]).length} habits tracked`;
+        }
+    }
+    const dashStreakPill = document.getElementById('dash-streak-pill');
+    if (dashStreakPill) {
+        dashStreakPill.innerText = maxGoodStreak > 0 ? `🔥 Streak: ${maxGoodStreak}d` : '🔥 Streak: 0d';
+    }
+
+    // Deen Tile
+    const tileDeenSub = document.getElementById('tile-deen-sub');
+    if (tileDeenSub) {
+        const khatmCount = deenData.quranStats?.totalKhatm || 0;
+        tileDeenSub.innerText = khatmCount > 0 ? `${khatmCount} Khatm | Prayers` : 'Prayers & Quran';
+    }
+
+    // Budget Tile
+    const monthStartTiles = new Date(nowTiles.getFullYear(), nowTiles.getMonth(), 1).getTime();
+    const monthSpent = (budgetData.expenses || []).filter(e => e.date >= monthStartTiles).reduce((s, e) => s + e.amount, 0);
+    const tileBudgetSub = document.getElementById('tile-budget-sub');
+    if (tileBudgetSub) {
+        tileBudgetSub.innerText = monthSpent > 0 ? `₹${monthSpent.toLocaleString()} spent this month` : 'Track expenses & debts';
+    }
+
+    // Saved Library Tile
+    const pendingSaved = (backlogData || []).filter(b => !b.completed).length;
+    const tileSavedSub = document.getElementById('tile-saved-sub');
+    if (tileSavedSub) {
+        tileSavedSub.innerText = pendingSaved > 0 ? `${pendingSaved} item(s) pending` : 'Library is clear';
+    }
+
+    // Journal Tile
+    const todayKeyJournal = toDateKey(Date.now());
+    const hasTodayJournal = journalData && journalData[todayKeyJournal] && journalData[todayKeyJournal].trim().length > 0;
+    const tileJournalSub = document.getElementById('tile-journal-sub');
+    if (tileJournalSub) {
+        tileJournalSub.innerText = hasTodayJournal ? 'Today logged ✨' : 'Reflect today ✍️';
+    }
+
     const tCanvas = document.getElementById('tasksProgressChart'); 
     if (tCanvas) {
         const ctx = tCanvas.getContext('2d'); if (tasksProgressChart) tasksProgressChart.destroy(); 
@@ -3866,6 +4013,9 @@ async function syncYouTubePlaylist() {
     }
 }
 
+window.openNavDrawer = openNavDrawer;
+window.closeNavDrawer = closeNavDrawer;
+window.toggleAnalyticsView = toggleAnalyticsView;
 window.showToast = showToast;
 window.handleIncomingShare = handleIncomingShare;
 window.openYouTubePlaylistModal = openYouTubePlaylistModal;
@@ -3907,4 +4057,5 @@ const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
 const savedNavElement = document.getElementById('nav-' + savedTab);
 switchTab(savedTab, savedNavElement);
 handleIncomingShare();
+if (window.history && window.history.replaceState) history.replaceState({ tab: "dashboard" }, "", "#dashboard");
 setTimeout(checkWeeklyGoalPrompt, 1500);

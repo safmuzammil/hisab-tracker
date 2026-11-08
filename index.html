@@ -1080,6 +1080,196 @@
         .nav-item.active-budget { color: #ffffff; background: rgba(56, 189, 248, 0.14); }
         .nav-item.active-backlog { color: #ffffff; background: rgba(251, 146, 60, 0.14); }
 
+    
+        /* =========================================================
+           MINIMAL HAMBURGER DRAWER & BENTO TILES DESIGN
+           ========================================================= */
+        /* Hamburger Button */
+        .hamburger-btn {
+            font-size: 1.25rem !important;
+            min-width: 38px !important;
+            min-height: 38px !important;
+            margin-right: 4px;
+        }
+
+        /* Slide-Out Navigation Drawer */
+        .drawer-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.72);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 2000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease;
+        }
+        .drawer-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .nav-drawer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 300px;
+            max-width: 84%;
+            height: 100%;
+            background: var(--bg);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 2001;
+            transform: translateX(-100%);
+            transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            padding: 20px 16px;
+            overflow-y: auto;
+            box-shadow: 12px 0 40px rgba(0, 0, 0, 0.6);
+        }
+        .nav-drawer.open {
+            transform: translateX(0);
+        }
+        .drawer-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            color: var(--text-main);
+            background: none;
+            border: none;
+            font-size: 0.95rem;
+            font-weight: 600;
+            width: 100%;
+            text-align: left;
+            cursor: pointer;
+            margin-bottom: 4px;
+            transition: all 0.15s ease;
+        }
+        .drawer-item:active {
+            background: rgba(255, 255, 255, 0.08);
+            transform: scale(0.98);
+        }
+        .drawer-item.active {
+            background: rgba(187, 134, 252, 0.16);
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        /* Dashboard Hero Card */
+        .dashboard-hero-card {
+            background: var(--card);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+
+        /* Bento Grid Quick-Access Launcher Tiles */
+        .bento-tiles-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .bento-tile {
+            background: var(--card);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 18px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 110px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+        }
+        .bento-tile:active {
+            transform: scale(0.96);
+            background: var(--card-elevated);
+        }
+        .tile-tasks { border-left: 3.5px solid var(--primary); }
+        .tile-habits { border-left: 3.5px solid #ff5c77; }
+        .tile-deen { border-left: 3.5px solid var(--deen); }
+        .tile-budget { border-left: 3.5px solid var(--budget); }
+        .tile-backlog { border-left: 3.5px solid var(--backlog); }
+        .tile-journal { border-left: 3.5px solid #f6e58d; }
+
+        .bento-tile-icon {
+            font-size: 1.5rem;
+            line-height: 1;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .bento-tile-badge {
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            color: var(--text-muted);
+        }
+        .bento-tile-title {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 2px;
+        }
+        .bento-tile-sub {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            line-height: 1.25;
+        }
+
+        /* Subpage Top Bar */
+        .subpage-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .back-home-btn {
+            background: var(--card-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 999px;
+            margin: 0;
+            width: auto;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .back-home-btn:active {
+            transform: scale(0.95);
+            color: #fff;
+        }
+        .subpage-title {
+            font-size: 1.15rem;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+
+        /* Hide bottom nav completely */
+        .bottom-nav {
+            display: none !important;
+        }
+        .container {
+            padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px)) !important;
+        }
+
     </style>
 </head>
 <body data-theme="obsidian">
@@ -1125,56 +1315,165 @@
         <!-- DASHBOARD TAB -->
         <!-- ========================================== -->
         <div id="tab-dashboard" class="tab-content active">
-            <h2 style="margin-top:0;">Dashboard</h2>
-            
-            <div class="bento-stat-card" style="text-align:center; margin-bottom:20px; border:1px solid rgba(255, 177, 66, 0.4);">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
-                    <span style="color:var(--charity); font-weight:bold;">⚖️ Pending Charity Penalty</span>
-                    <div style="display:flex; gap:8px;">
-                        <span style="background:rgba(3, 218, 198, 0.15); color:var(--success); padding:5px 12px; border-radius:8px; font-size:0.82rem; font-weight:bold; border:1px solid rgba(3,218,198,0.3);">
-                            🌟 Surplus: ₹<span id="display-surplus-wallet">0</span>
-                        </span>
-                        <span style="background:rgba(187, 134, 252, 0.15); color:var(--primary); padding:5px 12px; border-radius:8px; font-size:0.82rem; font-weight:bold; border:1px solid rgba(187,134,252,0.3);">
-                            🏆 Pts: <span id="display-bonus-points-dash">0</span>
-                        </span>
+            <!-- Hero Daily Progress & Streak Header -->
+            <div class="dashboard-hero-card">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+                    <div>
+                        <div id="dash-greeting-date" style="font-size:0.8rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">Today</div>
+                        <div style="font-size:1.3rem; font-weight:800; color:#fff; margin-top:2px;">Overview</div>
+                    </div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end;">
+                        <span id="dash-streak-pill" class="badge" style="background:rgba(255,107,129,0.15); color:#ff6b81; border:1px solid rgba(255,107,129,0.3); font-weight:700;">🔥 Streak: 0d</span>
+                        <span id="dash-charity-pill" onclick="toggleAnalyticsView()" class="badge" style="background:rgba(255,177,66,0.15); color:var(--charity); border:1px solid rgba(255,177,66,0.3); cursor:pointer;">⚖️ Penalty: ₹<span id="donation-pending-hero">0</span></span>
                     </div>
                 </div>
-                <div style="font-family:var(--font-mono); font-size:3rem; font-weight:800; color:#fff; margin:10px 0;">₹<span id="donation-pending">0</span></div>
-                <div style="color:var(--text-muted); font-size:0.9rem; margin-bottom:15px;">Total Paid Lifetime: ₹<span id="donation-paid">0</span></div>
-                <div style="display:flex; gap:10px;">
-                    <input type="number" id="donation-pay-amount" placeholder="Amount paid (₹)..." style="margin:0;">
-                    <button onclick="payDonation()" style="background:var(--charity); color:#000; margin:0; width:auto; padding:0 20px;">Log Payment</button>
+
+                <!-- Daily Progress Bar -->
+                <div style="background:rgba(255,255,255,0.02); padding:12px 14px; border-radius:14px; border:1px solid rgba(255,255,255,0.05);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <span style="font-size:0.82rem; color:var(--text-muted);">Daily Target Progress</span>
+                        <span id="dash-hero-stats" style="font-size:0.9rem; font-weight:800; color:#fff;">0 / 0 Completed</span>
+                    </div>
+                    <div style="width:100%; height:8px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
+                        <div id="dash-hero-bar" style="width:0%; height:100%; background:linear-gradient(90deg, var(--primary), var(--success)); border-radius:999px; transition:width 0.4s ease;"></div>
+                    </div>
                 </div>
             </div>
 
-            <div class="dashboard-grid">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <div class="bento-stat-card" style="text-align:center;">
-                        <div style="color:var(--text-muted); font-size:0.85rem;">Done Today</div>
-                        <div class="bento-stat-value" style="color:var(--primary);" id="day-completed">0</div>
+            <!-- Bento Quick-Access Launcher Tiles (2-Column Grid) -->
+            <div class="bento-tiles-grid">
+                <!-- Tile 1: Tasks -->
+                <div class="bento-tile tile-tasks" onclick="switchTab('tasks')">
+                    <div class="bento-tile-icon">
+                        <span>✅</span>
+                        <span class="bento-tile-badge" id="tile-tasks-badge">Tasks</span>
                     </div>
-                    <div class="bento-stat-card" style="text-align:center;">
-                        <div style="color:var(--text-muted); font-size:0.85rem;">Done This Week</div>
-                        <div class="bento-stat-value" style="color:var(--primary);" id="week-completed">0</div>
-                    </div>
-                    <div class="bento-stat-card" style="text-align:center;">
-                        <div style="color:var(--text-muted); font-size:0.85rem;">Done This Month</div>
-                        <div class="bento-stat-value" style="color:var(--primary);" id="month-completed">0</div>
-                    </div>
-                    <div class="bento-stat-card" style="text-align:center;">
-                        <div style="color:var(--text-muted); font-size:0.85rem;">Done This Year</div>
-                        <div class="bento-stat-value" style="color:var(--success);" id="year-completed">0</div>
+                    <div>
+                        <div class="bento-tile-title">Tasks</div>
+                        <div class="bento-tile-sub" id="tile-tasks-sub">Loading...</div>
                     </div>
                 </div>
 
-                <div class="bento-stat-card">
-                    <h3 style="margin-top:0; font-size:0.95rem; color:var(--text-muted);">Task Categories (Annual)</h3>
-                    <div style="height: 200px;"><canvas id="tasksProgressChart"></canvas></div>
+                <!-- Tile 2: Habits -->
+                <div class="bento-tile tile-habits" onclick="switchTab('bad-habits')">
+                    <div class="bento-tile-icon">
+                        <span>🛡️</span>
+                        <span class="bento-tile-badge" id="tile-habits-badge">Habits</span>
+                    </div>
+                    <div>
+                        <div class="bento-tile-title">Habits</div>
+                        <div class="bento-tile-sub" id="tile-habits-sub">Good & Bad Streaks</div>
+                    </div>
                 </div>
 
-                <div class="bento-stat-card" style="grid-column: 1 / -1;">
-                    <h3 style="margin-top:0; font-size:0.95rem; color:var(--text-muted);">Vice Triggers (This Year)</h3>
-                    <div style="height: 200px;"><canvas id="badHabitsChart"></canvas></div>
+                <!-- Tile 3: Deen -->
+                <div class="bento-tile tile-deen" onclick="switchTab('deen')">
+                    <div class="bento-tile-icon">
+                        <span>🕌</span>
+                        <span class="bento-tile-badge" id="tile-deen-badge">Deen</span>
+                    </div>
+                    <div>
+                        <div class="bento-tile-title">Deen</div>
+                        <div class="bento-tile-sub" id="tile-deen-sub">Prayers & Quran</div>
+                    </div>
+                </div>
+
+                <!-- Tile 4: Budget -->
+                <div class="bento-tile tile-budget" onclick="switchTab('budget')">
+                    <div class="bento-tile-icon">
+                        <span>💳</span>
+                        <span class="bento-tile-badge" id="tile-budget-badge">Budget</span>
+                    </div>
+                    <div>
+                        <div class="bento-tile-title">Budget</div>
+                        <div class="bento-tile-sub" id="tile-budget-sub">Expenses & Debts</div>
+                    </div>
+                </div>
+
+                <!-- Tile 5: Saved Library -->
+                <div class="bento-tile tile-backlog" onclick="switchTab('backlog')">
+                    <div class="bento-tile-icon">
+                        <span>🔖</span>
+                        <span class="bento-tile-badge" id="tile-saved-badge">Saved</span>
+                    </div>
+                    <div>
+                        <div class="bento-tile-title">Saved</div>
+                        <div class="bento-tile-sub" id="tile-saved-sub">Watch & Read Later</div>
+                    </div>
+                </div>
+
+                <!-- Tile 6: Journal -->
+                <div class="bento-tile tile-journal" onclick="switchTab('journal')">
+                    <div class="bento-tile-icon">
+                        <span>📓</span>
+                        <span class="bento-tile-badge" id="tile-journal-badge">Journal</span>
+                    </div>
+                    <div>
+                        <div class="bento-tile-title">Journal</div>
+                        <div class="bento-tile-sub" id="tile-journal-sub">Daily Reflections</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Collapsible Analytics & History (Keeps home clean and free of cognitive overload!) -->
+            <div class="collapsible-card" style="background:var(--card); border:1px solid var(--border); border-radius:18px; padding:14px 16px; margin-bottom:20px;">
+                <div onclick="toggleAnalyticsView()" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:1.15rem;">📊</span>
+                        <span style="font-weight:700; font-size:0.92rem; color:var(--text-main);">Annual Analytics & Heatmap</span>
+                    </div>
+                    <span id="analytics-toggle-arrow" style="color:var(--text-muted); font-size:0.85rem; transition:transform 0.2s;">▼</span>
+                </div>
+                
+                <div id="analytics-content" style="display:none; margin-top:16px; border-top:1px solid rgba(255,255,255,0.06); padding-top:16px;">
+                    <!-- Charity Penalty Wallet -->
+                    <div style="background:rgba(255, 177, 66, 0.06); border:1px solid rgba(255, 177, 66, 0.3); border-radius:14px; padding:14px; margin-bottom:16px; text-align:center;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <span style="color:var(--charity); font-weight:700; font-size:0.85rem;">⚖️ Charity Penalty Wallet</span>
+                            <span style="font-size:0.8rem; color:var(--success);">Surplus: ₹<span id="display-surplus-wallet">0</span></span>
+                        </div>
+                        <div style="font-size:2rem; font-weight:800; color:#fff; margin:6px 0;">₹<span id="donation-pending">0</span></div>
+                        <div style="color:var(--text-muted); font-size:0.8rem; margin-bottom:12px;">Total Paid Lifetime: ₹<span id="donation-paid">0</span></div>
+                        <div style="display:flex; gap:8px;">
+                            <input type="number" id="donation-pay-amount" placeholder="Amount paid (₹)..." style="margin:0; font-size:0.85rem;">
+                            <button onclick="payDonation()" style="background:var(--charity); color:#000; margin:0; width:auto; padding:0 16px; font-size:0.85rem;">Pay</button>
+                        </div>
+                    </div>
+
+                    <!-- 12-Week Heatmap -->
+                    <div id="heatmap-card" style="margin-bottom:16px;"></div>
+
+                    <!-- Completion Totals -->
+                    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-bottom:16px; text-align:center;">
+                        <div style="background:var(--card-elevated); padding:8px 4px; border-radius:10px;">
+                            <div style="color:var(--text-muted); font-size:0.68rem;">Today</div>
+                            <div id="day-completed" style="font-size:0.95rem; font-weight:700; color:var(--primary);">0</div>
+                        </div>
+                        <div style="background:var(--card-elevated); padding:8px 4px; border-radius:10px;">
+                            <div style="color:var(--text-muted); font-size:0.68rem;">Week</div>
+                            <div id="week-completed" style="font-size:0.95rem; font-weight:700; color:var(--primary);">0</div>
+                        </div>
+                        <div style="background:var(--card-elevated); padding:8px 4px; border-radius:10px;">
+                            <div style="color:var(--text-muted); font-size:0.68rem;">Month</div>
+                            <div id="month-completed" style="font-size:0.95rem; font-weight:700; color:var(--primary);">0</div>
+                        </div>
+                        <div style="background:var(--card-elevated); padding:8px 4px; border-radius:10px;">
+                            <div style="color:var(--text-muted); font-size:0.68rem;">Year</div>
+                            <div id="year-completed" style="font-size:0.95rem; font-weight:700; color:var(--success);">0</div>
+                        </div>
+                    </div>
+
+                    <!-- Annual Task Breakdown Chart -->
+                    <div style="background:var(--card-elevated); border-radius:14px; padding:12px; margin-bottom:14px;">
+                        <div style="font-size:0.82rem; color:var(--text-muted); margin-bottom:8px; font-weight:600;">Annual Task Categories</div>
+                        <div style="height:180px;"><canvas id="tasksProgressChart"></canvas></div>
+                    </div>
+
+                    <!-- Bad Habits Trigger Chart -->
+                    <div style="background:var(--card-elevated); border-radius:14px; padding:12px;">
+                        <div style="font-size:0.82rem; color:var(--text-muted); margin-bottom:8px; font-weight:600;">Vice Triggers This Year</div>
+                        <div style="height:180px;"><canvas id="badHabitsChart"></canvas></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1183,6 +1482,7 @@
         <!-- TASKS TAB -->
         <!-- ========================================== -->
         <div id="tab-tasks" class="tab-content">
+            <div class="subpage-header"><button class="back-home-btn" onclick="switchTab('dashboard')">← Dashboard</button><span class="subpage-title">✅ Daily Tasks</span></div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap;">
                 <h2 style="margin:0;">Your Tasks</h2>
                 <select id="task-view-filter" style="width:auto; margin:0; padding:8px 14px;" onchange="renderTasks()">
@@ -1298,6 +1598,7 @@
         <!-- HABITS TAB -->
         <!-- ========================================== -->
         <div id="tab-bad-habits" class="tab-content">
+            <div class="subpage-header"><button class="back-home-btn" onclick="switchTab('dashboard')">← Dashboard</button><span class="subpage-title">🛡️ Habit Trackers</span></div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
                 <h2 style="margin:0;">Habits & Vices</h2>
                 <div style="display:flex; gap:8px;">
@@ -1374,6 +1675,7 @@
         <!-- DEEN TAB -->
         <!-- ========================================== -->
         <div id="tab-deen" class="tab-content">
+            <div class="subpage-header"><button class="back-home-btn" onclick="switchTab('dashboard')">← Dashboard</button><span class="subpage-title">🕌 Deen & Prayers</span></div>
             <h2 style="margin-top:0;">Deen Tracker</h2>
 
             <!-- Prayer Times Card -->
@@ -1479,6 +1781,7 @@
         <!-- BUDGET & EXPENSES TAB -->
         <!-- ========================================== -->
         <div id="tab-budget" class="tab-content">
+            <div class="subpage-header"><button class="back-home-btn" onclick="switchTab('dashboard')">← Dashboard</button><span class="subpage-title">💳 Budget & Debts</span></div>
             <h2 style="margin-top:0;">Monthly Budget</h2>
             <div class="bento-stat-card" style="margin-bottom:20px; border:1px solid var(--budget);">
                 <div style="display:flex; justify-content:space-between; align-items:flex-end;">
@@ -1588,6 +1891,7 @@
         <!-- WATCH/READ LATER (BACKLOG) TAB -->
         <!-- ========================================== -->
         <div id="tab-backlog" class="tab-content">
+            <div class="subpage-header"><button class="back-home-btn" onclick="switchTab('dashboard')">← Dashboard</button><span class="subpage-title">🔖 Saved Library</span></div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                 <h2 style="margin:0;">Your Library</h2>
                 <select id="backlog-filter" style="width:auto; margin:0; padding:8px 14px;" onchange="renderBacklog()">
@@ -1691,6 +1995,7 @@
         <!-- JOURNAL TAB -->
         <!-- ========================================== -->
         <div id="tab-journal" class="tab-content">
+            <div class="subpage-header"><button class="back-home-btn" onclick="switchTab('dashboard')">← Dashboard</button><span class="subpage-title">📓 Daily Journal</span></div>
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
                 <h2 style="margin:0;">📓 Daily Journal</h2>
                 <span style="font-size:0.75rem; color:var(--text-muted);">One entry per day</span>
@@ -1877,5 +2182,69 @@
         }
     </script>
     <script type="module" src="app.js"></script>
+
+    <!-- Drawer Overlay Backdrop -->
+    <div id="drawer-overlay" class="drawer-overlay" onclick="closeNavDrawer()"></div>
+
+    <!-- Slide-Out Navigation Drawer -->
+    <div id="nav-drawer" class="nav-drawer">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.08);">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <img src="icon.png" style="width:34px; height:34px; border-radius:10px;" onerror="this.style.display='none'">
+                <div>
+                    <div style="font-weight:800; font-size:1.15rem; letter-spacing:1px; color:#fff;">HISAB</div>
+                    <div style="font-size:0.7rem; color:var(--text-muted);">Life Tracker</div>
+                </div>
+            </div>
+            <button class="header-icon-btn" onclick="closeNavDrawer()" style="font-size:1.1rem; width:34px; height:34px;">✕</button>
+        </div>
+
+        <div style="flex:1;">
+            <button class="drawer-item active" id="drawer-nav-dashboard" onclick="switchTab('dashboard')">
+                <span style="font-size:1.25rem;">📊</span> <span>Dashboard</span>
+            </button>
+            <button class="drawer-item" id="drawer-nav-tasks" onclick="switchTab('tasks')">
+                <span style="font-size:1.25rem;">✅</span> <span>Tasks</span>
+            </button>
+            <button class="drawer-item" id="drawer-nav-bad-habits" onclick="switchTab('bad-habits')">
+                <span style="font-size:1.25rem;">🛡️</span> <span>Habits (Good & Bad)</span>
+            </button>
+            <button class="drawer-item" id="drawer-nav-deen" onclick="switchTab('deen')">
+                <span style="font-size:1.25rem;">🕌</span> <span>Deen & Prayers</span>
+            </button>
+            <button class="drawer-item" id="drawer-nav-budget" onclick="switchTab('budget')">
+                <span style="font-size:1.25rem;">💳</span> <span>Budget & Expenses</span>
+            </button>
+            <button class="drawer-item" id="drawer-nav-backlog" onclick="switchTab('backlog')">
+                <span style="font-size:1.25rem;">🔖</span> <span>Saved Library</span>
+            </button>
+            <button class="drawer-item" id="drawer-nav-journal" onclick="switchTab('journal')">
+                <span style="font-size:1.25rem;">📓</span> <span>Daily Journal</span>
+            </button>
+
+            <div style="height:1px; background:rgba(255,255,255,0.08); margin:14px 0;"></div>
+
+            <button class="drawer-item" onclick="openPomodoroTimer(); closeNavDrawer();">
+                <span style="font-size:1.25rem;">🍅</span> <span>Pomodoro Focus Timer</span>
+            </button>
+            <button class="drawer-item" onclick="openShareModal(); closeNavDrawer();">
+                <span style="font-size:1.25rem;">📤</span> <span>Share Progress Card</span>
+            </button>
+            <button class="drawer-item" onclick="openHistory(); closeNavDrawer();">
+                <span style="font-size:1.25rem;">📜</span> <span>Activity History & Backup</span>
+            </button>
+            <button class="drawer-item" onclick="openNotifSettings(); closeNavDrawer();">
+                <span style="font-size:1.25rem;">🔔</span> <span>Notification Settings</span>
+            </button>
+            <button class="drawer-item" onclick="toggleDesignTheme(); closeNavDrawer();">
+                <span style="font-size:1.25rem;">⚡</span> <span>Switch Theme</span>
+            </button>
+        </div>
+
+        <div style="padding-top:14px; border-top:1px solid rgba(255,255,255,0.08); font-size:0.75rem; color:var(--text-muted); text-align:center;">
+            Hisab Tracker • Minimal Edition
+        </div>
+    </div>
+
 </body>
 </html>

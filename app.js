@@ -1,4 +1,26 @@
 
+let currentTaskFilter = 'all';
+function setTaskFilter(filterType, element) {
+    currentTaskFilter = filterType;
+    document.querySelectorAll('#task-filter-slider .filter-pill').forEach(btn => btn.classList.remove('active'));
+    if (element) element.classList.add('active');
+    renderTasks();
+}
+window.setTaskFilter = setTaskFilter;
+
+function toggleTaskSlider(taskId, event) {
+    if (event) event.stopPropagation();
+    const card = document.getElementById('task-card-' + taskId);
+    if (!card) return;
+    const wasOpen = card.classList.contains('slider-open');
+    card.classList.toggle('slider-open');
+    const chevron = document.getElementById('chevron-' + taskId);
+    if (chevron) chevron.innerText = wasOpen ? '▼' : '▲';
+    if (typeof triggerHaptic === 'function') triggerHaptic(8);
+}
+window.toggleTaskSlider = toggleTaskSlider;
+
+
 // ==========================================
 // NAVIGATION DRAWER & MINIMAL UI HELPERS
 // ==========================================
@@ -1660,7 +1682,13 @@ function openArchive() {
 
 function renderTasks() {
     const container = document.getElementById('task-list-container'); if (!container) return; container.innerHTML = '';
-    const filterView = document.getElementById('task-view-filter') ? document.getElementById('task-view-filter').value : 'all';
+    const filterView = currentTaskFilter || (document.getElementById('task-view-filter') ? document.getElementById('task-view-filter').value : 'all');
+    const pillAll = document.getElementById('filter-all-count'); if (pillAll) pillAll.innerText = tasks.length;
+    const pillDaily = document.getElementById('filter-daily-count'); if (pillDaily) pillDaily.innerText = tasks.filter(t => t.type === 'daily').length;
+    const pillWeekly = document.getElementById('filter-weekly-count'); if (pillWeekly) pillWeekly.innerText = tasks.filter(t => t.type === 'weekly').length;
+    const pillMonthly = document.getElementById('filter-monthly-count'); if (pillMonthly) pillMonthly.innerText = tasks.filter(t => t.type === 'monthly').length;
+    const pillOnce = document.getElementById('filter-once-count'); if (pillOnce) pillOnce.innerText = tasks.filter(t => t.type === 'once').length;
+
     const searchQuery = (document.getElementById('task-search-input')?.value || '').trim().toLowerCase();
     const categories = [ { id: 'daily', title: '📅 Daily Tasks', filter: t => t.type === 'daily' }, { id: 'weekly', title: '📆 Weekly Tasks', filter: t => t.type === 'weekly' }, { id: 'monthly', title: '🗓️ Monthly Tasks', filter: t => t.type === 'monthly' }, { id: 'once', title: '🎯 One-Time Tasks', filter: t => t.type === 'once' } ];
     
@@ -1697,7 +1725,6 @@ function renderTasks() {
         if (filterView !== 'all' && cat.id !== filterView) return;
         const filteredTasks = tasks.filter(t => cat.filter(t) && (!searchQuery || t.title.toLowerCase().includes(searchQuery)));
         if (filteredTasks.length === 0) return;
-        
         filteredTasks.forEach(task => {
             let timeThreshold = startOfDay;
             if (task.type === 'weekly') timeThreshold = startOfWeek;
@@ -1717,23 +1744,31 @@ function renderTasks() {
 
         filteredTasks.sort((a, b) => (a.isDoneForPeriod ? 1 : 0) - (b.isDoneForPeriod ? 1 : 0));
 
-        const section = document.createElement('div'); section.innerHTML = `<h3 style="margin-top:25px; color:#ddd; font-size:1.05rem; border-bottom:1px solid var(--border); padding-bottom:6px;">${cat.title}</h3>`;
-        
+        const section = document.createElement('div');
+        if (filterView === 'all') {
+            section.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin:22px 0 10px 0; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <h3 style="margin:0; font-size:0.95rem; font-weight:800; color:#8892b0; text-transform:uppercase; letter-spacing:1px;">${cat.title}</h3>
+                    <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">${filteredTasks.length} task${filteredTasks.length > 1 ? 's' : ''}</span>
+                </div>
+            `;
+        }
         filteredTasks.forEach(task => {
             const primaryTag = task.tags && task.tags[0];
             const div = document.createElement('div');
-            div.className = `task-item ${task.isDoneForPeriod ? 'banked' : ''} ${primaryTag ? 'tag-border-' + primaryTag : ''}`;
+            div.className = `task-card-minimal ${task.isDoneForPeriod ? 'is-completed' : ''} ${primaryTag ? 'tag-border-' + primaryTag : ''}`;
+            div.id = `task-card-${task.id}`;
             let badgeLabel = "Done Today"; if (task.type === 'weekly') badgeLabel = "Done This Week"; if (task.type === 'monthly') badgeLabel = "Done This Month";
 
             const thirtyDaysAgo = startOfDay - 29 * 86400000;
             const missed30Count = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= thirtyDaysAgo).length;
 
-            let statusHTML = task.currentTarget <= 0 ? `<span class="badge done-badge">✅ Completed for Year!</span>` : `<span class="badge target">Remaining in year: ${Math.round(task.currentTarget * 100) / 100}</span>`;
-            let reminderHtml = task.reminderTime ? `<span class="badge reminder" onclick="addToGoogleCalendar('${task.id}')" style="cursor:pointer;" title="Tap to set Google Calendar Alarm">🔔 ${task.reminderTime} (Sync)</span>` : ``;
+            let statusHTML = task.currentTarget <= 0 ? `<span class="badge done-badge">✅ Completed for Year!</span>` : `<span class="badge target">Remaining: ${Math.round(task.currentTarget * 100) / 100}</span>`;
+            let reminderHtml = task.reminderTime ? `<span class="badge reminder" onclick="addToGoogleCalendar('${task.id}')" style="cursor:pointer;" title="Google Calendar Alarm">🔔 ${task.reminderTime}</span>` : ``;
             let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ₹${task.donationPenalty}</span>` : ``;
             let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#2a2a35; color:#ccc;">Strict Streak: ${task.missedCount || 0}/5</span>` : '';
             let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge done-badge">✅ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
-            let missedBadgeHtml = missed30Count > 0 ? `<span class="badge" style="background:rgba(255,82,82,0.18); color:var(--danger); border:1px solid rgba(255,82,82,0.4); cursor:pointer;" onclick="openTask30DayModal('${task.id}')">⚠️ ${missed30Count} Missed (Tap to Fulfill)</span>` : '';
+            let missedBadgeHtml = missed30Count > 0 ? `<span class="badge" style="background:rgba(255,82,82,0.18); color:var(--danger); border:1px solid rgba(255,82,82,0.4); cursor:pointer;" onclick="openTask30DayModal('${task.id}')">⚠️ ${missed30Count} Missed (Fulfill)</span>` : '';
             const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
             let activeDaysHtml = task.activeDays && task.activeDays.length > 0 ? `<span class="badge" style="background:#252530; color:#ccc;">📅 ${task.activeDays.map(d => dayNames[d]).join(', ')}</span>` : '';
 
@@ -1750,33 +1785,88 @@ function renderTasks() {
                     const pIcon = isDone ? '✅' : (isMiss ? '❌' : '⚪');
                     pills += `<span class="day-pill ${pClass}" onclick="openTask30DayModal('${task.id}', '${dKey}')" title="Inspect ${dKey}">${pIcon} ${dayShort}</span>`;
                 }
-                miniWeekHtml = `<div class="mini-week-strip">${pills}</div>`;
+                miniWeekHtml = `<div class="mini-week-strip" style="margin-top:6px; padding-top:6px; border-top:none;">${pills}</div>`;
             }
 
             div.innerHTML = `
-            <div class="task-header">
-                <div>
-                    <div class="task-title" style="${task.isDoneForPeriod ? 'text-decoration:line-through; opacity:0.8;' : ''}">${task.isDoneForPeriod ? '✅ ' : ''}${task.title}</div>
-                    <div class="task-badges">
+                <!-- Minimal Top Bar (Title + Badges + Slider Chevron) -->
+                <div class="task-minimal-top" onclick="toggleTaskSlider('${task.id}', event)">
+                    <div style="flex:1;">
+                        <div class="task-minimal-title">
+                            ${task.isDoneForPeriod ? '✅ ' : ''}${task.title}
+                        </div>
+                        <div class="task-minimal-meta">
+                            <span class="task-chip chip-${task.type}">${task.type.toUpperCase()}</span>
+                            ${primaryTag ? `<span class="task-chip chip-tag">${primaryTag}</span>` : ''}
+                            <span style="font-weight:700; color:var(--text-main);">Target: ${task.baseTarget}</span>
+                            <span>• Remaining: ${Math.round(task.currentTarget * 100) / 100}</span>
+                        </div>
+                    </div>
+                    <button class="btn-slider-chevron" onclick="toggleTaskSlider('${task.id}', event)" title="Toggle extra details">
+                        <span id="chevron-${task.id}">▼</span>
+                    </button>
+                </div>
+
+                <!-- Minimal Primary Action Button (Inspired by 'Mark Attendance' in reference) -->
+                <div class="task-minimal-action-row">
+                    <button class="btn-primary-action ${task.isDoneForPeriod ? 'completed' : ''}" onclick="logProgress('${task.id}')">
+                        ${task.isDoneForPeriod ? '✅ Done Today (Tap to +1)' : '✔️ Complete Task'}
+                    </button>
+                    <button class="btn-extra-toggle" onclick="toggleTaskSlider('${task.id}', event)" title="View extra options & details">
+                        ⋯
+                    </button>
+                </div>
+
+                <!-- Sliding Drawer Tray (Revealed smoothly on click!) -->
+                <div class="task-slider-tray" id="task-slider-${task.id}">
+                    <!-- 7-Day Mini Strip -->
+                    ${miniWeekHtml}
+
+                    <!-- Custom Quantity & Note Row -->
+                    ${task.currentTarget > 0 ? `
+                        <div style="display:flex; gap:8px; align-items:center; margin-top:10px;">
+                            <input type="text" id="note-${task.id}" placeholder="📝 Add note (optional)..." style="flex:1; margin:0; font-size:0.82rem; padding:8px 12px; border-radius:10px; background:var(--card-elevated); border:1px solid rgba(255,255,255,0.08); color:#fff;">
+                            <div style="width:72px; flex-shrink:0;">
+                                <input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1" style="margin:0; text-align:center; padding:8px 4px; font-weight:700; border-radius:10px; background:var(--card-elevated); border:1px solid rgba(255,255,255,0.08); color:#fff;">
+                            </div>
+                            ${(task.donationPenalty && !task.isMaxOnceDaily) ? `
+                                <button class="btn" onclick="markMissed('${task.id}', event)" style="background:rgba(255,82,82,0.18); color:var(--danger); border:1px solid rgba(255,82,82,0.4); padding:8px 12px; font-size:0.78rem; font-weight:700; border-radius:10px; margin:0; white-space:nowrap; cursor:pointer;">
+                                    ❌ Missed
+                                </button>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+
+                    <!-- Badges Row -->
+                    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
                         ${renderTaskTags(task.tags)}
-                        <span class="badge" style="background:#252530; color:#ccc;">Target: ${task.baseTarget} / ${task.type}</span>
-                        ${activeDaysHtml}${statusHTML}${reminderHtml}${donationHtml}${strictHtml}${donePeriodHtml}${missedBadgeHtml}
+                        ${statusHTML}
+                        ${reminderHtml}
+                        ${donationHtml}
+                        ${strictHtml}
+                        ${donePeriodHtml}
+                        ${missedBadgeHtml}
+                        ${activeDaysHtml}
+                    </div>
+
+                    <!-- Extra Action Toolbar -->
+                    <div style="display:flex; gap:6px; margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.06); justify-content:space-between; align-items:center; flex-wrap:wrap;">
+                        <div style="display:flex; gap:6px;">
+                            <button class="tool-btn" onclick="addToGoogleCalendar('${task.id}')" title="Google Calendar Alarm">🗓️ Alarm</button>
+                            <button class="tool-btn" onclick="openPomodoroTimer('${task.id}')" title="25m Pomodoro Focus Timer">🍅 Focus</button>
+                            <button class="tool-btn" onclick="openTask30DayModal('${task.id}')" title="30-Day History & Fulfill Missed">📅 30 Days</button>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button class="tool-btn" onclick="editTask('${task.id}')" title="Edit Task">✏️ Edit</button>
+                            ${task.currentTarget <= 0 ? `
+                                <button class="tool-btn" onclick="archiveTask('${task.id}')" style="color:var(--success);">🗃️ Archive</button>
+                            ` : `
+                                <button class="tool-btn" onclick="deleteTask('${task.id}')" style="color:var(--danger);">🗑️ Delete</button>
+                            `}
+                        </div>
                     </div>
                 </div>
-                <div class="task-controls">
-                    <button class="btn-icon" onclick="addToGoogleCalendar('${task.id}')" title="Add to Google Calendar / Phone Alarm" style="color:var(--primary);">🗓️</button>
-                    <button class="btn-icon" onclick="openPomodoroTimer('${task.id}')" title="Start 25m Pomodoro" style="color:var(--warning);">🍅</button>
-                    <button class="btn-icon" onclick="openTask30DayModal('${task.id}')" title="30-Day History & Fulfill Missed">📅</button>
-                    <button class="btn-icon" onclick="editTask('${task.id}')" title="Edit Task">✏️</button>
-                    ${task.currentTarget <= 0 ? `<button class="btn-icon" onclick="archiveTask('${task.id}')" title="Archive Completed Task" style="color:var(--success);">🗃️</button>` : `<button class="btn-icon" onclick="deleteTask('${task.id}')" title="Delete Task">🗑️</button>`}
-                </div>
-            </div>
-            ${miniWeekHtml}
-            ${task.currentTarget > 0 ? `
-                <div style="margin-top:10px;">
-                    <input type="text" id="note-${task.id}" placeholder="📝 Add note (optional)..." style="margin:0 0 8px 0; font-size:0.82rem; padding:6px 10px; border-radius:8px; background:var(--card-elevated); color:var(--text-muted);">
-                </div>
-                <div class="task-action-row">${(task.donationPenalty && !task.isMaxOnceDaily) ? `<button class="btn-task-action missed" onclick="markMissed('${task.id}', event)">❌ Missed</button>` : ''}<div class="task-input-box"><input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1"></div><button class="btn-task-action done" onclick="logProgress('${task.id}')">${task.isDoneForPeriod ? '➕ Log More' : '✔️ Complete'}</button></div>` : ''}`;
+            `;
 
             addSwipeGesture(div, task);
             addDragAndDrop(div, task.id);

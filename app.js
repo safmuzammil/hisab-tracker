@@ -387,6 +387,102 @@ function syncToGoogleSheets(logEntry) {
     }).catch(err => console.error("Google Sheets sync failed:", err));
 }
 
+// Automatically pulls any entries logged via Email Replies or 1-Click Email Links
+async function syncFromGoogleSheets() {
+    if (!GOOGLE_SHEETS_URL) return;
+    try {
+        const lastSync = parseInt(localStorage.getItem('hisab_last_sheet_sync')) || (Date.now() - 3 * 86400000);
+        const res = await fetch(`${GOOGLE_SHEETS_URL}?action=pull_email_logs&since=${lastSync}`);
+        if (!res.ok) return;
+        const newLogs = await res.json();
+        if (!Array.isArray(newLogs) || newLogs.length === 0) return;
+
+        let hasNew = false;
+        newLogs.forEach(log => {
+            if (!log || !log.id) return;
+            if (activityHistory.some(h => String(h.id) === String(log.id))) return;
+            hasNew = true;
+
+            const logEntry = {
+                id: String(log.id),
+                timestamp: Number(log.timestamp) || Date.now(),
+                category: log.category || 'general',
+                actionType: log.actionType || '',
+                title: log.title || '',
+                amount: Number(log.amount) || 1,
+                taskType: log.taskType || ''
+            };
+            activityHistory.push(logEntry);
+
+            // 1. Process Expenses
+            if (log.actionType === 'expense' || log.category === 'budget') {
+                const cleanDesc = (log.title || 'Expense').replace(/^Expense:\s*/i, '').trim();
+                budgetData.expenses.push({
+                    id: String(log.id),
+                    desc: cleanDesc,
+                    amount: Number(log.amount) || 0,
+                    date: logEntry.timestamp
+                });
+            }
+
+            // 2. Process Swalath
+            if (log.actionType === 'deen_swalath') {
+                if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+                deenData.swalathStats.total = (deenData.swalathStats.total || 0) + (Number(log.amount) || 0);
+            }
+
+            // 3. Process Quran Hizb
+            if (log.actionType === 'deen_hizb') {
+                if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+                deenData.quranStats.totalHizb = (deenData.quranStats.totalHizb || 0) + (Number(log.amount) || 0);
+                deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+                deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+            }
+
+            // 4. Process Qada
+            if (log.actionType === 'deen_qada') {
+                const prayer = (log.title || '').replace(/^Qada:\s*/i, '').trim();
+                if (!deenData.qada) deenData.qada = { Fajr: 0, Dhuhr: 0, Asr: 0, Maghrib: 0, Isha: 0, Witr: 0 };
+                if (deenData.qada[prayer] !== undefined) {
+                    deenData.qada[prayer] = Math.max(0, deenData.qada[prayer] + (Number(log.amount) || 1));
+                }
+            }
+
+            // 5. Process Bad Habits / Sins
+            if (log.actionType === 'bad' || log.category === 'habits') {
+                const sinName = (log.title || '').replace(/^Logged Bad:\s*/i, '').trim().toLowerCase();
+                const matchedHabit = badHabits.find(h => (h.title || '').trim().toLowerCase() === sinName);
+                if (matchedHabit) {
+                    matchedHabit.annualCount = (matchedHabit.annualCount || 0) + (Number(log.amount) || 1);
+                }
+            }
+
+            // 6. Process Tasks
+            if (log.actionType === 'complete') {
+                const taskTitle = (log.title || '').replace(/^Completed:\s*/i, '').trim().toLowerCase();
+                const matchedTask = tasks.find(t => (t.title || '').trim().toLowerCase() === taskTitle);
+                if (matchedTask) {
+                    matchedTask.lastCompletedDay = new Date(logEntry.timestamp).toDateString();
+                    matchedTask.currentTarget = Math.max(0, (matchedTask.currentTarget || 0) - (Number(log.amount) || 1));
+                    if (matchedTask.currentTarget <= 0) matchedTask.isCompleted = true;
+                }
+            }
+        });
+
+        if (hasNew) {
+            localStorage.setItem('hisab_last_sheet_sync', Date.now().toString());
+            saveData();
+            render();
+            if (typeof showToast === 'function') {
+                showToast(`📥 Synced ${newLogs.length} updates from email replies!`, '✉️');
+            }
+        }
+    } catch(err) {
+        console.warn("Could not sync email replies from Google Sheets:", err);
+    }
+}
+window.syncFromGoogleSheets = syncFromGoogleSheets;
+
 // ==========================================
 // STALE-TAB LOCK & CLOUD SYNC LOGIC
 // ==========================================
@@ -559,6 +655,7 @@ async function triggerCloudSyncNow() {
         }
         hasInitialCloudSync = true;
         await syncDataToFirebase();
+        await syncFromGoogleSheets();
         setSyncIndicator('synced', 'Synced');
         if (typeof showToast === 'function') showToast('Cloud data synced successfully!', '☁️');
     } catch (e) {
@@ -4501,6 +4598,7 @@ onAuthStateChanged(auth, async (user) => {
         migrateLegacyTasks();
         processAutomaticPenalties(); 
         render();
+        syncFromGoogleSheets();
     }
 });
 

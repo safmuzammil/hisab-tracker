@@ -22,9 +22,48 @@ window.toggleTaskSlider = toggleTaskSlider;
 
 
 // ==========================================
+// ==========================================
+// QUICK ACTION SHEET & NAVIGATION DOCK
+// ==========================================
+function openQuickActionSheet() {
+    closeNavDrawer();
+    const sheet = document.getElementById('quick-action-sheet');
+    const overlay = document.getElementById('quick-action-overlay');
+    if (sheet) sheet.classList.add('active');
+    if (overlay) overlay.classList.add('active');
+    document.body.classList.add('modal-open');
+    if (typeof triggerHaptic === 'function') triggerHaptic(12);
+    if (window.history && window.history.pushState) {
+        history.pushState({ quickAction: true }, '', '#quick-action');
+    }
+}
+function closeQuickActionSheet() {
+    const sheet = document.getElementById('quick-action-sheet');
+    const overlay = document.getElementById('quick-action-overlay');
+    if (sheet) sheet.classList.remove('active');
+    if (overlay) overlay.classList.remove('active');
+    document.body.classList.remove('modal-open');
+    if (window.location.hash === '#quick-action') {
+        const currentTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+        if (window.history && window.history.replaceState) {
+            history.replaceState({ tab: currentTab }, '', '#' + currentTab);
+        }
+    }
+}
+window.openQuickActionSheet = openQuickActionSheet;
+window.closeQuickActionSheet = closeQuickActionSheet;
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeQuickActionSheet();
+        closeNavDrawer();
+    }
+});
+
 // NAVIGATION DRAWER & MINIMAL UI HELPERS
 // ==========================================
 function openNavDrawer() {
+    closeQuickActionSheet();
     const drawer = document.getElementById('nav-drawer');
     const overlay = document.getElementById('drawer-overlay');
     if (drawer) drawer.classList.add('open');
@@ -110,6 +149,12 @@ function toggleAnalyticsView() {
 let lastBackPressTime = 0;
 
 window.addEventListener('popstate', (event) => {
+    // 0. If quick action sheet is open, close it!
+    const quickSheet = document.getElementById('quick-action-sheet');
+    if (quickSheet && quickSheet.classList.contains('active')) {
+        closeQuickActionSheet();
+        return;
+    }
     // 1. If drawer is open, close it!
     const drawer = document.getElementById('nav-drawer');
     if (drawer && drawer.classList.contains('open')) {
@@ -1889,6 +1934,12 @@ function renderTasks() {
                 <!-- Minimal Top Bar (Title + Badges + Slider Chevron) -->
                 <div class="task-minimal-top" onclick="toggleTaskSlider('${task.id}', event)">
                     <div style="flex:1;">
+                        ${(() => {
+                            const taskStreak = computeItemStreak(task.id, 'tasks');
+                            return taskStreak.currentStreak > 0
+                                ? `<span class="badge" style="background:var(--pastel-peach-fill, rgba(251,113,133,0.16)); color:var(--pastel-peach-ink, #9f1239); font-weight:700; border-radius:12px; padding:2px 8px; font-size:0.75rem; margin-right:6px;">🔥 ${taskStreak.currentStreak}d</span>`
+                                : '';
+                        })()}
                         <div class="task-minimal-title">
                             ${task.isDoneForPeriod ? '✅ ' : ''}${task.title}
                         </div>
@@ -2058,6 +2109,53 @@ function deleteGoodHabit(id) { showConfirmSheet("Delete this good habit tracker?
 // ==========================================
 // HABIT STREAK ENGINE
 // ==========================================
+function computeItemStreak(itemId, category = 'tasks') {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const loggedDates = new Set(
+        activityHistory
+            .filter(h => {
+                if (category === 'tasks') {
+                    return h.taskId === itemId && h.actionType === 'complete';
+                } else if (category === 'good-habits') {
+                    return h.taskId === itemId && h.actionType === 'good';
+                } else if (category === 'bad-habits') {
+                    return h.taskId === itemId && h.actionType === 'bad';
+                }
+                return false;
+            })
+            .map(h => h.fulfilledDateKey || h.habitDateKey || toDateKey(h.timestamp))
+    );
+    let currentStreak = 0;
+    let longestStreak = 0;
+    let tempStreak = 0;
+    let streakBroken = false;
+    for (let i = 0; i < 365; i++) {
+        const checkDate = new Date(todayStart - i * 86400000);
+        const checkKey = toDateKey(checkDate);
+        const isLogged = loggedDates.has(checkKey);
+        const isPositive = category === 'bad-habits' ? !isLogged : isLogged;
+        if (isPositive) {
+            tempStreak++;
+            if (!streakBroken) currentStreak = tempStreak;
+        } else {
+            if (!streakBroken && i > 0) streakBroken = true;
+            if (streakBroken) {
+                longestStreak = Math.max(longestStreak, tempStreak);
+                tempStreak = 0;
+            } else {
+                currentStreak = 0;
+                streakBroken = true;
+                longestStreak = Math.max(longestStreak, tempStreak);
+                tempStreak = 0;
+            }
+        }
+    }
+    longestStreak = Math.max(longestStreak, tempStreak, currentStreak);
+    return { currentStreak, longestStreak };
+}
+window.computeItemStreak = computeItemStreak;
+
 function computeHabitStreak(habitId, actionType) {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -4215,8 +4313,9 @@ function switchTab(tabName, element, fromPopState = false) {
     const targetTab = document.getElementById(`tab-${tabName}`);
     if (!targetTab) return;
 
-    // 1. ALWAYS close the drawer immediately on tab navigation
+    // 1. ALWAYS close the drawer and quick action sheet immediately on tab navigation
     closeNavDrawer();
+    closeQuickActionSheet();
 
     triggerHaptic(10);
     localStorage.setItem('hisab_active_tab', tabName);
@@ -4229,6 +4328,10 @@ function switchTab(tabName, element, fromPopState = false) {
     }
 
     document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active')); 
+    document.querySelectorAll('.nav-hub-item').forEach(item => item.classList.remove('active'));
+    const hubItem = document.getElementById(`nav-hub-${tabName}`);
+    if (hubItem) hubItem.classList.add('active');
+
     document.querySelectorAll('.nav-item').forEach(nav => {
         nav.classList.remove('active', 'active-bad', 'active-deen', 'active-budget', 'active-backlog');
     });

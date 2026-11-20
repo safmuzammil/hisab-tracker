@@ -91,23 +91,22 @@ window.scrollToCharity = scrollToCharity;
 // Automatic Background & Tab-Return Cloud Sync
 window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && currentUser && navigator.onLine) {
-        manualCloudSync();
+        manualCloudSync(true);
     }
 });
 window.addEventListener('focus', () => {
     if (currentUser && navigator.onLine) {
-        manualCloudSync();
+        manualCloudSync(true);
     }
 });
 window.addEventListener('online', () => {
     if (currentUser) {
-        showToast("Internet connected. Syncing data...", "🌐");
-        manualCloudSync();
+        manualCloudSync(true);
     }
 });
 setInterval(() => {
     if (currentUser && navigator.onLine && !document.hidden) {
-        manualCloudSync();
+        manualCloudSync(true);
     }
 }, 60000);
 
@@ -253,7 +252,7 @@ const firebaseConfig = {
     appId: "1:155630179687:web:16e1542dbded16f337cbc2"
 };
 // ↓ Firebase Console → Project settings → Cloud Messaging → Web Push certificates → "Key pair". Leave empty to disable background push.
-const FCM_VAPID_KEY = "";
+const FCM_VAPID_KEY = "BBHd24F7mknr9qK4TB64pp2cTcQi9l-HQSG7_Zlo9Fv9LjG68IW6O52SmcOrR__eXWL7ifu0sodOyLsS4k4mbAw";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -757,7 +756,7 @@ function listenToFirebase() {
     });
 }
 
-async function triggerCloudSyncNow() {
+async function triggerCloudSyncNow(silent = false) {
     setSyncIndicator('synced', 'Syncing…');
     try {
         lastCloudError = null;
@@ -771,7 +770,7 @@ async function triggerCloudSyncNow() {
                 saveDataLocallyOnly();
                 render();
                 setSyncIndicator('synced', 'Synced');
-                if (typeof showToast === 'function') showToast('Pulled latest cloud data!', '☁️');
+                if (typeof showToast === 'function') { if (!silent) showToast('Pulled latest cloud data!', '☁️'); }
                 return;
             }
         }
@@ -779,11 +778,11 @@ async function triggerCloudSyncNow() {
         await syncDataToFirebase();
         await syncFromGoogleSheets();
         setSyncIndicator('synced', 'Synced');
-        if (typeof showToast === 'function') showToast('Cloud data synced successfully!', '☁️');
+        if (!silent && typeof showToast === 'function') showToast('Cloud data synced successfully!', '☁️');
     } catch (e) {
         console.error("Manual sync failed:", e);
         setSyncIndicator('error', 'Sync Failed', e);
-        if (typeof showToast === 'function') showToast('Sync failed: ' + (e.message || 'Check connection'), '⚠️');
+        if (!silent && typeof showToast === 'function') showToast('Sync failed: ' + (e.message || 'Check connection'), '⚠️');
     }
 }
 
@@ -821,8 +820,9 @@ function showSyncDiagnostics(err) {
     });
 }
 
-async function manualCloudSync() {
+async function manualCloudSync(silent = false) {
     if (!currentUser) {
+        if (silent) return;
         showConfirmSheet(
             "<b>You are in Local (Offline) Mode.</b><br><br>All tasks and progress are safely saved on this device, but won't sync to your other devices until you sign in with Google.<br><br>Would you like to connect with Google now?",
             { title: 'Cloud Sync (Local Mode)', icon: '📴', okText: 'Sign In with Google', danger: false }
@@ -833,7 +833,7 @@ async function manualCloudSync() {
     }
 
     lastCloudError = null;
-    await triggerCloudSyncNow();
+    await triggerCloudSyncNow(silent);
 }
 
 function migrateLegacyTasks() {

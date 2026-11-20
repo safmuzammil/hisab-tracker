@@ -1,10 +1,15 @@
-const CACHE_NAME = 'hisab-v21';
+const CACHE_NAME = 'hisab-v23';
 const urlsToCache = [
     './',
     './index.html',
     './app.js',
+    './styles.css',
+    './lib/core.js',
     './manifest.json',
-    './icon.png'
+    './icons/icon.svg',
+    './icons/icon-192.png',
+    './icons/icon-512.png',
+    './icons/icon-96.png'
 ];
 
 self.addEventListener('install', event => {
@@ -36,15 +41,58 @@ self.addEventListener('fetch', event => {
     );
 });
 
-// Notification Click Handler - Focus or open app
+// ---------- Background push (FCM data messages sent by /api/send-reminders) ----------
+self.addEventListener('push', event => {
+    let p = {};
+    try { p = event.data ? event.data.json() : {}; } catch (e) { p = { data: { title: 'Hisab', body: event.data && event.data.text() } }; }
+    const d = p.data || p.notification || p;
+    const title = d.title || 'Hisab';
+    const actions = [];
+    if (d.kind === 'task') actions.push({ action: 'done', title: '✓ Done' }, { action: 'snooze10', title: 'Snooze 10m' }, { action: 'snooze60', title: '1 hour' });
+    if (d.kind === 'bill') actions.push({ action: 'billpaid', title: 'Mark paid' });
+    event.waitUntil(self.registration.showNotification(title, {
+        body: d.body || '',
+        tag: d.tag || undefined,
+        icon: './icons/icon-192.png',
+        badge: './icons/icon-96.png',
+        requireInteraction: d.kind === 'task',
+        vibrate: [200, 100, 200],
+        data: d,
+        actions
+    }));
+});
+
+// ---------- Notification clicks & action buttons ----------
 self.addEventListener('notificationclick', event => {
-    event.notification.close();
-    event.waitUntil(
-        clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-            for (const client of clientList) {
-                if ('focus' in client) return client.focus();
-            }
-            if (clients.openWindow) return clients.openWindow('./');
-        })
-    );
+    const n = event.notification;
+    const d = n.data || {};
+    const action = event.action || 'open';
+    n.close();
+
+    event.waitUntil((async () => {
+        // Snooze from a server push: handled in the background, no need to open the app.
+        if ((action === 'snooze10' || action === 'snooze60') && d.sig && d.uid) {
+            try {
+                const r = await fetch('./api/reminder-action', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ uid: d.uid, taskId: d.taskId, minutes: action === 'snooze10' ? 10 : 60, exp: d.exp, sig: d.sig })
+                });
+                if (r.ok) return;
+            } catch (e) { /* fall through to opening the app */ }
+        }
+        const msg = { type: 'hisab-notif', action, taskId: d.taskId || null, billId: d.billId || null, kind: d.kind || null };
+        const list = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+        if (list.length) {
+            const c = list[0];
+            c.postMessage(msg);
+            if ('focus' in c) return c.focus();
+            return;
+        }
+        const q = new URLSearchParams();
+        q.set('na', action);
+        if (msg.taskId) q.set('task', msg.taskId);
+        if (msg.billId) q.set('bill', msg.billId);
+        if (msg.kind) q.set('kind', msg.kind);
+        if (clients.openWindow) return clients.openWindow('./?' + q.toString() + '#dashboard');
+    })());
 });

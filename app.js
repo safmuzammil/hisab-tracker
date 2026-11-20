@@ -81,12 +81,9 @@ function scrollToCharity() {
     if (card) {
         card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         card.style.transition = 'box-shadow 0.4s ease, border-color 0.4s ease';
-        card.style.borderColor = 'var(--charity)';
-        card.style.boxShadow = '0 0 24px rgba(255, 177, 66, 0.4)';
-        setTimeout(() => {
-            card.style.borderColor = 'rgba(255, 177, 66, 0.3)';
-            card.style.boxShadow = '0 4px 18px rgba(0,0,0,0.2)';
-        }, 1500);
+        card.style.borderColor = 'var(--amber)';
+        card.style.boxShadow = '0 0 0 4px var(--amber-soft)';
+        setTimeout(() => { card.style.borderColor = ''; card.style.boxShadow = ''; }, 1600);
     }
 }
 window.scrollToCharity = scrollToCharity;
@@ -137,12 +134,8 @@ function toggleAnalyticsView() {
     if (!content) return;
     const isHidden = content.style.display === 'none' || !content.style.display;
     content.style.display = isHidden ? 'block' : 'none';
-    if (arrow) arrow.innerText = isHidden ? '▲' : '▼';
-    if (isHidden) {
-        if (typeof renderHeatmap === 'function') renderHeatmap();
-        if (tasksProgressChart && typeof tasksProgressChart.resize === 'function') tasksProgressChart.resize();
-        if (badHabitsChart && typeof badHabitsChart.resize === 'function') badHabitsChart.resize();
-    }
+    document.getElementById('analytics-card')?.classList.toggle('open', isHidden);
+    if (isHidden) updateDashboard();
 }
 
 // Android Back Gesture & Popstate Interceptor (Never closes app on subpages!)
@@ -249,11 +242,18 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
+import * as Core from "./lib/core.js";
+
 const firebaseConfig = {
     apiKey: "AIzaSyBPw0XqzplPvH6KxbcJxwYNdyjfdPDntNo",
     authDomain: "hisab-1127d.firebaseapp.com",
-    projectId: "hisab-1127d"
+    projectId: "hisab-1127d",
+    // ↓ Needed for background push reminders. Copy from Firebase Console → Project settings → General → Your apps (Web app).
+    messagingSenderId: "155630179687",
+    appId: "1:155630179687:web:16e1542dbded16f337cbc2"
 };
+// ↓ Firebase Console → Project settings → Cloud Messaging → Web Push certificates → "Key pair". Leave empty to disable background push.
+const FCM_VAPID_KEY = "";
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -270,18 +270,9 @@ function setSyncIndicator(state, text, err = null) {
     const el = document.getElementById('cloud-sync-indicator');
     if (!el) return;
     el.className = 'sync-status-dot ' + (state === 'synced' ? 'synced' : (state === 'error' ? 'error' : ''));
-    const dot = state === 'synced' ? '● ' : (state === 'error' ? '⚠️ ' : '● ');
-    el.innerText = dot + text;
+    el.innerText = text;
     if (err) lastCloudError = err;
     if (state === 'synced') lastCloudError = null;
-}
-
-const signInBtnContainer = document.getElementById('google-signin-button');
-if (signInBtnContainer) {
-    signInBtnContainer.innerHTML = `
-        <button onclick="loginWithGoogle()" style="background:#fff; color:#000; display:flex; align-items:center; gap:10px; width:100%; justify-content:center; padding:12px; border-radius:10px; font-weight:bold;">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" width="20" alt="G"> Continue with Google
-        </button>`;
 }
 
 // Handle Redirect Sign-In Result if popup fell back to redirect
@@ -332,24 +323,24 @@ function showProfile(user) {
     if (loginPrompt) loginPrompt.style.display = 'none';
     const authContainer = document.getElementById('auth-container');
     if (!authContainer) return;
-    authContainer.style = 'display: flex; justify-content: space-between; align-items: center; background: var(--card); padding: 10px 15px; border-radius: 12px; margin-bottom: 20px; border: 1px solid var(--border); flex-wrap: wrap; gap: 10px;';
+    // Only show the profile bar on the dashboard to keep other pages clean
+    authContainer.style.cssText = 'display:none;';
+    authContainer.dataset.ready = '1';
     authContainer.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <img src="${user.picture || 'icon.png'}" onerror="this.src='icon.png'" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 1px solid #333;">
-            <div style="line-height: 1.2; text-align:left;">
-                <div style="font-weight: bold; font-size: 0.95rem; color: #fff;">${user.name}</div>
-                <div style="font-size: 0.75rem; color: #aaa;">${user.email}</div>
+        <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+            <img src="${escapeHTML(user.picture || 'icons/icon-96.png')}" onerror="this.src='icons/icon-96.png'" referrerpolicy="no-referrer" style="width:38px; height:38px; border-radius:50%; object-fit:cover;">
+            <div style="line-height:1.3; min-width:0;">
+                <div style="font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(user.name)}</div>
+                <div style="font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHTML(user.email)}</div>
             </div>
         </div>
-        <div style="display:flex; gap:8px; align-items:center;">
-            <button onclick="manualCloudSync()" style="background: rgba(3, 218, 198, 0.14); border: 1px solid rgba(3, 218, 198, 0.4); color: var(--success); padding: 6px 12px; margin: 0; width: auto; min-height: 38px; font-size: 0.8rem; border-radius: 8px; cursor: pointer;">
-                🔄 Sync Now
-            </button>
-            <button onclick="logout()" style="background: transparent; border: 1px solid #444; color: #aaa; padding: 6px 12px; margin: 0; width: auto; min-height: 38px; font-size: 0.8rem; border-radius: 8px; cursor: pointer;">
-                Logout
-            </button>
-        </div>
-    `;
+        <div style="display:flex; gap:6px;">
+            <button class="btn-sm btn-secondary" onclick="manualCloudSync()">${svgIcon('refresh', 'icon icon-sm')}Sync</button>
+            <button class="btn-sm btn-ghost" onclick="logout()">Sign out</button>
+        </div>`;
+    const tab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+    if (tab === 'dashboard') authContainer.style.cssText = 'display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;';
+    const so = document.getElementById('drawer-signout'); if (so) so.style.display = '';
 }
 
 // ==========================================
@@ -416,6 +407,81 @@ function isLogOnDateKey(log, dateKey) {
     const { start, end } = getDayBounds(dateKey);
     return log.timestamp >= start && log.timestamp <= end;
 }
+
+// ==========================================
+// SHARED HELPERS (v2)
+// ==========================================
+function escapeHTML(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function cssVar(name, fallback = '#888') {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+}
+function svgIcon(name, cls = 'icon') {
+    return `<svg class="${cls}"><use href="#i-${name}"/></svg>`;
+}
+function fmtNum(n) { return (Math.round((Number(n) || 0) * 100) / 100).toLocaleString(); }
+
+// Deletion tombstones: stop deleted/undone items coming back from another device during cloud merge.
+let deletedIds = JSON.parse(localStorage.getItem('hisab_deleted_ids') || '{}');
+function markDeleted(id) {
+    if (id === undefined || id === null) return;
+    deletedIds[String(id)] = Date.now();
+    // keep it bounded: drop tombstones older than 180 days
+    const cutoff = Date.now() - 180 * 86400000;
+    for (const k of Object.keys(deletedIds)) if (deletedIds[k] < cutoff) delete deletedIds[k];
+    localStorage.setItem('hisab_deleted_ids', JSON.stringify(deletedIds));
+}
+function isDeleted(id) { return id !== undefined && id !== null && !!deletedIds[String(id)]; }
+
+// Is a task scheduled for the given day? (custom-days tasks rest on other days)
+function isTaskActiveOn(task, dateObj = new Date()) {
+    if (!task.activeDays || task.activeDays.length === 0) return true;
+    return task.activeDays.includes(new Date(dateObj).getDay());
+}
+
+// Single source of truth for "how far along is this task in its current period?"
+function getTaskStatus(task, now = new Date()) {
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const todayKey = toDateKey(now);
+    const target = task.baseTarget || 1;
+    const yearDone = (task.currentTarget ?? 1) <= 0;
+
+    let since = startOfDay;
+    if (task.type === 'weekly') since = startOfWeek;
+    if (task.type === 'monthly') since = startOfMonth;
+
+    const logs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete');
+    let doneAmt;
+    if (task.type === 'once') {
+        doneAmt = logs.reduce((s, h) => s + (h.amount || 1), 0);
+    } else if (task.type === 'daily') {
+        doneAmt = logs.filter(h => h.fulfilledDateKey ? h.fulfilledDateKey === todayKey : h.timestamp >= startOfDay)
+            .reduce((s, h) => s + (h.amount || 1), 0);
+    } else {
+        doneAmt = logs.filter(h => h.timestamp >= since).reduce((s, h) => s + (h.amount || 1), 0);
+    }
+
+    const isActiveToday = task.type !== 'daily' || isTaskActiveOn(task, now);
+    const isDone = task.type === 'once' ? yearDone : (yearDone || doneAmt >= target);
+    let isOverdue = false, dueLabel = '';
+    if (task.type === 'once' && task.dueDate && !isDone) {
+        const diff = Math.round((getDayBounds(task.dueDate).start - startOfDay) / 86400000);
+        isOverdue = diff < 0;
+        dueLabel = diff < 0 ? `Overdue ${-diff}d` : diff === 0 ? 'Due today' : diff === 1 ? 'Due tomorrow' : `Due ${new Date(getDayBounds(task.dueDate).noon).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    }
+    const isDueToday = !isDone && (
+        (task.type === 'daily' && isActiveToday) ||
+        task.type === 'weekly' || task.type === 'monthly' ||
+        (task.type === 'once' && (!task.dueDate || task.dueDate <= todayKey))
+    );
+    const periodLabel = { daily: 'today', weekly: 'this week', monthly: 'this month', once: 'total' }[task.type] || 'today';
+    return { doneAmt, target, isDone, isActiveToday, isOverdue, dueLabel, isDueToday, periodLabel, pct: Math.min(100, Math.round((doneAmt / target) * 100)) };
+}
+window.getTaskStatus = getTaskStatus;
 
 // ==========================================
 // GOOGLE SHEETS LIVE SYNC ('RawLogs')
@@ -551,9 +617,17 @@ function applyCloudPayload(parsed) {
     const localTasks = tasks || [];
     const taskMap = new Map();
 
-    cloudTasks.forEach(ct => { if (ct && ct.id) taskMap.set(ct.id, ct); });
+    // Merge deletion tombstones first so deleted items are never resurrected.
+    if (parsed.deletedIds && typeof parsed.deletedIds === 'object') {
+        deletedIds = { ...parsed.deletedIds, ...deletedIds };
+        localStorage.setItem('hisab_deleted_ids', JSON.stringify(deletedIds));
+    }
+    activityHistory = activityHistory.filter(h => !isDeleted(h.id));
+    localStorage.setItem('hisab_history', JSON.stringify(activityHistory));
+
+    cloudTasks.forEach(ct => { if (ct && ct.id && !isDeleted(ct.id)) taskMap.set(ct.id, ct); });
     localTasks.forEach(lt => {
-        if (!lt || !lt.id) return;
+        if (!lt || !lt.id || isDeleted(lt.id)) return;
         if (!taskMap.has(lt.id)) {
             taskMap.set(lt.id, lt);
         } else {
@@ -579,7 +653,9 @@ function applyCloudPayload(parsed) {
         }
     });
     tasks = Array.from(taskMap.values());
-    if (tasks.length === 0 && activityHistory.length > 0) { recoverMissingTasks(true); }
+    // A task archived on another device must not stay in the active list here.
+    const parsedArchivedIds = new Set((parsed.archivedTasks || []).map(t => t && t.id));
+    tasks = tasks.filter(t => !parsedArchivedIds.has(t.id));
     localStorage.setItem('hisab_tasks', JSON.stringify(tasks));
 
     // 3. Habits, Charity & Storage Merge
@@ -602,7 +678,7 @@ function applyCloudPayload(parsed) {
         const localUnsynced = (backlogData || []).filter(local => 
             !parsed.backlog.some(cloud => cloud.id === local.id || (local.link && cloud.link && local.link === cloud.link))
         );
-        backlogData = [...localUnsynced, ...parsed.backlog];
+        backlogData = [...localUnsynced, ...parsed.backlog].filter(b => b && !isDeleted(b.id));
         localStorage.setItem('hisab_backlog', JSON.stringify(backlogData));
     }
 
@@ -614,6 +690,7 @@ function applyCloudPayload(parsed) {
         localStorage.setItem('hisab_journal', JSON.stringify(journalData));
     }
     weeklyGoalData = parsed.weeklyGoal || weeklyGoalData;
+    applyCloudSettings(parsed.settings);
 
     // Deen safe merge
     if (parsed.deen) {
@@ -654,7 +731,7 @@ function listenToFirebase() {
                 } else {
                     saveDataLocallyOnly();
                 }
-                setSyncIndicator('synced', '☁️ Synced');
+                setSyncIndicator('synced', 'Synced');
                 render();
                 return; 
             }
@@ -665,14 +742,14 @@ function listenToFirebase() {
             
             if (legacyChanged || autoChanged) { saveData(); }
             else { saveDataLocallyOnly(); }
-            setSyncIndicator('synced', '☁️ Synced');
+            setSyncIndicator('synced', 'Synced');
             render();
         } else { 
             hasInitialCloudSync = true;
             migrateLegacyTasks();
             processAutomaticPenalties();
             saveData(); 
-            setSyncIndicator('synced', '☁️ Synced');
+            setSyncIndicator('synced', 'Synced');
         }
     }, (error) => {
         console.error("Firestore listener error:", error);
@@ -681,7 +758,7 @@ function listenToFirebase() {
 }
 
 async function triggerCloudSyncNow() {
-    setSyncIndicator('synced', 'Syncing...');
+    setSyncIndicator('synced', 'Syncing…');
     try {
         lastCloudError = null;
         const userRef = doc(db, "users", currentUser.uid);
@@ -722,7 +799,7 @@ function showSyncDiagnostics(err) {
                      '1. Open <a href="https://console.firebase.google.com" target="_blank" style="color:var(--primary); text-decoration:underline;">console.firebase.google.com</a><br>' +
                      '2. Click <b>hisab-1127d</b> ➡️ <b>Firestore Database</b> ➡️ <b>Rules</b><br>' +
                      '3. Paste this rule:<br>' +
-                     '<div style="background:#14171d; padding:8px 10px; border-radius:8px; font-family:monospace; font-size:0.72rem; margin:8px 0; text-align:left; border:1px solid #333; color:#a8ff78; line-height:1.4;">' +
+                     '<div style="background:#14171d; padding:8px 10px; border-radius:8px; font-family:monospace; font-size:0.72rem; margin:8px 0; text-align:left; border:1px solid var(--border); color:#a8ff78; line-height:1.4;">' +
                      "rules_version = '2';<br>service cloud.firestore {<br>&nbsp;&nbsp;match /databases/{database}/documents {<br>&nbsp;&nbsp;&nbsp;&nbsp;match /users/{userId} {<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;allow read, write: if request.auth != null && request.auth.uid == userId;<br>&nbsp;&nbsp;&nbsp;&nbsp;}<br>&nbsp;&nbsp;}<br>}" +
                      '</div>' +
                      '4. Click <b>Publish</b> and tap Retry.';
@@ -912,28 +989,21 @@ function renderMorningMissedBanner(yesterdayKey, newMissedList = [], penaltyAdde
         const task = tasks.find(t => t.id === log.taskId);
         const taskName = task ? task.title : log.title.replace(/^Missed.*?:\s*/, '');
         const pen = (log.donationAdded || 0) + (log.coveredBySurplus || 0);
-        return `<li style="margin-bottom:6px;">
-            <strong>${taskName}</strong> ${pen > 0 ? `<span style="color:var(--charity);">(Penalty: ₹${pen})</span>` : ''} 
-            ${task ? `<button onclick="openTask30DayModal('${task.id}', '${yesterdayKey}')" style="background:rgba(3,218,198,0.18); color:var(--success); border:1px solid var(--success); padding:3px 10px; font-size:0.75rem; width:auto; min-height:28px; margin:0 0 0 8px; border-radius:6px;">Fulfill & Refund</button>` : ''}
-        </li>`;
+        return `<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid var(--border);">
+            <div style="min-width:0;"><b>${escapeHTML(taskName)}</b>${pen > 0 ? ` <span style="color:var(--amber); font-size:12.5px;">₹${pen} penalty</span>` : ''}</div>
+            ${task ? `<button class="btn-sm" onclick="openTask30DayModal('${task.id}', '${yesterdayKey}')">Complete late</button>` : ''}
+        </div>`;
     }).join('');
 
+    if (sessionStorage.getItem('hisab_hide_recap_' + yesterdayKey)) { banner.style.display = 'none'; return; }
     banner.style.display = 'block';
     banner.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
-            <div>
-                <div style="font-weight:bold; color:var(--danger); font-size:0.95rem; margin-bottom:6px;">
-                    ⚠️ Yesterday's Missed Tasks (${yesterdayKey})
-                </div>
-                <ul style="margin:0; padding-left:18px; font-size:0.85rem; color:#eee;">
-                    ${itemsHtml}
-                </ul>
-                <div style="font-size:0.78rem; color:var(--text-muted); margin-top:8px;">
-                    💡 Tap <strong>Fulfill & Refund</strong> or open any task's <strong>📅 30-Day History</strong> to complete missed days and deduct penalties!
-                </div>
-            </div>
-            <button class="btn-icon" onclick="this.closest('.yesterday-recap-banner').style.display='none'" style="min-width:34px; min-height:34px; font-size:0.85rem;">✖</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px;">
+            <div style="font-weight:750; color:var(--red); font-size:14px;">Missed yesterday</div>
+            <button class="btn-icon" onclick="sessionStorage.setItem('hisab_hide_recap_${yesterdayKey}', '1'); this.closest('.yesterday-recap-banner').style.display='none'" aria-label="Dismiss">${svgIcon('x', 'icon icon-sm')}</button>
         </div>
+        <div style="font-size:14px;">${itemsHtml}</div>
+        <div class="muted" style="font-size:12px; margin-top:6px;">Did it but forgot to log? Tap "Complete late" — any penalty is refunded.</div>
     `;
 
     if (newMissedList.length > 0 && "Notification" in window && Notification.permission === "granted") {
@@ -941,7 +1011,7 @@ function renderMorningMissedBanner(yesterdayKey, newMissedList = [], penaltyAdde
         if (!localStorage.getItem(notifKey)) {
             new Notification(`Hisab: Yesterday's Missed Tasks (${yesterdayKey})`, {
                 body: `Missed yesterday: ${newMissedList.join(', ')}. Tap to review or fulfill retroactively.`,
-                icon: "icon.png"
+                icon: "icons/icon-192.png"
             });
             localStorage.setItem(notifKey, '1');
         }
@@ -953,6 +1023,7 @@ function saveDataLocallyOnly() {
     localStorage.setItem('hisab_archived_tasks', JSON.stringify(archivedTasks));
     localStorage.setItem('hisab_journal', JSON.stringify(journalData));
     localStorage.setItem('hisab_weekly_goal', JSON.stringify(weeklyGoalData));
+    localStorage.setItem('hisab_deleted_ids', JSON.stringify(deletedIds));
 }
 
 function sanitizeForFirestore(val) {
@@ -974,7 +1045,7 @@ function sanitizeForFirestore(val) {
 async function syncDataToFirebase() {
     if (currentUser) {
         try {
-            setSyncIndicator('synced', 'Saving...');
+            setSyncIndicator('synced', 'Saving…');
             const rawPayload = {
                 tasks,
                 history: activityHistory,
@@ -988,6 +1059,8 @@ async function syncDataToFirebase() {
                 archivedTasks,
                 journal: journalData,
                 weeklyGoal: weeklyGoalData,
+                deletedIds,
+                settings: collectSettings(),
                 lastModified: lastModifiedLocal
             };
             const cleanPayload = sanitizeForFirestore(rawPayload);
@@ -1066,14 +1139,15 @@ function refundPenaltyFromLog(missedLog) {
 function payDonation() {
     const input = document.getElementById('donation-pay-amount');
     const amount = parseFloat(input.value) || 0;
-    if (amount <= 0) return alert("Please enter a valid amount to pay.");
+    if (amount <= 0) { showToast('Enter the amount you paid', '💸'); input.focus(); return; }
     charityData.pending -= amount;
     if (charityData.pending < 0) charityData.pending = 0;
     charityData.paid += amount;
-    input.value = '';
+ input.value = '';
+    showToast(`Recorded ₹${amount.toLocaleString()} paid — may Allah accept it`, '🤲');
     saveData(); 
     if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
-    if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 80, origin: { y: 0.5 }, colors: ['#f6e58d', '#03dac6', '#ffffff'] });
+    if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 80, origin: { y: 0.5 }, colors: ['#f6e58d', 'var(--green)', '#ffffff'] });
 }
 
 function deductFromSurplus() {
@@ -1084,7 +1158,7 @@ function deductFromSurplus() {
     charityData.paid = (charityData.paid || 0) + toCover;
     saveData();
     if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard();
-    if (typeof confetti === 'function') confetti({ particleCount: 70, spread: 70, origin: { y: 0.5 }, colors: ['#03dac6', '#ffffff'] });
+    if (typeof confetti === 'function') confetti({ particleCount: 70, spread: 70, origin: { y: 0.5 }, colors: ['var(--green)', '#ffffff'] });
     showToast('Deducted ₹' + toCover.toLocaleString() + ' penalty using Surplus Wallet!', '✨');
 }
 
@@ -1150,6 +1224,8 @@ function toggleActiveDaysSelector() {
     if (selectorEl) {
         selectorEl.style.display = typeEl?.value === 'daily-custom' ? 'block' : 'none';
     }
+    const dueRow = document.getElementById('due-date-row');
+    if (dueRow) dueRow.style.display = typeEl?.value === 'once' ? 'block' : 'none';
 }
 
 function getActiveDays() {
@@ -1172,9 +1248,12 @@ function saveTask() {
     const donationPenalty = parseFloat(document.getElementById('task-donation').value) || 0;
     const reminderTime = document.getElementById('task-reminder-time').value;
     const isMaxOnceDaily = document.getElementById('task-is-max-once').checked;
-    const tags = [...currentEditingTags];
+ const tags = [...currentEditingTags];
+    const dueDate = rawType === 'once' ? (document.getElementById('task-due-date')?.value || '') : '';
+    const prayerAnchor = readPrayerAnchorFromForm();
     
-    if (!title) return alert('Enter a task name'); 
+    if (!title) { showToast('Please enter a task name', '✏️'); document.getElementById('task-title')?.focus(); return; }
+    if (rawType === 'daily-custom' && activeDays.length === 0) { showToast('Pick at least one day', '📅'); return; }
     if (id) { 
         const task = tasks.find(t => t.id === id);
         task.title = title;
@@ -1183,6 +1262,10 @@ function saveTask() {
         task.isMaxOnceDaily = isMaxOnceDaily;
         task.tags = tags;
         task.activeDays = activeDays;
+        task.dueDate = dueDate;
+        task.prayerAnchor = prayerAnchor;
+        if (prayerAnchor) task.reminderTime = '';
+        task.lastNotified = null;
         const creationTime = task.createdAt || Date.now();
         const newPeriodsLeft = getPeriodsLeft(type, creationTime);
         const newTotalYearly = newPeriodsLeft * baseTarget;
@@ -1203,11 +1286,14 @@ function saveTask() {
             title,
             type,
             activeDays,
+            dueDate,
+            prayerAnchor,
+            subtasks: [],
             tags,
             baseTarget,
             totalYearlyTarget,
             currentTarget: totalYearlyTarget,
-            reminderTime,
+            reminderTime: prayerAnchor ? '' : reminderTime,
             donationPenalty,
             isMaxOnceDaily,
             missedCount: 0,
@@ -1218,16 +1304,21 @@ function saveTask() {
             legacyMigrated: true
         }); 
     } 
+    const wasEdit = !!id;
+    if (prayerAnchor) ensurePrayerTimes();
     cancelEdit();
     closeModal('task-modal');
     saveData();
     render(); 
+    showToast(wasEdit ? 'Task updated' : 'Task added', '✅');
 }
 
 function editTask(id) { 
     const task = tasks.find(t => t.id === id); if (!task) return; 
-    document.getElementById('form-title').innerText = '✏️ Edit Task';
-    document.getElementById('btn-save-task').innerText = 'Save Changes';
+    document.getElementById('form-title').innerText = 'Edit task';
+    const dueEl = document.getElementById('task-due-date'); if (dueEl) dueEl.value = task.dueDate || '';
+    writePrayerAnchorToForm(task.prayerAnchor || null);
+    document.getElementById('btn-save-task').innerText = 'Save changes';
     document.getElementById('btn-cancel-edit').style.display = 'inline-block'; 
     document.getElementById('task-id').value = task.id;
     document.getElementById('task-title').value = task.title;
@@ -1250,8 +1341,10 @@ function editTask(id) {
 }
 
 function cancelEdit() { 
-    document.getElementById('form-title').innerText = '➕ Add New Task';
-    document.getElementById('btn-save-task').innerText = 'Save Task';
+    document.getElementById('form-title').innerText = 'New task';
+    document.getElementById('btn-save-task').innerText = 'Save task';
+    const dueEl = document.getElementById('task-due-date'); if (dueEl) dueEl.value = '';
+    writePrayerAnchorToForm(null);
     document.getElementById('btn-cancel-edit').style.display = 'none'; 
     document.getElementById('task-id').value = '';
     document.getElementById('task-title').value = '';
@@ -1285,8 +1378,9 @@ function showConfirmSheet(message, options = {}) {
         if (iconEl) iconEl.innerText = options.icon || '❓';
         if (okBtn) {
             okBtn.innerText = options.okText || 'Confirm';
-            okBtn.style.background = options.danger ? 'var(--danger)' : 'var(--primary)';
-            okBtn.style.color = options.danger ? '#fff' : '#000';
+            okBtn.className = options.danger ? 'btn-danger' : '';
+            const cancelBtn = document.getElementById('confirm-sheet-cancel');
+            if (cancelBtn) cancelBtn.innerText = options.cancelText || 'Cancel';
         }
         sheet.style.display = 'flex';
     });
@@ -1297,12 +1391,12 @@ function closeConfirmSheet(result) {
     if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
 }
 
-function deleteTask(id) { showConfirmSheet("Delete this task? All logs will remain in history.", { title: 'Delete Task', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => { if (ok) { tasks = tasks.filter(t => t.id !== id); saveData(); render(); } }); }
+function deleteTask(id) { showConfirmSheet("Delete this task? All logs will remain in history.", { title: 'Delete Task', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => { if (ok) { markDeleted(id); tasks = tasks.filter(t => t.id !== id); saveData(); render(); showToast('Task deleted', '🗑️'); } }); }
 
-function logProgress(id) {
+function logProgress(id, explicitAmount = null) {
     const task = tasks.find(t => t.id === id); if (!task) return;
     const inputEl = document.getElementById(`input-${id}`);
-    const amountDone = parseFloat(inputEl ? inputEl.value : task.baseTarget) || task.baseTarget || 1;
+    const amountDone = explicitAmount != null ? Number(explicitAmount) : (parseFloat(inputEl ? inputEl.value : task.baseTarget) || task.baseTarget || 1);
     if (amountDone <= 0) return;
 
     const todayStr = new Date().toDateString();
@@ -1314,11 +1408,12 @@ function logProgress(id) {
         refundPenaltyFromLog(mLog);
         task.currentTarget += (mLog.amount || 1);
         syncToGoogleSheets({ actionType: 'undo', id: mLog.id });
+        markDeleted(mLog.id);
         activityHistory = activityHistory.filter(h => h.id !== mLog.id);
     });
 
     triggerHaptic([20, 40, 20]);
-    if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['#bb86fc', '#03dac6', '#f6e58d'] });
+    if (typeof confetti === 'function') confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 }, colors: ['var(--brand)', 'var(--green)', '#f6e58d'] });
     task.lastCompletedDay = todayStr;
     if (task.isMaxOnceDaily) task.missedCount = 0;
     
@@ -1339,7 +1434,8 @@ function logProgress(id) {
 
 function markMissed(id, event) {
     const task = tasks.find(t => t.id === id); if (!task) return;
-    if (confirm(`Mark "${task.title}" as missed manually?`)) {
+    showConfirmSheet(`Mark <b>${escapeHTML(task.title)}</b> as missed for today?${task.donationPenalty > 0 ? ` A ₹${task.donationPenalty} penalty will be added.` : ''}`, { title: 'Mark as missed', icon: '⚠️', okText: 'Mark missed', danger: true }).then(ok => {
+    if (ok) {
         triggerSadEffect(event);
         let addedPenalty = 0; let coveredSurplus = 0;
         if (task.donationPenalty > 0) { 
@@ -1356,6 +1452,7 @@ function markMissed(id, event) {
         if (task.currentTarget <= 0) task.isCompleted = true;
         saveData(); render();
     }
+    });
 }
 
 // ==========================================
@@ -1491,7 +1588,7 @@ function render30DayInspector(task, dateKey) {
                 <div style="width:95px; flex-shrink:0;">
                     <input type="number" id="inspector-amount-input" value="${task.baseTarget || 1}" step="any" min="0.1" style="margin:0; text-align:center; font-weight:bold;">
                 </div>
-                <button onclick="fulfillMissedTaskDay('${task.id}', '${dateKey}', true)" style="background:var(--success); color:#000; flex:1; margin:0;">
+                <button onclick="fulfillMissedTaskDay('${task.id}', '${dateKey}', true)" style="background:var(--success); color:var(--on-accent); flex:1; margin:0;">
                     ✅ Fulfill Task & Deduct ₹${effectiveRefund} Penalty
                 </button>
             </div>
@@ -1504,7 +1601,7 @@ function render30DayInspector(task, dateKey) {
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
                 <div>
                     <div style="font-size:0.8rem; color:var(--text-muted);">Selected Date (Unlogged)</div>
-                    <div style="font-size:1.05rem; font-weight:800; color:#fff;">⚪ ${readableDate}</div>
+                    <div style="font-size:1.05rem; font-weight:800; color:var(--text);">⚪ ${readableDate}</div>
                 </div>
                 ${effectiveRefund > 0 ? `<span class="badge donation" style="margin:0;">💸 Deducts ₹${effectiveRefund} Penalty</span>` : `<span class="badge target" style="margin:0;">Target: ${task.baseTarget || 1}</span>`}
             </div>
@@ -1512,7 +1609,7 @@ function render30DayInspector(task, dateKey) {
                 <div style="width:95px; flex-shrink:0;">
                     <input type="number" id="inspector-amount-input" value="${task.baseTarget || 1}" step="any" min="0.1" style="margin:0; text-align:center; font-weight:bold;">
                 </div>
-                <button onclick="fulfillMissedTaskDay('${task.id}', '${dateKey}', true)" style="background:var(--primary); color:#000; flex:1; margin:0;">
+                <button onclick="fulfillMissedTaskDay('${task.id}', '${dateKey}', true)" style="background:var(--primary); color:var(--on-accent); flex:1; margin:0;">
                     ✅ Mark Completed${effectiveRefund > 0 ? ` (& Deduct ₹${effectiveRefund})` : ''}
                 </button>
                 <button onclick="markTaskMissedOnDate('${task.id}', '${dateKey}')" style="background:rgba(255,82,82,0.15); color:var(--danger); border:1px solid rgba(255,82,82,0.35); width:auto; padding:0 14px; margin:0;" title="Mark Missed on this Date">
@@ -1743,7 +1840,7 @@ function addDragAndDrop(el, taskId) {
 
     el.addEventListener('dragend', () => {
         el.style.opacity = '1';
-        document.querySelectorAll('.task-item').forEach(item => item.classList.remove('drag-over'));
+        document.querySelectorAll('.task-card-minimal').forEach(item => item.classList.remove('drag-over'));
     });
 
     el.addEventListener('dragover', e => {
@@ -1764,10 +1861,10 @@ function addDragAndDrop(el, taskId) {
         const destTask = tasks.find(t => t.id === taskId);
         if (!srcTask || !destTask || srcTask.type !== destTask.type) return;
 
-        const srcOrder = srcTask.sortOrder ?? tasks.indexOf(srcTask);
-        const destOrder = destTask.sortOrder ?? tasks.indexOf(destTask);
-        srcTask.sortOrder = destOrder;
-        destTask.sortOrder = srcOrder;
+        const same = tasks.filter(t => t.type === srcTask.type).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        const from = same.indexOf(srcTask), to = same.indexOf(destTask);
+        same.splice(from, 1); same.splice(to, 0, srcTask);
+        same.forEach((t, i) => { t.sortOrder = i; });
         saveData();
         renderTasks();
     });
@@ -1811,7 +1908,7 @@ function openArchive() {
             div.style = 'background:var(--card-elevated); padding:14px; border-radius:12px; margin-bottom:10px; border-left:4px solid var(--success); display:flex; justify-content:space-between; align-items:center; gap:10px;';
             div.innerHTML = `
                 <div>
-                    <div style="font-weight:700; color:var(--text-main);">✅ ${task.title}</div>
+                    <div style="font-weight:700; color:var(--text-main);">✅ ${escapeHTML(task.title)}</div>
                     <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Archived ${new Date(task.archivedAt).toLocaleDateString()} · ${task.type}</div>
                 </div>
                 <button onclick="unarchiveTask('${task.id}')" style="background:rgba(3,218,198,0.15); color:var(--success); border:1px solid rgba(3,218,198,0.3); padding:6px 12px; margin:0; width:auto; font-size:0.8rem; border-radius:8px;">↩️ Restore</button>
@@ -1824,194 +1921,152 @@ function openArchive() {
 
 function renderTasks() {
     const container = document.getElementById('task-list-container'); if (!container) return; container.innerHTML = '';
-    const filterView = currentTaskFilter || (document.getElementById('task-view-filter') ? document.getElementById('task-view-filter').value : 'all');
-    const pillAll = document.getElementById('filter-all-count'); if (pillAll) pillAll.innerText = tasks.length;
-    const pillDaily = document.getElementById('filter-daily-count'); if (pillDaily) pillDaily.innerText = tasks.filter(t => t.type === 'daily').length;
-    const pillWeekly = document.getElementById('filter-weekly-count'); if (pillWeekly) pillWeekly.innerText = tasks.filter(t => t.type === 'weekly').length;
-    const pillMonthly = document.getElementById('filter-monthly-count'); if (pillMonthly) pillMonthly.innerText = tasks.filter(t => t.type === 'monthly').length;
-    const pillOnce = document.getElementById('filter-once-count'); if (pillOnce) pillOnce.innerText = tasks.filter(t => t.type === 'once').length;
-
-    const searchQuery = (document.getElementById('task-search-input')?.value || '').trim().toLowerCase();
-    const categories = [ { id: 'daily', title: '📅 Daily Tasks', filter: t => t.type === 'daily' }, { id: 'weekly', title: '📆 Weekly Tasks', filter: t => t.type === 'weekly' }, { id: 'monthly', title: '🗓️ Monthly Tasks', filter: t => t.type === 'monthly' }, { id: 'once', title: '🎯 One-Time Tasks', filter: t => t.type === 'once' } ];
-    
-    // Update archive count & weekly goal banner
-    const archiveCountEl = document.getElementById('archive-count');
-    if (archiveCountEl) archiveCountEl.innerText = archivedTasks.length;
+    const filterView = currentTaskFilter || 'all';
+    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+    setText('filter-all-count', tasks.length);
+    setText('filter-daily-count', tasks.filter(t => t.type === 'daily').length);
+    setText('filter-weekly-count', tasks.filter(t => t.type === 'weekly').length);
+    setText('filter-monthly-count', tasks.filter(t => t.type === 'monthly').length);
+    setText('filter-once-count', tasks.filter(t => t.type === 'once').length);
+    setText('archive-count', archivedTasks.length);
     updateWeeklyGoalBanner();
 
-    const now = new Date();
-    const todayKey = toDateKey(Date.now());
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const searchQuery = (document.getElementById('task-search-input')?.value || '').trim().toLowerCase();
+    const categories = [
+        { id: 'daily', title: 'Daily' }, { id: 'weekly', title: 'Weekly' },
+        { id: 'monthly', title: 'Monthly' }, { id: 'once', title: 'One-time' }
+    ];
 
-    // Update Daily Focus Progress Bar
-    const dailyTasksAll = tasks.filter(t => t.type === 'daily');
-    let dailyDoneCount = 0;
-    const todayStrNow = new Date().toDateString();
-    dailyTasksAll.forEach(t => {
-        const isDoneToday = (t.lastCompletedDay === todayStrNow) ||
-            activityHistory.some(h => h.taskId === t.id && h.actionType === 'complete' && (isLogOnDateKey(h, todayKey) || h.timestamp >= startOfDay)) ||
-            (t.currentTarget <= 0);
-        if (isDoneToday) dailyDoneCount++;
-    });
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    // Today's daily focus: only tasks scheduled today count
+    const todaysDaily = tasks.filter(t => t.type === 'daily' && isTaskActiveOn(t, now));
+    const dailyDoneCount = todaysDaily.filter(t => getTaskStatus(t, now).isDone).length;
     const focusLabel = document.getElementById('daily-focus-label');
     const focusFill = document.getElementById('daily-focus-fill');
     if (focusLabel && focusFill) {
-        const pct = dailyTasksAll.length > 0 ? Math.round((dailyDoneCount / dailyTasksAll.length) * 100) : 0;
-        focusLabel.innerText = `${dailyDoneCount} / ${dailyTasksAll.length} Done (${pct}%)`;
+        const pct = todaysDaily.length > 0 ? Math.round((dailyDoneCount / todaysDaily.length) * 100) : 0;
+        focusLabel.innerText = `${dailyDoneCount} / ${todaysDaily.length} · ${pct}%`;
         focusFill.style.width = `${pct}%`;
     }
+    setText('drawer-count-tasks', todaysDaily.length ? `${todaysDaily.length - dailyDoneCount}` : '');
+
+    if (tasks.length === 0) {
+        container.innerHTML = `<div class="empty-state">${svgIcon('check-square')}<div style="font-weight:650; color:var(--text);">No tasks yet</div><div>Add your first task or reminder to get started.</div><button class="btn-sm" style="margin-top:12px;" onclick="cancelEdit(); openModal('task-modal');">${svgIcon('plus', 'icon icon-sm')}New task</button></div>`;
+        return;
+    }
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    let anyShown = false;
 
     categories.forEach(cat => {
         if (filterView !== 'all' && cat.id !== filterView) return;
-        const filteredTasks = tasks.filter(t => cat.filter(t) && (!searchQuery || t.title.toLowerCase().includes(searchQuery)));
-        if (filteredTasks.length === 0) return;
-        filteredTasks.forEach(task => {
-            let timeThreshold = startOfDay;
-            if (task.type === 'weekly') timeThreshold = startOfWeek;
-            if (task.type === 'monthly') timeThreshold = startOfMonth;
+        const list = tasks.filter(t => t.type === cat.id && (!searchQuery || (t.title || '').toLowerCase().includes(searchQuery)));
+        if (list.length === 0) return;
+        anyShown = true;
 
-            const periodLogs = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && (h.timestamp >= timeThreshold || (task.type === 'daily' && isLogOnDateKey(h, todayKey))));
-            task.amountDonePeriod = periodLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
-            
-            if (task.type === 'once') {
-                task.isDoneForPeriod = task.currentTarget <= 0;
-            } else if (task.type === 'daily') {
-                task.isDoneForPeriod = (task.lastCompletedDay === todayStrNow) || (task.amountDonePeriod >= (task.baseTarget || 1)) || (task.currentTarget <= 0);
-            } else {
-                task.isDoneForPeriod = (task.amountDonePeriod >= (task.baseTarget || 1)) || (task.currentTarget <= 0);
+        const withStatus = list.map(t => ({ t, st: getTaskStatus(t, now) }));
+        withStatus.sort((a, b) => {
+            // pending & scheduled first, then rest days, then done; respect manual order inside groups
+            const rank = x => x.st.isDone ? 2 : (x.st.isActiveToday ? 0 : 1);
+            const r = rank(a) - rank(b);
+            if (r !== 0) return r;
+            if (cat.id === 'once') {
+                const ad = a.t.dueDate || '9999', bd = b.t.dueDate || '9999';
+                if (ad !== bd) return ad < bd ? -1 : 1;
             }
+            return (a.t.sortOrder ?? 0) - (b.t.sortOrder ?? 0);
         });
 
-        filteredTasks.sort((a, b) => (a.isDoneForPeriod ? 1 : 0) - (b.isDoneForPeriod ? 1 : 0));
-
         const section = document.createElement('div');
-        if (filterView === 'all') {
-            section.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin:22px 0 10px 0; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.08);">
-                    <h3 style="margin:0; font-size:0.95rem; font-weight:800; color:#8892b0; text-transform:uppercase; letter-spacing:1px;">${cat.title}</h3>
-                    <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">${filteredTasks.length} task${filteredTasks.length > 1 ? 's' : ''}</span>
-                </div>
-            `;
-        }
-        filteredTasks.forEach(task => {
+        section.innerHTML = `<div class="task-group-head"><h3>${cat.title}</h3><span>${withStatus.filter(x => x.st.isDone).length}/${list.length} done</span></div>`;
+
+        withStatus.forEach(({ t: task, st }) => {
             const primaryTag = task.tags && task.tags[0];
             const div = document.createElement('div');
-            div.className = `task-card-minimal ${task.isDoneForPeriod ? 'is-completed' : ''} ${primaryTag ? 'tag-border-' + primaryTag : ''}`;
+            div.className = `task-card-minimal ${st.isDone ? 'is-completed' : ''}`;
             div.id = `task-card-${task.id}`;
-            let badgeLabel = "Done Today"; if (task.type === 'weekly') badgeLabel = "Done This Week"; if (task.type === 'monthly') badgeLabel = "Done This Month";
 
             const thirtyDaysAgo = startOfDay - 29 * 86400000;
             const missed30Count = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'missed' && h.timestamp >= thirtyDaysAgo).length;
+            const streak = computeItemStreak(task.id, 'tasks').currentStreak;
 
-            let statusHTML = task.currentTarget <= 0 ? `<span class="badge done-badge">✅ Completed for Year!</span>` : `<span class="badge target">Remaining: ${Math.round(task.currentTarget * 100) / 100}</span>`;
-            let reminderHtml = task.reminderTime ? `<span class="badge reminder" onclick="addToGoogleCalendar('${task.id}')" style="cursor:pointer;" title="Google Calendar Alarm">🔔 ${task.reminderTime}</span>` : ``;
-            let donationHtml = task.donationPenalty ? `<span class="badge donation">💸 Penalty: ₹${task.donationPenalty}</span>` : ``;
-            let strictHtml = task.isMaxOnceDaily ? `<span class="badge" style="background:#2a2a35; color:#ccc;">Strict Streak: ${task.missedCount || 0}/5</span>` : '';
-            let donePeriodHtml = task.amountDonePeriod > 0 ? `<span class="badge done-badge">✅ ${badgeLabel}: ${task.amountDonePeriod}</span>` : '';
-            let missedBadgeHtml = missed30Count > 0 ? `<span class="badge" style="background:rgba(255,82,82,0.18); color:var(--danger); border:1px solid rgba(255,82,82,0.4); cursor:pointer;" onclick="openTask30DayModal('${task.id}')">⚠️ ${missed30Count} Missed (Fulfill)</span>` : '';
-            const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-            let activeDaysHtml = task.activeDays && task.activeDays.length > 0 ? `<span class="badge" style="background:#252530; color:#ccc;">📅 ${task.activeDays.map(d => dayNames[d]).join(', ')}</span>` : '';
+            // Meta line
+            const meta = [];
+            meta.push(`<span class="task-chip chip-${task.type}">${task.activeDays && task.activeDays.length ? task.activeDays.slice().sort((a,b)=>((a+6)%7)-((b+6)%7)).map(d => dayNames[d]).join(' ') : task.type}</span>`);
+            if (task.type !== 'once' || (task.baseTarget || 1) > 1) meta.push(`<span class="num">${fmtNum(st.doneAmt)}/${fmtNum(st.target)} ${st.periodLabel}</span>`);
+            if (!st.isActiveToday) meta.push(`<span>Rest day</span>`);
+            if (st.dueLabel) meta.push(`<span class="${st.isOverdue ? 'warn' : ''}">${st.dueLabel}</span>`);
+            const remLabel = effectiveReminderLabel(task);
+            if (task.snoozedUntil && task.snoozedUntil > Date.now()) meta.push(`<span>😴 until ${new Date(task.snoozedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`);
+            else if (remLabel) meta.push(`<span>${svgIcon('bell', 'icon icon-sm')} ${escapeHTML(remLabel)}</span>`);
+            const sts = subtaskState(task);
+            if (sts.total) meta.push(`<span>${svgIcon('check-square', 'icon icon-sm')} ${sts.done}/${sts.total}</span>`);
+            if (streak > 0) meta.push(`<span class="streak">${svgIcon('flame', 'icon icon-sm')} ${streak}d</span>`);
+            if (missed30Count > 0) meta.push(`<span class="warn" style="cursor:pointer" onclick="event.stopPropagation(); openTask30DayModal('${task.id}')">${missed30Count} missed</span>`);
+            if (primaryTag) meta.push(`<span style="text-transform:capitalize">${escapeHTML(primaryTag)}</span>`);
 
+            // 7-day strip for daily tasks
             let miniWeekHtml = '';
             if (task.type === 'daily') {
                 let pills = '';
                 for (let d = 6; d >= 0; d--) {
                     const pDate = new Date(startOfDay - d * 86400000);
                     const dKey = toDateKey(pDate);
-                    const dayShort = d === 0 ? 'Today' : pDate.toLocaleDateString(undefined, { weekday: 'short' });
-                    const isDone = activityHistory.some(h => h.taskId === task.id && h.actionType === 'complete' && isLogOnDateKey(h, dKey));
+                    const amt = activityHistory.filter(h => h.taskId === task.id && h.actionType === 'complete' && isLogOnDateKey(h, dKey)).reduce((a, h) => a + (h.amount || 1), 0);
+                    const isDone = amt >= (task.baseTarget || 1);
+                    const isPartial = !isDone && amt > 0;
                     const isMiss = !isDone && activityHistory.some(h => h.taskId === task.id && h.actionType === 'missed' && isLogOnDateKey(h, dKey));
-                    const pClass = isDone ? 'done' : (isMiss ? 'missed' : '');
-                    const pIcon = isDone ? '✅' : (isMiss ? '❌' : '⚪');
-                    pills += `<span class="day-pill ${pClass}" onclick="openTask30DayModal('${task.id}', '${dKey}')" title="Inspect ${dKey}">${pIcon} ${dayShort}</span>`;
+                    const rest = !isTaskActiveOn(task, pDate);
+                    const pClass = isDone ? 'done' : (isMiss ? 'missed' : (isPartial ? 'partial' : (rest ? 'rest' : '')));
+                    const mark = isDone ? '✓' : (isMiss ? '✕' : (isPartial ? '½' : '·'));
+                    pills += `<span class="day-pill ${pClass}" onclick="openTask30DayModal('${task.id}', '${dKey}')" title="${dKey}"><span>${d === 0 ? 'Today' : pDate.toLocaleDateString(undefined, { weekday: 'short' })}</span><b>${mark}</b></span>`;
                 }
-                miniWeekHtml = `<div class="mini-week-strip" style="margin-top:6px; padding-top:6px; border-top:none;">${pills}</div>`;
+                miniWeekHtml = `<div class="tray-label">Last 7 days</div><div class="mini-week-strip">${pills}</div>`;
             }
 
+            const canLog = (task.currentTarget ?? 1) > 0;
+            const badges = [
+                renderTaskTags(task.tags),
+                `<span class="badge target">${fmtNum(task.currentTarget)} left this year</span>`,
+                task.donationPenalty ? `<span class="badge donation">₹${task.donationPenalty} penalty if missed</span>` : '',
+                task.isMaxOnceDaily ? `<span class="badge">Strict · ${task.missedCount || 0}/5 misses</span>` : ''
+            ].join('');
+
             div.innerHTML = `
-                <!-- Minimal Top Bar (Title + Badges + Slider Chevron) -->
-                <div class="task-minimal-top" onclick="toggleTaskSlider('${task.id}', event)">
-                    <div style="flex:1;">
-                        ${(() => {
-                            const taskStreak = computeItemStreak(task.id, 'tasks');
-                            return taskStreak.currentStreak > 0
-                                ? `<span class="badge" style="background:var(--pastel-peach-fill, rgba(251,113,133,0.16)); color:var(--pastel-peach-ink, #9f1239); font-weight:700; border-radius:12px; padding:2px 8px; font-size:0.75rem; margin-right:6px;">🔥 ${taskStreak.currentStreak}d</span>`
-                                : '';
-                        })()}
-                        <div class="task-minimal-title">
-                            ${task.isDoneForPeriod ? '✅ ' : ''}${task.title}
-                        </div>
-                        <div class="task-minimal-meta">
-                            <span class="task-chip chip-${task.type}">${task.type.toUpperCase()}</span>
-                            ${primaryTag ? `<span class="task-chip chip-tag">${primaryTag}</span>` : ''}
-                            <span style="font-weight:700; color:var(--text-main);">Target: ${task.baseTarget}</span>
-                            <span>• Remaining: ${Math.round(task.currentTarget * 100) / 100}</span>
-                        </div>
+                <div class="task-row">
+                    <button class="task-check" onclick="event.stopPropagation(); quickCompleteTask('${task.id}', event)" title="${st.isDone ? 'Done — tap to log more' : 'Mark done'}" aria-label="Complete ${escapeHTML(task.title)}">
+                        ${svgIcon('check')}
+                    </button>
+                    <div class="task-main" onclick="toggleTaskSlider('${task.id}', event)">
+                        <div class="task-minimal-title">${escapeHTML(task.title)}</div>
+                        <div class="task-minimal-meta">${meta.join('')}</div>
                     </div>
-                    <button class="btn-slider-chevron" onclick="toggleTaskSlider('${task.id}', event)" title="Toggle extra details">
-                        <span id="chevron-${task.id}">▼</span>
-                    </button>
+                    <button class="btn-slider-chevron" onclick="toggleTaskSlider('${task.id}', event)" aria-label="Details">${svgIcon('chevron-down')}<span id="chevron-${task.id}" class="sr-only"></span></button>
                 </div>
-
-                <!-- Minimal Primary Action Button (Inspired by 'Mark Attendance' in reference) -->
-                <div class="task-minimal-action-row">
-                    <button class="btn-primary-action ${task.isDoneForPeriod ? 'completed' : ''}" onclick="logProgress('${task.id}')">
-                        ${task.isDoneForPeriod ? '✅ Done Today (Tap to +1)' : '✔️ Complete Task'}
-                    </button>
-                    <button class="btn-extra-toggle" onclick="toggleTaskSlider('${task.id}', event)" title="View extra options & details">
-                        ⋯
-                    </button>
-                </div>
-
-                <!-- Sliding Drawer Tray (Revealed smoothly on click!) -->
+                ${(task.baseTarget || 1) > 1 && task.type !== 'once' ? `<div class="task-period-bar"><span style="width:${st.pct}%"></span></div>` : ''}
                 <div class="task-slider-tray" id="task-slider-${task.id}">
-                    <!-- 7-Day Mini Strip -->
+                    ${canLog ? `
+                        <div class="tray-label">Log progress</div>
+                        <div class="log-row">
+                            <input type="number" class="qty" step="any" id="input-${task.id}" value="${task.baseTarget || 1}" min="0.1" inputmode="decimal" aria-label="Amount">
+                            <input type="text" id="note-${task.id}" placeholder="Note (optional)">
+                            <button onclick="logProgress('${task.id}')">Log</button>
+                        </div>` : ''}
+                    ${renderSubtasksHtml(task)}
                     ${miniWeekHtml}
-
-                    <!-- Custom Quantity & Note Row -->
-                    ${task.currentTarget > 0 ? `
-                        <div style="display:flex; gap:8px; align-items:center; margin-top:10px;">
-                            <input type="text" id="note-${task.id}" placeholder="📝 Add note (optional)..." style="flex:1; margin:0; font-size:0.82rem; padding:8px 12px; border-radius:10px; background:var(--card-elevated); border:1px solid rgba(255,255,255,0.08); color:#fff;">
-                            <div style="width:72px; flex-shrink:0;">
-                                <input type="number" step="any" id="input-${task.id}" value="${task.baseTarget}" min="0.1" style="margin:0; text-align:center; padding:8px 4px; font-weight:700; border-radius:10px; background:var(--card-elevated); border:1px solid rgba(255,255,255,0.08); color:#fff;">
-                            </div>
-                            ${(task.donationPenalty && !task.isMaxOnceDaily) ? `
-                                <button class="btn" onclick="markMissed('${task.id}', event)" style="background:rgba(255,82,82,0.18); color:var(--danger); border:1px solid rgba(255,82,82,0.4); padding:8px 12px; font-size:0.78rem; font-weight:700; border-radius:10px; margin:0; white-space:nowrap; cursor:pointer;">
-                                    ❌ Missed
-                                </button>
-                            ` : ''}
-                        </div>
-                    ` : ''}
-
-                    <!-- Badges Row -->
-                    <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px;">
-                        ${renderTaskTags(task.tags)}
-                        ${statusHTML}
-                        ${reminderHtml}
-                        ${donationHtml}
-                        ${strictHtml}
-                        ${donePeriodHtml}
-                        ${missedBadgeHtml}
-                        ${activeDaysHtml}
-                    </div>
-
-                    <!-- Extra Action Toolbar -->
-                    <div style="display:flex; gap:6px; margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.06); justify-content:space-between; align-items:center; flex-wrap:wrap;">
-                        <div style="display:flex; gap:6px;">
-                            <button class="tool-btn" onclick="addToGoogleCalendar('${task.id}')" title="Google Calendar Alarm">🗓️ Alarm</button>
-                            <button class="tool-btn" onclick="openPomodoroTimer('${task.id}')" title="25m Pomodoro Focus Timer">🍅 Focus</button>
-                            <button class="tool-btn" onclick="openTask30DayModal('${task.id}')" title="30-Day History & Fulfill Missed">📅 30 Days</button>
-                        </div>
-                        <div style="display:flex; gap:6px;">
-                            <button class="tool-btn" onclick="editTask('${task.id}')" title="Edit Task">✏️ Edit</button>
-                            ${task.currentTarget <= 0 ? `
-                                <button class="tool-btn" onclick="archiveTask('${task.id}')" style="color:var(--success);">🗃️ Archive</button>
-                            ` : `
-                                <button class="tool-btn" onclick="deleteTask('${task.id}')" style="color:var(--danger);">🗑️ Delete</button>
-                            `}
-                        </div>
+                    <div class="task-badges" style="margin-top:12px;">${badges}</div>
+                    <div class="tool-row">
+                        <button class="tool-btn" onclick="openTask30DayModal('${task.id}')">${svgIcon('calendar')}30 days</button>
+                        <button class="tool-btn" onclick="openPomodoroTimer('${task.id}')">${svgIcon('timer')}Focus</button>
+                        <button class="tool-btn" onclick="addToGoogleCalendar('${task.id}')">${svgIcon('alarm')}Calendar</button>
+                        ${canLog && !st.isDone ? `<button class="tool-btn" onclick="snoozeTask('${task.id}', 60)" title="Remind me in 1 hour">😴 1h</button><button class="tool-btn" onclick="snoozeTask('${task.id}', 'tomorrow')" title="Remind me tomorrow">😴 Tomorrow</button>` : ''}
+                        ${canLog && (task.donationPenalty > 0 || task.isMaxOnceDaily) ? `<button class="tool-btn danger" onclick="markMissed('${task.id}', event)">${svgIcon('x')}Missed</button>` : ''}
+                        <span class="spacer"></span>
+                        <button class="tool-btn" onclick="editTask('${task.id}')">${svgIcon('pen')}Edit</button>
+                        ${!canLog || task.type === 'once' ? `<button class="tool-btn success" onclick="archiveTask('${task.id}')">${svgIcon('archive')}Archive</button>` : ''}
+                        <button class="tool-btn danger" onclick="deleteTask('${task.id}')" aria-label="Delete">${svgIcon('trash')}</button>
                     </div>
                 </div>
             `;
@@ -2022,7 +2077,26 @@ function renderTasks() {
         });
         container.appendChild(section);
     });
+
+    if (!anyShown) {
+        container.innerHTML = `<div class="empty-state">${svgIcon('search')}<div>No tasks match.</div></div>`;
+    }
 }
+
+// One-tap completion from the checkbox: logs one period's target (or the remainder of it).
+function quickCompleteTask(id, event) {
+    const task = tasks.find(t => t.id === id); if (!task) return;
+    if ((task.currentTarget ?? 1) <= 0) { showToast('Yearly target already reached 🎉', '🏆'); return; }
+    const st = getTaskStatus(task);
+    const remaining = Math.max(0, st.target - st.doneAmt);
+    const amount = remaining > 0 ? remaining : (task.baseTarget || 1);
+    const inputEl = document.getElementById(`input-${id}`);
+    if (inputEl) inputEl.value = amount;
+    logProgress(id, amount);
+    if (remaining > 0) showToast(`Done: ${task.title}`, '✅');
+    else showToast(`Extra logged: ${task.title}`, '➕');
+}
+window.quickCompleteTask = quickCompleteTask;
 
 // ==========================================
 // GOOD HABITS, BAD HABITS & 30-DAY HABIT CALENDAR
@@ -2202,7 +2276,7 @@ function renderGoodHabits() {
     if (!container) return;
     
     container.innerHTML = '';
-    if (goodHabits.length === 0) { container.innerHTML = '<p style="color:#aaa; text-align:center;">No good habits tracked yet.</p>'; return; }
+    if (goodHabits.length === 0) { container.innerHTML = '<p style="color:var(--muted); text-align:center;">No good habits tracked yet.</p>'; return; }
 
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -2215,7 +2289,7 @@ function renderGoodHabits() {
         const timesDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
         let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge done-badge">⭐ Done Today: ${timesDoneToday}</span>` : '';
         const { currentStreak: gCurr, longestStreak: gLong } = computeHabitStreak(habit.id, 'good');
-        const streakHtml = gCurr > 0 ? `<span class="badge" style="background:rgba(255,180,0,0.15); color:#f5c518; border:1px solid rgba(255,180,0,0.3);">🔥 ${gCurr}d streak${gLong > gCurr ? ` (best: ${gLong}d)` : ''}</span>` : (gLong > 0 ? `<span class="badge" style="background:#252530; color:#aaa;">Best: 🔥${gLong}d</span>` : '');
+        const streakHtml = gCurr > 0 ? `<span class="badge" style="background:rgba(255,180,0,0.15); color:var(--amber); border:1px solid rgba(255,180,0,0.3);">🔥 ${gCurr}d streak${gLong > gCurr ? ` (best: ${gLong}d)` : ''}</span>` : (gLong > 0 ? `<span class="badge" style="background:var(--surface-2); color:var(--muted);">Best: 🔥${gLong}d</span>` : '');
 
         let pills = '';
         for (let d = 6; d >= 0; d--) {
@@ -2231,8 +2305,8 @@ function renderGoodHabits() {
         div.innerHTML = `
             <div class="task-header">
                 <div>
-                    <div class="task-title" style="color:var(--success);">${habit.title}</div>
-                    <div class="task-badges"><span class="badge" style="background:#252530; color:#fff;">Annual Total: ${habit.annualCount}</span><span class="badge" style="background:rgba(3, 218, 198, 0.1); color:var(--success);">${rewardText}</span>${doneTodayHtml}${streakHtml}</div>
+                    <div class="task-title" style="color:var(--success);">${escapeHTML(habit.title)}</div>
+                    <div class="task-badges"><span class="badge" style="background:var(--surface-2); color:var(--text);">Annual Total: ${habit.annualCount}</span><span class="badge" style="background:rgba(3, 218, 198, 0.1); color:var(--success);">${rewardText}</span>${doneTodayHtml}${streakHtml}</div>
                 </div>
                 <div class="task-controls">
                     <button class="btn-icon" onclick="openHabit30DayModal('${habit.id}', 'good')" title="30-Day Habit Streak">📅</button>
@@ -2241,7 +2315,7 @@ function renderGoodHabits() {
                 </div>
             </div>
             <div class="mini-week-strip">${pills}</div>
-            <div class="task-action-row"><button class="btn-task-action" style="background:var(--success); color:#000;" onclick="logGoodHabit('${habit.id}', event)">+1 Log Good Habit</button></div>
+            <div class="task-action-row"><button class="btn-task-action" style="background:var(--success); color:var(--on-accent);" onclick="logGoodHabit('${habit.id}', event)">+1 Log Good Habit</button></div>
         `;
         container.appendChild(div);
     });
@@ -2306,7 +2380,7 @@ function deleteBadHabit(id) { showConfirmSheet("Delete this bad habit tracker?",
 
 function renderBadHabits() {
     const container = document.getElementById('bad-habit-list-container'); if (!container) return; container.innerHTML = '';
-    if (badHabits.length === 0) { container.innerHTML = '<p style="color:#aaa; text-align:center;">No bad habits tracked yet.</p>'; return; }
+    if (badHabits.length === 0) { container.innerHTML = '<p style="color:var(--muted); text-align:center;">No bad habits tracked yet.</p>'; return; }
 
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -2319,7 +2393,7 @@ function renderBadHabits() {
         const timesDoneToday = todayLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
         let doneTodayHtml = timesDoneToday > 0 ? `<span class="badge" style="background:rgba(255, 82, 82, 0.2); color:var(--danger);">⚠️ Logged Today: ${timesDoneToday}</span>` : '';
         const { currentStreak: bCurr, longestStreak: bLong } = computeHabitStreak(habit.id, 'bad');
-        const badStreakHtml = bCurr > 0 ? `<span class="badge" style="background:rgba(3,218,198,0.12); color:var(--success); border:1px solid rgba(3,218,198,0.3);">🛡️ ${bCurr}d clean${bLong > bCurr ? ` (best: ${bLong}d)` : ''}</span>` : (bLong > 0 ? `<span class="badge" style="background:#252530; color:#aaa;">Best clean: 🛡️${bLong}d</span>` : '');
+        const badStreakHtml = bCurr > 0 ? `<span class="badge" style="background:rgba(3,218,198,0.12); color:var(--success); border:1px solid rgba(3,218,198,0.3);">🛡️ ${bCurr}d clean${bLong > bCurr ? ` (best: ${bLong}d)` : ''}</span>` : (bLong > 0 ? `<span class="badge" style="background:var(--surface-2); color:var(--muted);">Best clean: 🛡️${bLong}d</span>` : '');
 
         let pills = '';
         for (let d = 6; d >= 0; d--) {
@@ -2335,8 +2409,8 @@ function renderBadHabits() {
         div.innerHTML = `
             <div class="task-header">
                 <div>
-                    <div class="task-title" style="color:var(--bad);">${habit.title}</div>
-                    <div class="task-badges"><span class="badge" style="background:#252530; color:#fff;">Annual Total: ${habit.annualCount}</span>${donationHtml}${doneTodayHtml}${badStreakHtml}</div>
+                    <div class="task-title" style="color:var(--bad);">${escapeHTML(habit.title)}</div>
+                    <div class="task-badges"><span class="badge" style="background:var(--surface-2); color:var(--text);">Annual Total: ${habit.annualCount}</span>${donationHtml}${doneTodayHtml}${badStreakHtml}</div>
                 </div>
                 <div class="task-controls">
                     <button class="btn-icon" onclick="openHabit30DayModal('${habit.id}', 'bad')" title="30-Day Vice History">📅</button>
@@ -2471,7 +2545,7 @@ function renderHabit30DayInspector(habit, kind, dateKey) {
             </span>
         </div>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <button onclick="logHabitOnDate('${habit.id}', '${kind}', '${dateKey}')" style="background:${kind === 'good' ? 'var(--success)' : 'var(--bad)'}; color:${kind === 'good' ? '#000' : '#fff'}; flex:1; margin:0;">
+            <button onclick="logHabitOnDate('${habit.id}', '${kind}', '${dateKey}')" style="background:${kind === 'good' ? 'var(--success)' : 'var(--bad)'}; color:#fff; flex:1; margin:0;">
                 ➕ Log +1 on ${dateKey}
             </button>
             ${count > 0 ? `
@@ -2543,7 +2617,7 @@ function logSwalathDirect() {
     syncToGoogleSheets(newLog);
 
     if (input) input.value = '100';
-    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['#03dac6', '#bb86fc'] });
+    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['var(--green)', 'var(--brand)'] });
     saveData();
     render();
 }
@@ -2571,7 +2645,7 @@ function logHizbDirect() {
     syncToGoogleSheets(newLog);
 
     if (input) input.value = '1';
-    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['#bb86fc', '#f6e58d'] });
+    if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 }, colors: ['var(--brand)', '#f6e58d'] });
     saveData();
     render();
 }
@@ -2591,7 +2665,11 @@ function exportDataBackup() {
         charity: charityData,
         deen: deenData,
         budget: budgetData,
-        backlog: backlogData
+        backlog: backlogData,
+        archivedTasks,
+        journal: journalData,
+        weeklyGoal: weeklyGoalData,
+        settings: collectSettings()
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -2609,15 +2687,16 @@ function importDataBackup(event) {
     reader.onload = (e) => {
         try {
             const parsed = JSON.parse(e.target.result);
-            if (!confirm("Restore backup? This will replace your current local state and sync to cloud.")) return;
-            applyCloudPayload(parsed);
-            saveData();
-            render();
-            openHistory(currentHistoryFilter);
-            alert("✅ Backup restored successfully!");
+            showConfirmSheet('Restore this backup? It will be merged with your current data and synced.', { title: 'Restore backup', icon: '📂', okText: 'Restore' }).then(ok => {
+                if (!ok) return;
+                applyCloudPayload(parsed);
+                saveData(); render(); openHistory(currentHistoryFilter);
+                showToast('Backup restored', '✅');
+            });
         } catch (err) {
-            alert("Invalid backup JSON file: " + err.message);
+            showToast('Invalid backup file: ' + err.message, '⚠️');
         }
+        event.target.value = '';
     };
     reader.readAsText(file);
 }
@@ -2625,7 +2704,13 @@ function importDataBackup(event) {
 function undoAction(historyId) {
     const entry = activityHistory.find(h => h.id === historyId); if (!entry) return;
     
-    if (confirm(`Undo "${entry.title}"?`)) {
+    showConfirmSheet(`Undo <b>${escapeHTML(entry.title)}</b>? Balances and targets will be reversed.`, { title: 'Undo entry', icon: '↩️', okText: 'Undo', danger: true }).then(ok => {
+    if (ok) {
+        if (entry.actionType === 'expense') {
+            const expId = entry.expenseId || entry.id;
+            budgetData.expenses = budgetData.expenses.filter(e => e.id !== expId);
+            (budgetData.bills || []).forEach(b => { for (const k of Object.keys(b.paid || {})) if (b.paid[k] === expId) delete b.paid[k]; });
+        }
         if (entry.actionType === 'complete' || entry.actionType === 'missed') {
             const task = tasks.find(t => t.id === entry.taskId);
             
@@ -2674,9 +2759,11 @@ function undoAction(historyId) {
         
         syncToGoogleSheets({ actionType: 'undo', id: historyId });
         
+        markDeleted(historyId);
         activityHistory = activityHistory.filter(h => h.id !== historyId);
         saveData(); render(); openHistory(currentHistoryFilter); 
     }
+    });
 }
 
 function filterHistory(category, btnElement) {
@@ -2696,34 +2783,31 @@ function openHistory(filter = 'all') {
         filteredHistory = activityHistory.filter(h => (h.category || 'tasks') === filter);
     }
 
-    if (filteredHistory.length === 0) { list.innerHTML = '<p style="color:#aaa;">No activity logs recorded for this category yet.</p>'; return; }
+    if (filteredHistory.length === 0) { list.innerHTML = '<div class="empty-state">Nothing logged here yet.</div>'; return; }
     
     const sorted = [...filteredHistory].sort((a, b) => b.timestamp - a.timestamp);
-    sorted.forEach(item => {
-        const date = new Date(item.timestamp).toLocaleString(); const div = document.createElement('div');
-        let borderColor = 'var(--success)';
-        if (item.actionType === 'bad' || item.actionType === 'missed') borderColor = 'var(--bad)';
-        
-        div.style = `background:#252530; padding:15px; border-radius:12px; margin-bottom:10px; border-left: 5px solid ${borderColor}`;
-        
-        let fulfillBtn = '';
-        if (item.actionType === 'missed' && item.taskId) {
-            const dKey = item.missedDateKey || toDateKey(item.timestamp);
-            fulfillBtn = `<button onclick="closeHistory(); openTask30DayModal('${item.taskId}', '${dKey}')" style="background:var(--success); color:#000; border:none; padding:6px 12px; font-size:0.85rem; margin:0 8px 0 0; width:auto; border-radius:6px;">✅ Fulfill & Refund Penalty</button>`;
-        }
-
-        let undoBtn = `<button onclick="undoAction('${item.id}')" style="background:transparent; border:1px solid #aaa; padding:6px 12px; font-size:0.85rem; color:#ccc; margin:0; width:auto; border-radius:6px;">↩️ Undo</button>`;
-        let detailText = '';
-        if (item.donationAdded) detailText += `<div style="color:var(--charity); font-size:0.85rem; margin-top:4px;">💸 Added penalty: ₹${item.donationAdded}</div>`;
-        if (item.coveredBySurplus) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">🌟 Covered by Surplus Credit: ₹${item.coveredBySurplus}</div>`;
-        if (item.penaltyRefunded) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">💸 Refunded penalty: ₹${item.penaltyRefunded}</div>`;
-        if (item.pointsAdded) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">🏆 Added points: ${item.pointsAdded}</div>`;
-        if (item.penaltyReduced) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">💸 Reduced penalty by: ₹${item.penaltyReduced}</div>`;
-        if (item.surplusAdded) detailText += `<div style="color:var(--success); font-size:0.85rem; margin-top:4px;">🌟 Banked Surplus Credit: ₹${item.surplusAdded}</div>`;
-
-        div.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center;"><strong style="font-size:1.05rem; color:#fff;">${item.title}</strong></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">${date}</div>${detailText}<div style="margin-top:10px; display:flex; align-items:center; flex-wrap:wrap; gap:6px;">${fulfillBtn}${undoBtn}</div>`;
-        list.appendChild(div);
-    });
+    const MAX = 300;
+    const html = sorted.slice(0, MAX).map(item => {
+        const date = new Date(item.timestamp).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+        const neg = item.actionType === 'bad' || item.actionType === 'missed' || item.actionType === 'expense';
+        const details = [];
+        if (item.donationAdded) details.push(`<span style="color:var(--amber)">+₹${item.donationAdded} penalty</span>`);
+        if (item.coveredBySurplus) details.push(`<span style="color:var(--green)">₹${item.coveredBySurplus} covered by surplus</span>`);
+        if (item.penaltyRefunded) details.push(`<span style="color:var(--green)">₹${item.penaltyRefunded} refunded</span>`);
+        if (item.pointsAdded) details.push(`<span style="color:var(--green)">+${item.pointsAdded} points</span>`);
+        if (item.penaltyReduced) details.push(`<span style="color:var(--green)">−₹${item.penaltyReduced} penalty</span>`);
+        if (item.surplusAdded) details.push(`<span style="color:var(--green)">+₹${item.surplusAdded} surplus</span>`);
+        if (item.note) details.push(`<span class="muted">“${escapeHTML(item.note)}”</span>`);
+        const fulfill = (item.actionType === 'missed' && item.taskId)
+            ? `<button class="btn-sm" onclick="closeHistory(); openTask30DayModal('${item.taskId}', '${item.missedDateKey || toDateKey(item.timestamp)}')">Complete late & refund</button>` : '';
+        return `<div class="history-item ${neg ? 'neg' : ''}">
+            <div class="t">${escapeHTML(item.title)}</div>
+            <div class="d">${date}${item.amount && item.amount !== 1 ? ` · ${fmtNum(item.amount)}` : ''}</div>
+            ${details.length ? `<div class="x" style="display:flex; gap:10px; flex-wrap:wrap;">${details.join('')}</div>` : ''}
+            <div class="a">${fulfill}<button class="btn-sm btn-secondary" onclick="undoAction('${item.id}')">${svgIcon('history', 'icon icon-sm')}Undo</button></div>
+        </div>`;
+    }).join('');
+    list.innerHTML = html + (sorted.length > MAX ? `<div class="muted" style="text-align:center; font-size:12.5px; padding:10px;">Showing latest ${MAX} of ${sorted.length}. Export a backup for the full log.</div>` : '');
 }
 function closeHistory() { document.getElementById('history-modal').style.display = 'none'; }
 
@@ -2815,273 +2899,229 @@ function renderHeatmap() {
     `;
 }
 
+function renderTodayAgenda() {
+    const box = document.getElementById('dash-today-list');
+    if (!box) return;
+    const now = new Date();
+    const sod = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const list = tasks.map(t => ({ t, st: getTaskStatus(t, now) })).filter(({ t, st }) => {
+        if (st.isDueToday) return true;
+        if (st.isDone && t.type === 'daily' && st.isActiveToday) return true;
+        return activityHistory.some(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= sod);
+    });
+    list.sort((a, b) => {
+        if (a.st.isDone !== b.st.isDone) return a.st.isDone ? 1 : -1;
+        if (a.st.isOverdue !== b.st.isOverdue) return a.st.isOverdue ? -1 : 1;
+        const ar = a.t.reminderTime || '99:99', br = b.t.reminderTime || '99:99';
+        if (ar !== br) return ar < br ? -1 : 1;
+        return (a.t.sortOrder ?? 0) - (b.t.sortOrder ?? 0);
+    });
+    const billsDue = dueBillsForAgenda();
+    const billsHtml = billsDue.map(({ b, s }) => `
+            <div class="agenda-item">
+                <button class="agenda-check" onclick="markBillPaid('${b.id}')" aria-label="Mark paid">${svgIcon('check')}</button>
+                <div class="agenda-body" onclick="switchTab('budget')">
+                    <div class="agenda-title">${escapeHTML(b.name)} <span class="num muted" style="font-weight:600;">₹${Number(b.amount).toLocaleString()}</span></div>
+                    <div class="agenda-meta"><span>Bill</span><span class="${s.daysLeft <= 0 ? 'late' : ''}">${Core.dueLabel(s.daysLeft)}</span></div>
+                </div>
+            </div>`).join('');
+    if (list.length === 0 && billsDue.length) { box.innerHTML = billsHtml; return; }
+    if (list.length === 0) {
+        box.innerHTML = tasks.length === 0
+            ? `<div class="muted" style="font-size:14px; padding:6px 2px;">No tasks yet. Add something you want to be reminded about.</div>`
+            : `<div class="muted" style="font-size:14px; padding:6px 2px;">Nothing due today. Enjoy the calm ✨</div>`;
+        return;
+    }
+    const nowHM = now.toTimeString().slice(0, 5);
+    box.innerHTML = list.slice(0, 8).map(({ t, st }) => {
+        const meta = [];
+        if (t.type !== 'daily') meta.push(`<span style="text-transform:capitalize">${t.type === 'once' ? 'One-time' : t.type}</span>`);
+        if ((t.baseTarget || 1) > 1 || t.type === 'weekly' || t.type === 'monthly') meta.push(`<span class="num">${fmtNum(st.doneAmt)}/${fmtNum(st.target)}</span>`);
+        if (st.dueLabel) meta.push(`<span class="${st.isOverdue ? 'late' : ''}">${st.dueLabel}</span>`);
+        const rm = Core.reminderMinute(t, getTodayPrayerTimings());
+        if (t.snoozedUntil && t.snoozedUntil > Date.now()) meta.push(`<span>😴 ${new Date(t.snoozedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`);
+        else if (rm != null) meta.push(`<span class="${!st.isDone && Core.minToHm(rm) < nowHM ? 'late' : ''}">${t.prayerAnchor ? escapeHTML(Core.describeAnchor(t.prayerAnchor)) + ' · ' : ''}${Core.minToHm(rm)}</span>`);
+        else if (t.prayerAnchor) meta.push(`<span>${escapeHTML(Core.describeAnchor(t.prayerAnchor))}</span>`);
+        const sts = subtaskState(t); if (sts.total) meta.push(`<span>☑ ${sts.done}/${sts.total}</span>`);
+        return `
+            <div class="agenda-item ${st.isDone ? 'done' : ''}">
+                <button class="agenda-check" onclick="quickCompleteTask('${t.id}', event)" aria-label="Complete">${svgIcon('check')}</button>
+                <div class="agenda-body" onclick="switchTab('tasks'); setTimeout(() => toggleTaskSlider('${t.id}'), 150);">
+                    <div class="agenda-title">${escapeHTML(t.title)}</div>
+                    ${meta.length ? `<div class="agenda-meta">${meta.join('')}</div>` : ''}
+                </div>
+            </div>`;
+    }).join('') + billsHtml + (list.length > 8 ? `<div style="padding-top:10px;"><button class="btn-sm btn-ghost" onclick="switchTab('tasks')">+${list.length - 8} more</button></div>` : '');
+}
+window.renderTodayAgenda = renderTodayAgenda;
+
 function updateDashboard() {
-    renderHeatmap(); 
-    let spiritContainer = document.getElementById('spiritual-milestones');
-    if (!spiritContainer) {
-        spiritContainer = document.createElement('div');
-        spiritContainer.id = 'spiritual-milestones';
-        spiritContainer.style = "display:flex; gap:10px; margin-bottom:20px;";
-        const dashTab = document.getElementById('tab-dashboard');
-        if (dashTab) dashTab.insertBefore(spiritContainer, dashTab.firstChild);
+    renderHeatmap();
+    renderTodayAgenda();
+
+    const spiritContainer = document.getElementById('spiritual-milestones');
+    if (spiritContainer) {
+        spiritContainer.innerHTML = `
+            <div class="milestone" onclick="switchTab('deen')" style="cursor:pointer">
+                <div class="l">Quran khatms</div>
+                <div class="v" style="color:var(--brand)">${deenData.quranStats?.totalKhatm || 0}</div>
+                <div class="s">${deenData.quranStats?.totalJuz || 0} juz · ${fmtNum(deenData.quranStats?.totalHizb || 0)} hizb</div>
+            </div>
+            <div class="milestone" onclick="switchTab('deen')" style="cursor:pointer">
+                <div class="l">Swalath</div>
+                <div class="v" style="color:var(--sky)">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
+                <div class="s">Lifetime count</div>
+            </div>`;
     }
 
-    const espiritualHTML = `
-        <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #bb86fc; text-align:center;">
-            <div style="font-size:0.85rem; color:#aaa;">Total Khatms</div>
-            <div style="font-size:1.8rem; font-weight:bold; color:#bb86fc;">${deenData.quranStats?.totalKhatm || 0}</div>
-            <div style="font-size:0.75rem; color:#888;">${deenData.quranStats?.totalJuz || 0} Juz / ${deenData.quranStats?.totalHizb || 0} Hizb</div>
-        </div>
-        <div style="flex:1; background:var(--card); padding:15px; border-radius:14px; border:1px solid var(--border); border-top: 3px solid #03dac6; text-align:center;">
-            <div style="font-size:0.85rem; color:#aaa;">Total Swalath</div>
-            <div style="font-size:1.8rem; font-weight:bold; color:#03dac6;">${(deenData.swalathStats?.total || 0).toLocaleString()}</div>
-            <div style="font-size:0.75rem; color:#888;">Live Deen Milestone</div>
-        </div>
-    `;
-    spiritContainer.innerHTML = espiritualHTML;
-
-    const elPen = document.getElementById('donation-pending'); if (elPen) elPen.innerText = (charityData.pending || 0).toLocaleString(); 
-    const elPaid = document.getElementById('donation-paid'); if (elPaid) elPaid.innerText = (charityData.paid || 0).toLocaleString();
-    const dashSurplus = document.getElementById('display-surplus-wallet');
-    if (dashSurplus) dashSurplus.innerText = (charityData.surplus || 0).toLocaleString();
-    const dashBonus = document.getElementById('display-bonus-points-dash');
-    if (dashBonus) dashBonus.innerText = (bonusPoints || 0).toLocaleString();
+    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+    setText('donation-pending', (charityData.pending || 0).toLocaleString());
+    setText('donation-paid', (charityData.paid || 0).toLocaleString());
+    setText('display-surplus-wallet', (charityData.surplus || 0).toLocaleString());
 
     let dTotal = 0, dComp = 0, wTotal = 0, wComp = 0, mTotal = 0, mComp = 0, oTotal = 0, oComp = 0;
-    const now = new Date(); const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime(); const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); const startOfYear = new Date(now.getFullYear(), 0, 1).getTime(); 
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()).getTime();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
 
-    let dayPts = 0, weekPts = 0, monthPts = 0, yearPts = 0; 
-    activityHistory.forEach(r => { 
-        if (r.actionType === 'complete') {
-            if (r.timestamp >= startOfDay) dayPts += r.amount; if (r.timestamp >= startOfWeek) weekPts += r.amount; if (r.timestamp >= startOfMonth) monthPts += r.amount; if (r.timestamp >= startOfYear) yearPts += r.amount; 
+    let dayPts = 0, weekPts = 0, monthPts = 0, yearPts = 0;
+    activityHistory.forEach(r => {
+        if (r.actionType === 'complete' && r.category === 'tasks') {
+            const a = Number(r.amount) || 0;
+            if (r.timestamp >= startOfDay) dayPts += a; if (r.timestamp >= startOfWeek) weekPts += a; if (r.timestamp >= startOfMonth) monthPts += a; if (r.timestamp >= startOfYear) yearPts += a;
         }
-    }); 
-    
-    tasks.forEach(t => {
-        let total = t.totalYearlyTarget || 1; let pending = Math.max(0, t.currentTarget || 0); let completed = Math.max(0, Math.min(total, total - pending)); 
-        if(t.type === 'daily') { dTotal += total; dComp += completed; } if(t.type === 'weekly') { wTotal += total; wComp += completed; } if(t.type === 'monthly') { mTotal += total; mComp += completed; } if(t.type === 'once') { oTotal += total; oComp += completed; }
     });
-    
-    const dPct = dTotal > 0 ? parseFloat(((dComp / dTotal) * 100).toFixed(1)) : 0; const wPct = wTotal > 0 ? parseFloat(((wComp / wTotal) * 100).toFixed(1)) : 0; const mPct = mTotal > 0 ? parseFloat(((mComp / mTotal) * 100).toFixed(1)) : 0; const oPct = oTotal > 0 ? parseFloat(((oComp / oTotal) * 100).toFixed(1)) : 0;
+    tasks.forEach(t => {
+        const total = t.totalYearlyTarget || 1; const pending = Math.max(0, t.currentTarget || 0); const completed = Math.max(0, Math.min(total, total - pending));
+        if (t.type === 'daily') { dTotal += total; dComp += completed; } if (t.type === 'weekly') { wTotal += total; wComp += completed; } if (t.type === 'monthly') { mTotal += total; mComp += completed; } if (t.type === 'once') { oTotal += total; oComp += completed; }
+    });
+    const pctOf = (c, t) => t > 0 ? parseFloat(((c / t) * 100).toFixed(1)) : 0;
+    const dPct = pctOf(dComp, dTotal), wPct = pctOf(wComp, wTotal), mPct = pctOf(mComp, mTotal), oPct = pctOf(oComp, oTotal);
 
     let ringsRow = document.getElementById('dashboard-rings-row');
     if (!ringsRow) {
         ringsRow = document.createElement('div');
         ringsRow.id = 'dashboard-rings-row';
-        ringsRow.style = 'display:flex; gap:12px; justify-content:space-around; align-items:center; background:var(--card); border:1px solid var(--border); border-radius:var(--card-radius); padding:16px; margin-bottom:20px; flex-wrap:wrap;';
-        const dashTab = document.getElementById('tab-dashboard');
         const heat = document.getElementById('heatmap-card');
-        if (heat && heat.parentNode) heat.parentNode.insertBefore(ringsRow, heat);
+        if (heat && heat.parentNode) heat.parentNode.insertBefore(ringsRow, heat.nextSibling);
     }
-    if (ringsRow) ringsRow.innerHTML = createProgressRing(dPct, 'var(--primary)', 'Daily') + createProgressRing(wPct, 'var(--success)', 'Weekly') + createProgressRing(mPct, 'var(--budget)', 'Monthly') + createProgressRing(oPct, 'var(--backlog)', 'Projects');
+    ringsRow.innerHTML = createProgressRing(dPct, 'var(--brand)', 'Daily') + createProgressRing(wPct, 'var(--indigo)', 'Weekly') + createProgressRing(mPct, 'var(--sky)', 'Monthly') + createProgressRing(oPct, 'var(--orange)', 'One-time');
 
-    const elDay = document.getElementById('day-completed'); if (elDay) elDay.innerText = Math.round(dayPts*100)/100; 
-    const elWeek = document.getElementById('week-completed'); if (elWeek) elWeek.innerText = Math.round(weekPts*100)/100; 
-    const elMonth = document.getElementById('month-completed'); if (elMonth) elMonth.innerText = Math.round(monthPts*100)/100; 
-    const elYear = document.getElementById('year-completed'); if (elYear) elYear.innerText = Math.round(yearPts*100)/100;
+    setText('day-completed', fmtNum(dayPts)); setText('week-completed', fmtNum(weekPts));
+    setText('month-completed', fmtNum(monthPts)); setText('year-completed', fmtNum(yearPts));
 
-    
-    // Update Bento Quick-Access Launcher Tiles with live metrics
-    const nowTiles = new Date();
-    const startOfDayTiles = new Date(nowTiles.getFullYear(), nowTiles.getMonth(), nowTiles.getDate()).getTime();
-    const todayKeyTiles = toDateKey(nowTiles);
-    
-    // Tasks Tile
-    const dailyTasksList = tasks.filter(t => t.type === 'daily');
-    const todayStrTiles = new Date().toDateString();
-    const completedDailyCount = dailyTasksList.filter(t => {
-        if (t.lastCompletedDay === todayStrTiles) return true;
-        if (t.currentTarget <= 0) return true;
-        const doneToday = activityHistory.filter(h => h.taskId === t.id && h.actionType === 'complete' && (h.timestamp >= startOfDayTiles || isLogOnDateKey(h, todayKeyTiles))).reduce((s, h) => s + (h.amount || 1), 0);
-        return doneToday >= (t.baseTarget || 1);
-    }).length;
-    const pendingDailyCount = Math.max(0, dailyTasksList.length - completedDailyCount);
-    const tileTasksSub = document.getElementById('tile-tasks-sub');
-    if (tileTasksSub) {
-        tileTasksSub.innerText = dailyTasksList.length > 0 
-            ? (pendingDailyCount === 0 ? 'All done today! 🎉' : `${pendingDailyCount} pending today`) 
-            : 'No daily tasks set';
-    }
+    // ---- Today's numbers ----
+    const todayKey = toDateKey(now);
+    const todaysDaily = tasks.filter(t => t.type === 'daily' && isTaskActiveOn(t, now));
+    const completedDailyCount = todaysDaily.filter(t => getTaskStatus(t, now).isDone).length;
+    const otherDue = tasks.filter(t => t.type !== 'daily' && getTaskStatus(t, now).isDueToday);
+    const pendingDailyCount = todaysDaily.length - completedDailyCount;
 
-    // Top Charity Penalty Banner (Immediate Visibility on Top of Overview)
+    setText('tile-tasks-sub', tasks.length === 0 ? 'No tasks yet'
+        : (pendingDailyCount + otherDue.length === 0 ? 'All done for today 🎉' : `${pendingDailyCount + otherDue.length} to do today`));
+
+    // Penalty banner
     const bannerWrap = document.getElementById('dash-penalty-banner-wrap');
     if (bannerWrap) {
         if ((charityData.pending || 0) > 0) {
             bannerWrap.innerHTML = `
-                <div style="background: linear-gradient(135deg, rgba(235, 77, 75, 0.18), rgba(255, 107, 129, 0.08)); border: 1px solid rgba(235, 77, 75, 0.45); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 4px 14px rgba(235, 77, 75, 0.15);">
-                    <div>
-                        <div style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; color:#ff6b81; font-weight:800; display:flex; align-items:center; gap:5px;">
-                            <span>⚖️</span> <span>Pending Charity Penalty</span>
-                        </div>
-                        <div style="font-size:1.35rem; font-weight:800; color:#fff; font-family:var(--font-mono); margin-top:2px;">
-                            ₹${charityData.pending.toLocaleString()}
-                            ${(charityData.surplus || 0) > 0 ? `<span style="font-size:0.75rem; color:#03dac6; font-weight:600; margin-left:6px; font-family:var(--font-base);">(Surplus: ₹${charityData.surplus.toLocaleString()})</span>` : ''}
-                        </div>
+                <div class="banner warn">
+                    <div class="b-left">
+                        <div class="b-icon">${svgIcon('scale')}</div>
+                        <div><div class="b-title">Pending charity penalty</div><div class="b-amount">₹${charityData.pending.toLocaleString()}</div></div>
                     </div>
-                    <div style="display:flex; gap:6px; flex-shrink:0;">
-                        ${(charityData.surplus || 0) >= charityData.pending ? `
-                            <button onclick="deductFromSurplus()" class="btn" style="padding:6px 12px; font-size:0.78rem; background:rgba(3,218,198,0.2); color:#03dac6; border:1px solid rgba(3,218,198,0.4); border-radius:8px; font-weight:700; cursor:pointer;">Pay via Surplus</button>
-                        ` : ''}
-                        <button onclick="toggleAnalyticsView()" class="btn" style="padding:6px 12px; font-size:0.78rem; background:rgba(235,77,75,0.25); color:#ff6b81; border:1px solid rgba(235,77,75,0.5); border-radius:8px; font-weight:700; cursor:pointer;">Pay / Resolve</button>
+                    <div class="b-actions">
+                        ${(charityData.surplus || 0) > 0 ? `<button class="btn-sm btn-secondary" onclick="deductFromSurplus()">Use ₹${Math.min(charityData.surplus, charityData.pending).toLocaleString()} surplus</button>` : ''}
+                        <button class="btn-sm" onclick="scrollToCharity(); setTimeout(() => document.getElementById('donation-pay-amount')?.focus(), 400)">Record payment</button>
                     </div>
-                </div>
-            `;
+                </div>`;
         } else {
-            bannerWrap.innerHTML = `
-                <div style="background: linear-gradient(135deg, rgba(3, 218, 198, 0.1), rgba(0, 229, 163, 0.04)); border: 1px solid rgba(3, 218, 198, 0.25); border-radius: 14px; padding: 10px 14px; margin-bottom: 14px; display:flex; justify-content:space-between; align-items:center;">
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <span style="font-size:1.15rem;">✨</span>
-                        <div>
-                            <div style="font-size:0.82rem; font-weight:700; color:#03dac6;">Charity Balance: Clean Slate</div>
-                            <div style="font-size:0.72rem; color:var(--text-muted);">No penalties pending ${(charityData.surplus || 0) > 0 ? `• Surplus Wallet: ₹${charityData.surplus.toLocaleString()}` : ''}</div>
-                        </div>
-                    </div>
-                    <button onclick="toggleAnalyticsView()" class="btn" style="padding:5px 10px; font-size:0.75rem; background:rgba(255,255,255,0.06); color:var(--text-muted); border:1px solid rgba(255,255,255,0.1); border-radius:8px; cursor:pointer;">Ledger</button>
-                </div>
-            `;
+            bannerWrap.innerHTML = '';
         }
     }
 
-    // Unified Daily Completion Score across ALL Tabs (Tasks, Habits, Deen, Journal, Saved)
-    // todayKeyTiles initialized above
-    const completedHabitsCount = (goodHabits || []).filter(h => {
-        return activityHistory.some(log => log.taskId === h.id && log.actionType === 'good' && (log.habitDateKey === todayKeyTiles || toDateKey(log.timestamp) === todayKeyTiles));
-    }).length;
+    // Unified daily score
+    const completedHabitsCount = (goodHabits || []).filter(h => activityHistory.some(log => log.taskId === h.id && log.actionType === 'good' && (log.habitDateKey === todayKey || toDateKey(log.timestamp) === todayKey))).length;
     const totalHabitsGoal = (goodHabits || []).length;
+    const hasDeenActivityToday = activityHistory.some(log => (log.category === 'deen' || (log.actionType && log.actionType.startsWith('deen_'))) && log.timestamp >= startOfDay);
+    const hasTodayJournal = !!(journalData && journalData[todayKey] && journalData[todayKey].trim().length > 0);
+    const otherDoneToday = tasks.filter(t => t.type !== 'daily' && activityHistory.some(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= startOfDay)).length;
 
-    const hasDeenActivityToday = activityHistory.some(log => (log.category === 'deen' || (log.actionType && log.actionType.startsWith('deen_'))) && log.timestamp >= startOfDayTiles);
-    const totalDeenGoal = 1;
-    const completedDeenCount = hasDeenActivityToday ? 1 : 0;
+    const taskTotal = todaysDaily.length + otherDue.length + otherDoneToday;
+    const taskDone = completedDailyCount + otherDoneToday;
+    const totalGoals = taskTotal + totalHabitsGoal + 1 + 1;
+    const doneGoals = taskDone + completedHabitsCount + (hasDeenActivityToday ? 1 : 0) + (hasTodayJournal ? 1 : 0);
+    const pct = totalGoals > 0 ? Math.min(100, Math.round((doneGoals / totalGoals) * 100)) : 0;
 
-    const todayKeyJournal = todayKeyTiles;
-    const hasTodayJournal = !!(journalData && journalData[todayKeyJournal] && journalData[todayKeyJournal].trim().length > 0);
-    const totalJournalGoal = 1;
-    const completedJournalCount = hasTodayJournal ? 1 : 0;
+    setText('dash-hero-stats', `${doneGoals} of ${totalGoals} goals done`);
+    setText('dash-hero-pct', `${pct}%`);
+    const ring = document.getElementById('dash-hero-ring');
+    if (ring) ring.style.strokeDashoffset = String(276.5 * (1 - pct / 100));
+    const heroBar = document.getElementById('dash-hero-bar'); if (heroBar) heroBar.style.width = `${pct}%`;
+    setText('dash-greeting-date', now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }));
+    const hr = now.getHours();
+    const firstName = (currentUser && currentUser.displayName ? currentUser.displayName.split(' ')[0] : '');
+    setText('dash-greeting', `${hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening'}${firstName ? ', ' + firstName : ''}`);
 
-    const completedSavedToday = activityHistory.filter(h => h.category === 'backlog' && h.actionType === 'complete' && h.timestamp >= startOfDayTiles).length;
-
-    const totalUnifiedGoals = dailyTasksList.length + totalHabitsGoal + totalDeenGoal + totalJournalGoal + (completedSavedToday > 0 ? completedSavedToday : 0);
-    const completedUnifiedGoals = completedDailyCount + completedHabitsCount + completedDeenCount + completedJournalCount + completedSavedToday;
-    const unifiedPct = totalUnifiedGoals > 0 ? Math.min(100, Math.round((completedUnifiedGoals / totalUnifiedGoals) * 100)) : 0;
-
-    // Hero Overview Bar & Stats
-    const heroStats = document.getElementById('dash-hero-stats');
-    if (heroStats) heroStats.innerText = `${completedUnifiedGoals} / ${totalUnifiedGoals} Completed (${unifiedPct}%)`;
-    const heroBar = document.getElementById('dash-hero-bar');
-    if (heroBar) heroBar.style.width = `${unifiedPct}%`;
-    const heroDate = document.getElementById('dash-greeting-date');
-    if (heroDate) {
-        heroDate.innerText = nowTiles.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-    }
-    const heroPenalty = document.getElementById('donation-pending-hero');
-    if (heroPenalty) heroPenalty.innerText = (charityData.pending || 0).toLocaleString();
-
-    // Unified Breakdown Pills
+    const pill = (ok, icon, label, val, tab) => `<span class="goal-pill ${ok ? 'ok' : ''}" onclick="switchTab('${tab}')">${svgIcon(ok ? 'check' : icon)}${label} <b>${val}</b></span>`;
     const goalsBreakdown = document.getElementById('dash-goals-breakdown');
     if (goalsBreakdown) {
-        goalsBreakdown.innerHTML = `
-            <div onclick="switchTab('tasks')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:${completedDailyCount >= dailyTasksList.length && dailyTasksList.length > 0 ? 'rgba(0,229,163,0.18)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${completedDailyCount >= dailyTasksList.length && dailyTasksList.length > 0 ? 'rgba(0,229,163,0.4)' : 'rgba(255,255,255,0.1)'}; color:${completedDailyCount >= dailyTasksList.length && dailyTasksList.length > 0 ? 'var(--success)' : 'var(--text-muted)'};">
-                <span>${completedDailyCount >= dailyTasksList.length && dailyTasksList.length > 0 ? '✅' : '📋'}</span>
-                <span>Tasks: <b>${completedDailyCount}/${dailyTasksList.length}</b></span>
-            </div>
-            <div onclick="switchTab('bad-habits')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:${completedHabitsCount >= totalHabitsGoal && totalHabitsGoal > 0 ? 'rgba(0,229,163,0.18)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${completedHabitsCount >= totalHabitsGoal && totalHabitsGoal > 0 ? 'rgba(0,229,163,0.4)' : 'rgba(255,255,255,0.1)'}; color:${completedHabitsCount >= totalHabitsGoal && totalHabitsGoal > 0 ? 'var(--success)' : 'var(--text-muted)'};">
-                <span>${completedHabitsCount >= totalHabitsGoal && totalHabitsGoal > 0 ? '✅' : '🛡️'}</span>
-                <span>Habits: <b>${completedHabitsCount}/${totalHabitsGoal}</b></span>
-            </div>
-            <div onclick="switchTab('deen')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:${completedDeenCount > 0 ? 'rgba(0,229,163,0.18)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${completedDeenCount > 0 ? 'rgba(0,229,163,0.4)' : 'rgba(255,255,255,0.1)'}; color:${completedDeenCount > 0 ? 'var(--success)' : 'var(--text-muted)'};">
-                <span>${completedDeenCount > 0 ? '✅' : '🕌'}</span>
-                <span>Deen: <b>${completedDeenCount}/1</b></span>
-            </div>
-            <div onclick="switchTab('journal')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:${completedJournalCount > 0 ? 'rgba(0,229,163,0.18)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${completedJournalCount > 0 ? 'rgba(0,229,163,0.4)' : 'rgba(255,255,255,0.1)'}; color:${completedJournalCount > 0 ? 'var(--success)' : 'var(--text-muted)'};">
-                <span>${completedJournalCount > 0 ? '✅' : '📓'}</span>
-                <span>Journal: <b>${completedJournalCount}/1</b></span>
-            </div>
-            ${completedSavedToday > 0 ? `
-                <div onclick="switchTab('backlog')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:rgba(0,229,163,0.18); border:1px solid rgba(0,229,163,0.4); color:var(--success);">
-                    <span>✅</span>
-                    <span>Saved: <b>+${completedSavedToday}</b></span>
-                </div>
-            ` : `
-                <div onclick="switchTab('backlog')" style="cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.75rem; padding:4px 9px; border-radius:999px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); color:var(--text-muted);">
-                    <span>🔖</span>
-                    <span>Saved: <b>0 done</b></span>
-                </div>
-            `}
-        `;
+        goalsBreakdown.innerHTML =
+            pill(taskTotal > 0 && taskDone >= taskTotal, 'check-square', 'Tasks', `${taskDone}/${taskTotal}`, 'tasks') +
+            pill(totalHabitsGoal > 0 && completedHabitsCount >= totalHabitsGoal, 'shield', 'Habits', `${completedHabitsCount}/${totalHabitsGoal}`, 'bad-habits') +
+            pill(hasDeenActivityToday, 'moon-star', 'Deen', hasDeenActivityToday ? '✓' : '—', 'deen') +
+            pill(hasTodayJournal, 'book', 'Journal', hasTodayJournal ? '✓' : '—', 'journal');
     }
 
-    // Charity Tile
-    const tileCharitySub = document.getElementById('tile-charity-sub');
-    if (tileCharitySub) {
-        tileCharitySub.innerText = (charityData.pending > 0)
-            ? `₹${charityData.pending.toLocaleString()} pending`
-            : `Clean Slate • ₹${(charityData.surplus || 0).toLocaleString()} surplus`;
-    }
+    // Habit streaks
+    let maxGoodStreak = 0, maxCleanStreak = 0;
+    (goodHabits || []).forEach(h => { const { currentStreak } = computeHabitStreak(h.id, 'good'); if (currentStreak > maxGoodStreak) maxGoodStreak = currentStreak; });
+    (badHabits || []).forEach(h => { const { currentStreak } = computeHabitStreak(h.id, 'bad'); if (currentStreak > maxCleanStreak) maxCleanStreak = currentStreak; });
+    let bestTaskStreak = 0;
+    tasks.filter(t => t.type === 'daily').forEach(t => { const s = computeItemStreak(t.id, 'tasks').currentStreak; if (s > bestTaskStreak) bestTaskStreak = s; });
+    const bestStreak = Math.max(maxGoodStreak, bestTaskStreak);
+    setText('tile-habits-sub', (maxGoodStreak > 0 || maxCleanStreak > 0) ? `${maxGoodStreak}d streak · ${maxCleanStreak}d clean` : `${(goodHabits || []).length + (badHabits || []).length} habits tracked`);
+    setText('dash-streak-pill', bestStreak > 0 ? `🔥 ${bestStreak}-day streak` : 'Start a streak today');
 
-    // Habits Tile
-    let maxGoodStreak = 0;
-    (goodHabits || []).forEach(h => {
-        const { currentStreak } = computeHabitStreak(h.id, 'good');
-        if (currentStreak > maxGoodStreak) maxGoodStreak = currentStreak;
-    });
-    let maxCleanStreak = 0;
-    (badHabits || []).forEach(h => {
-        const { currentStreak } = computeHabitStreak(h.id, 'bad');
-        if (currentStreak > maxCleanStreak) maxCleanStreak = currentStreak;
-    });
-    const tileHabitsSub = document.getElementById('tile-habits-sub');
-    if (tileHabitsSub) {
-        if (maxGoodStreak > 0 || maxCleanStreak > 0) {
-            tileHabitsSub.innerText = `🔥 ${maxGoodStreak}d streak | 🛡️ ${maxCleanStreak}d clean`;
-        } else {
-            tileHabitsSub.innerText = `${(goodHabits||[]).length + (badHabits||[]).length} habits tracked`;
-        }
-    }
-    const dashStreakPill = document.getElementById('dash-streak-pill');
-    if (dashStreakPill) {
-        dashStreakPill.innerText = maxGoodStreak > 0 ? `🔥 Streak: ${maxGoodStreak}d` : '🔥 Streak: 0d';
-    }
+    const khatmCount = deenData.quranStats?.totalKhatm || 0;
+    setText('tile-deen-sub', khatmCount > 0 ? `${khatmCount} khatm · prayers` : 'Prayers & Quran');
 
-    // Deen Tile
-    const tileDeenSub = document.getElementById('tile-deen-sub');
-    if (tileDeenSub) {
-        const khatmCount = deenData.quranStats?.totalKhatm || 0;
-        tileDeenSub.innerText = khatmCount > 0 ? `${khatmCount} Khatm | Prayers` : 'Prayers & Quran';
-    }
-
-    // Budget Tile
-    const monthStartTiles = new Date(nowTiles.getFullYear(), nowTiles.getMonth(), 1).getTime();
-    const monthSpent = (budgetData.expenses || []).filter(e => e.date >= monthStartTiles).reduce((s, e) => s + e.amount, 0);
-    const tileBudgetSub = document.getElementById('tile-budget-sub');
-    if (tileBudgetSub) {
-        tileBudgetSub.innerText = monthSpent > 0 ? `₹${monthSpent.toLocaleString()} spent this month` : 'Track expenses & debts';
-    }
-
-    // Saved Library Tile
+    const monthSpent = (budgetData.expenses || []).filter(e => e.date >= startOfMonth).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    setText('tile-budget-sub', monthSpent > 0 ? `₹${monthSpent.toLocaleString()} spent${budgetData.limit ? ` of ₹${Number(budgetData.limit).toLocaleString()}` : ''}` : 'Expenses & debts');
     const pendingSaved = (backlogData || []).filter(b => !b.completed).length;
-    const tileSavedSub = document.getElementById('tile-saved-sub');
-    if (tileSavedSub) {
-        tileSavedSub.innerText = pendingSaved > 0 ? `${pendingSaved} item(s) pending` : 'Library is clear';
-    }
+    setText('tile-saved-sub', pendingSaved > 0 ? `${pendingSaved} to watch/read` : 'Library is clear');
+    setText('tile-journal-sub', hasTodayJournal ? 'Written today ✓' : 'Write today\'s entry');
 
-    // Journal Tile
-    const tileJournalSub = document.getElementById('tile-journal-sub');
-    if (tileJournalSub) {
-        tileJournalSub.innerText = hasTodayJournal ? 'Today logged ✨' : 'Reflect today ✍️';
-    }
+    renderDashboardCharts(dPct, wPct, mPct, oPct);
+}
 
-    const tCanvas = document.getElementById('tasksProgressChart'); 
-    if (tCanvas && typeof Chart !== 'undefined') {
-        const ctx = tCanvas.getContext('2d'); if (tasksProgressChart) tasksProgressChart.destroy(); 
-        tasksProgressChart = new Chart(ctx, { type: 'bar', data: { labels: ['Daily', 'Weekly', 'Monthly', 'Once'], datasets: [{ label: 'Annual Completion (%)', data: [dPct, wPct, mPct, oPct], backgroundColor: '#03dac6', borderRadius: 6 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100, grid: { color: '#2a2a35' }, ticks: { color: '#aaa', callback: v => v + "%" } }, x: { ticks: { color: '#aaa' } } }, plugins: { legend: { labels: { color: '#fff' } } } } }); 
+function renderDashboardCharts(dPct, wPct, mPct, oPct) {
+    if (typeof Chart === 'undefined') return;
+    const content = document.getElementById('analytics-content');
+    if (!content || content.style.display === 'none') return; // render lazily when visible
+    const grid = cssVar('--border'), tick = cssVar('--muted');
+    const tCanvas = document.getElementById('tasksProgressChart');
+    if (tCanvas) {
+        if (tasksProgressChart) tasksProgressChart.destroy();
+        tasksProgressChart = new Chart(tCanvas.getContext('2d'), {
+            type: 'bar',
+            data: { labels: ['Daily', 'Weekly', 'Monthly', 'One-time'], datasets: [{ label: 'Yearly completion (%)', data: [dPct, wPct, mPct, oPct], backgroundColor: cssVar('--brand'), borderRadius: 6, maxBarThickness: 42 }] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100, grid: { color: grid }, ticks: { color: tick, callback: v => v + '%' } }, x: { grid: { display: false }, ticks: { color: tick } } }, plugins: { legend: { display: false } } }
+        });
     }
-
     const bCanvas = document.getElementById('badHabitsChart');
-    if (bCanvas && typeof Chart !== 'undefined' && badHabits.length > 0) {
-        const labels = badHabits.map(h => h.title); const data = badHabits.map(h => h.annualCount); const ctx = bCanvas.getContext('2d'); if (badHabitsChart) badHabitsChart.destroy();
-        badHabitsChart = new Chart(ctx, { type: 'bar', data: { labels: labels, datasets: [{ label: 'Occurrences This Year', data: data, backgroundColor: '#cf6679', borderRadius: 6 }] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: '#2a2a35' }, ticks: { color: '#aaa', stepSize: 1 } }, x: { ticks: { color: '#aaa' } } }, plugins: { legend: { labels: { color: '#fff' } } } } });
+    if (bCanvas && badHabits.length > 0) {
+        if (badHabitsChart) badHabitsChart.destroy();
+        badHabitsChart = new Chart(bCanvas.getContext('2d'), {
+            type: 'bar',
+            data: { labels: badHabits.map(h => h.title), datasets: [{ label: 'Occurrences', data: badHabits.map(h => h.annualCount || 0), backgroundColor: cssVar('--rose'), borderRadius: 6, maxBarThickness: 42 }] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tick, stepSize: 1 } }, x: { grid: { display: false }, ticks: { color: tick } } }, plugins: { legend: { display: false } } }
+        });
     }
 }
+window.onThemeChanged = () => { try { updateDashboard(); renderBudget(); } catch (e) {} };
 
 // ==========================================
 // DEEN TAB
@@ -3102,9 +3142,12 @@ async function loadPrayerTimes() {
     }
     navigator.geolocation.getCurrentPosition(async (pos) => {
         const { latitude, longitude } = pos.coords;
+        deenData.location = { lat: Math.round(latitude * 1000) / 1000, lng: Math.round(longitude * 1000) / 1000, method: 2, savedAt: Date.now() };
+        saveData();
         try {
             if (content) content.innerHTML = '<div style="text-align:center; color:var(--text-muted);">⏳ Fetching prayer times...</div>';
-            const resp = await fetch(`https://api.aladhan.com/v1/timings?latitude=${latitude}&longitude=${longitude}&method=2`);
+            const d0 = new Date(); const dd = `${String(d0.getDate()).padStart(2, '0')}-${String(d0.getMonth() + 1).padStart(2, '0')}-${d0.getFullYear()}`;
+            const resp = await fetch(`https://api.aladhan.com/v1/timings/${dd}?latitude=${latitude}&longitude=${longitude}&method=2`);
             const data = await resp.json();
             if (data.code === 200) {
                 prayerTimesData = data.data.timings;
@@ -3201,8 +3244,8 @@ function renderDeen() {
         dhikrContainer.innerHTML = '';
         deenData.dhikr.forEach((d, index) => {
             const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--deen)'; if (d.completed) div.style.opacity = '0.6';
-            let intentionHtml = d.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-bottom:8px;"><em>" ${d.intention} "</em></div>` : ''; let deadlineHtml = d.deadline ? `<span class="badge" style="background:rgba(246, 229, 141, 0.15); color:var(--warning);">⏳ ${d.deadline}</span>` : ''; let progressHtml = d.completed ? `<span class="badge done-badge">✅ Completed</span>` : `<span class="badge target">Progress: ${d.current} / ${d.target}</span>`;
-            div.innerHTML = `<div class="task-header"><div><div class="task-title">${d.name}</div>${intentionHtml}<div class="task-badges">${progressHtml}${deadlineHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="deleteDhikr(${index})">🗑️</button></div></div>${!d.completed ? `<div class="task-action-row"><div class="task-input-box"><input type="number" id="dhikr-input-${index}" value="1" min="1"></div><button class="btn-task-action" style="flex:1; background:var(--deen); color:#000;" onclick="logDhikr(${index})">Log Dhikr</button></div>` : ''}`;
+            let intentionHtml = d.intention ? `<div style="font-size:0.85rem; color:var(--muted); margin-bottom:8px;"><em>" ${escapeHTML(d.intention)} "</em></div>` : ''; let deadlineHtml = d.deadline ? `<span class="badge" style="background:rgba(246, 229, 141, 0.15); color:var(--warning);">⏳ ${d.deadline}</span>` : ''; let progressHtml = d.completed ? `<span class="badge done-badge">✅ Completed</span>` : `<span class="badge target">Progress: ${d.current} / ${d.target}</span>`;
+            div.innerHTML = `<div class="task-header"><div><div class="task-title">${escapeHTML(d.name)}</div>${intentionHtml}<div class="task-badges">${progressHtml}${deadlineHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="deleteDhikr(${index})">🗑️</button></div></div>${!d.completed ? `<div class="task-action-row"><div class="task-input-box"><input type="number" id="dhikr-input-${index}" value="1" min="1"></div><button class="btn-task-action" style="flex:1; background:var(--deen); color:var(--on-accent);" onclick="logDhikr(${index})">Log Dhikr</button></div>` : ''}`;
             dhikrContainer.appendChild(div);
         });
     }
@@ -3216,7 +3259,7 @@ function renderDeen() {
         let autoTracker = document.createElement('div');
         autoTracker.style = "background:rgba(3, 218, 198, 0.06); padding:12px; border-radius:10px; margin-bottom:12px; border-left:3px solid var(--deen);";
         autoTracker.innerHTML = `
-            <div style="font-size:0.8rem; color:#aaa;">Automated Reading Progress</div>
+            <div style="font-size:0.8rem; color:var(--muted);">Automated Reading Progress</div>
             <div style="font-weight:bold; color:var(--deen); margin-top:2px;">Currently on Juz ${remainderJuz + 1} (${deenData.quranStats?.totalHizb || 0} Total Hizb read)</div>
         `;
         juzContainer.appendChild(autoTracker);
@@ -3227,8 +3270,8 @@ function renderDeen() {
             div.style.opacity = q.completed ? '0.5' : '1'; 
             div.style.flexDirection = 'column'; 
             div.style.gap = '10px'; 
-            let intentionText = q.intention ? `<div style="font-size:0.85rem; color:#aaa; margin-top:4px;"><em>" ${q.intention} "</em></div>` : ''; 
-            div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 6px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:#000; padding:6px 12px; margin:0; width:auto; font-size:0.8rem;">Complete</button><button onclick="editJuz(${index})" style="background:var(--warning); color:#000; padding:6px 12px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:6px 12px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`; 
+            let intentionText = q.intention ? `<div style="font-size:0.85rem; color:var(--muted); margin-top:4px;"><em>" ${escapeHTML(q.intention)} "</em></div>` : ''; 
+            div.innerHTML = `<div><strong>${q.completed ? '✅' : '📖'} Juz ${q.juz}</strong>${intentionText}</div><div style="display: flex; gap: 6px; justify-content: flex-end;">${!q.completed ? `<button onclick="completeJuz(${index})" style="background:var(--success); color:var(--on-accent); padding:6px 12px; margin:0; width:auto; font-size:0.8rem;">Complete</button><button onclick="editJuz(${index})" style="background:var(--warning); color:var(--on-accent); padding:6px 12px; margin:0; width:auto; font-size:0.8rem;">✏️ Edit</button>` : ''}<button onclick="deleteJuz(${index})" style="background:transparent; color:var(--danger); border:1px solid var(--danger); padding:6px 12px; margin:0; width:auto; font-size:0.8rem;">🗑️</button></div>`; 
             juzContainer.appendChild(div); 
         }); 
     }
@@ -3238,7 +3281,7 @@ function renderDeen() {
         qadaContainer.innerHTML = '';
         const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr'];
         let totalQada = prayers.reduce((acc, p) => acc + deenData.qada[p], 0);
-        if (totalQada === 0 && !showAllQada) { qadaContainer.innerHTML = `<div style="text-align:center; color:#aaa; font-size:0.9rem; margin-bottom:10px;">🎉 All missed prayers are caught up!</div>`; }
+        if (totalQada === 0 && !showAllQada) { qadaContainer.innerHTML = `<div style="text-align:center; color:var(--muted); font-size:0.9rem; margin-bottom:10px;">🎉 All missed prayers are caught up!</div>`; }
         prayers.forEach(p => { const count = deenData.qada[p]; if (!showAllQada && count === 0) return; const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div style="font-weight:bold;">${p}</div><div class="qada-controls"><span style="font-family:monospace; font-size:1.2rem; min-width:30px; text-align:center; color:${count > 0 ? 'var(--danger)' : 'var(--success)'}">${count}</span><button class="qada-btn minus" onclick="updateQada('${p}', -1)" title="Prayed Qada">✔️</button><button class="qada-btn" onclick="updateQada('${p}', 1)" title="Missed Prayer">➕</button></div>`; qadaContainer.appendChild(div); }); 
         const toggleBtn = document.createElement('button'); toggleBtn.style = "background:transparent; border:1px solid var(--deen); color:var(--deen); padding:8px; margin-top:10px; width:100%; border-radius:8px;"; toggleBtn.innerText = showAllQada ? "⬆️ Hide Caught Up Prayers" : "⬇️ Reveal All Prayers"; toggleBtn.onclick = function() { showAllQada = !showAllQada; renderDeen(); }; qadaContainer.appendChild(toggleBtn);
     }
@@ -3298,21 +3341,26 @@ function addExpense() {
     if (!desc || isNaN(amount) || amount <= 0) return alert("Please enter a valid description and amount.");
     
     const expenseDate = dateInput ? new Date(dateInput).getTime() : Date.now();
-    budgetData.expenses.push({ id: Date.now().toString(), desc, amount, date: expenseDate });
+    const category = document.getElementById('expense-category')?.value || 'other';
+    const expenseId = Date.now().toString();
+    budgetData.expenses.push({ id: expenseId, desc, amount, category, date: expenseDate });
     
-    let newLog = { id: Date.now().toString(), taskId: 'exp-'+Date.now(), category: 'budget', timestamp: Date.now(), title: "Expense: " + desc, actionType: 'expense', amount: amount };
+    let newLog = { id: (Date.now() + 1).toString(), expenseId, taskId: 'exp-' + expenseId, category: 'budget', timestamp: Date.now(), title: "Expense: " + desc, actionType: 'expense', amount: amount };
     activityHistory.push(newLog); syncToGoogleSheets(newLog);
     
     document.getElementById('expense-desc').value = ''; document.getElementById('expense-amount').value = ''; document.getElementById('expense-date').value = '';
     closeModal('expense-modal');
     saveData(); renderBudget();
+    showToast(`₹${amount.toLocaleString()} logged`, '🧾');
+    setTimeout(() => checkCategoryWarning(category), 1200);
 }
 
 function deleteExpense(id) {
-    if (confirm("Delete this expense log?")) {
+    showConfirmSheet("Delete this expense?", { title: 'Delete expense', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => {
+        if (!ok) return;
         budgetData.expenses = budgetData.expenses.filter(e => e.id !== id);
         saveData(); renderBudget();
-    }
+    });
 }
 
 async function pickContact() {
@@ -3398,11 +3446,11 @@ function renderBudget() {
             if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
                 monthlyTotal += exp.amount; hasExpensesThisMonth = true;
                 const div = document.createElement('div');
-                div.style = "background:#252530; padding:12px; border-radius:10px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-left:4px solid var(--danger);";
+                div.style = "background:var(--surface-2); padding:12px; border-radius:10px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-left:4px solid var(--danger);";
                 div.innerHTML = `
                     <div>
-                        <div style="font-weight:bold;">${exp.desc}</div>
-                        <div style="font-size:0.8rem; color:#888;">${expDate.toLocaleDateString()}</div>
+                        <div style="font-weight:bold;">${escapeHTML(exp.desc)}</div>
+                        <div style="font-size:0.8rem; color:var(--muted);">${expDate.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} · ${BILL_CATS[exp.category || 'other'] || 'Other'}${exp.billId ? ' · recurring bill' : ''}</div>
                     </div>
                     <div style="display:flex; align-items:center; gap:12px;">
                         <span style="color:var(--danger); font-weight:bold;">₹${exp.amount.toLocaleString()}</span>
@@ -3412,7 +3460,7 @@ function renderBudget() {
                 listContainer.appendChild(div);
             }
         });
-        if (!hasExpensesThisMonth) listContainer.innerHTML = '<p style="color:#aaa; text-align:center;">No expenses logged for this month yet.</p>';
+        if (!hasExpensesThisMonth) listContainer.innerHTML = '<p style="color:var(--muted); text-align:center;">No expenses logged for this month yet.</p>';
     }
 
     // Category Chart & Breakdown
@@ -3442,29 +3490,11 @@ function renderBudget() {
         const ctx2 = catCanvas.getContext('2d');
         if (expenseCategoryChart) expenseCategoryChart.destroy();
         if (typeof Chart !== 'undefined' && data.length > 0) {
-            expenseCategoryChart = new Chart(ctx2, { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#aaa', font: { size: 10 } }, position: 'right' } } } });
+            expenseCategoryChart = new Chart(ctx2, { type: 'doughnut', data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: cssVar('--muted'), font: { size: 10 } }, position: 'right' } } } });
         }
-        const breakdownEl = document.getElementById('category-breakdown-list');
-        if (breakdownEl) {
-            if (Object.keys(catTotals).length === 0) {
-                breakdownEl.innerHTML = '<h3 style="margin-top:0; font-size:0.95rem; color:var(--text-muted);">Category Breakdown</h3><p style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:16px 0;">No expenses this month</p>';
-            } else {
-                let bHtml = '<h3 style="margin-top:0; font-size:0.95rem; color:var(--text-muted);">Category Breakdown</h3>';
-                Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).forEach(([cat, amt]) => {
-                    const pct = monthlyTotal > 0 ? Math.round((amt / monthlyTotal) * 100) : 0;
-                    const cfg = catConfig[cat] || { label: cat, color: '#888' };
-                    bHtml += `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <div style="width:10px; height:10px; border-radius:50%; background:${cfg.color}; flex-shrink:0;"></div>
-                            <span style="font-size:0.82rem; color:var(--text-muted);">${cfg.label}</span>
-                        </div>
-                        <div style="font-size:0.82rem; font-weight:700; color:var(--text-main);">₹${amt.toLocaleString()} <span style="color:var(--text-muted); font-weight:400;">(${pct}%)</span></div>
-                    </div>`;
-                });
-                breakdownEl.innerHTML = bHtml;
-            }
-        }
+        renderCategoryBreakdown(catConfig);
     }
+    renderBills();
 
     const spentEl = document.getElementById('budget-spent');
     if (spentEl) spentEl.innerText = monthlyTotal.toLocaleString();
@@ -3507,13 +3537,13 @@ function renderBudget() {
             if (pending <= 0 && repaid > 0 && debt.amount > 0) return; 
             
             const div = document.createElement('div');
-            div.style = "background:#252530; padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
-            let progressHtml = repaid > 0 ? `<div style="font-size:0.75rem; color:#aaa; margin-top:2px;">Original: ₹${debt.amount} | Paid: ₹${repaid}</div>` : '';
+            div.style = "background:var(--surface-2); padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
+            let progressHtml = repaid > 0 ? `<div style="font-size:0.75rem; color:var(--muted); margin-top:2px;">Original: ₹${debt.amount} | Paid: ₹${repaid}</div>` : '';
 
             div.innerHTML = `
                 <div>
-                    <div style="font-weight:bold; font-size:0.85rem;">${debt.desc}</div>
-                    <div style="font-size:0.75rem; color:#888;">${dDate.toLocaleDateString()}</div>
+                    <div style="font-weight:bold; font-size:0.85rem;">${escapeHTML(debt.desc)}</div>
+                    <div style="font-size:0.75rem; color:var(--muted);">${dDate.toLocaleDateString()}</div>
                     ${progressHtml}
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
@@ -3528,8 +3558,8 @@ function renderBudget() {
             else { totalLent += pending; lentContainer.appendChild(div); }
         });
         
-        if (borrowedContainer.innerHTML === '') borrowedContainer.innerHTML = '<div style="color:#aaa; font-size:0.8rem; text-align:center;">None</div>';
-        if (lentContainer.innerHTML === '') lentContainer.innerHTML = '<div style="color:#aaa; font-size:0.8rem; text-align:center;">None</div>';
+        if (borrowedContainer.innerHTML === '') borrowedContainer.innerHTML = '<div style="color:var(--muted); font-size:0.8rem; text-align:center;">None</div>';
+        if (lentContainer.innerHTML === '') lentContainer.innerHTML = '<div style="color:var(--muted); font-size:0.8rem; text-align:center;">None</div>';
         document.getElementById('total-borrowed').innerText = totalBorrowed.toLocaleString(); document.getElementById('total-lent').innerText = totalLent.toLocaleString();
     }
 }
@@ -3682,13 +3712,16 @@ function toggleBacklogStatus(id) {
 }
 
 function deleteBacklogItem(id) {
-    if (confirm("Remove this item from your library?")) {
+    showConfirmSheet("Remove this item from your library?", { title: 'Remove item', icon: '🗑️', okText: 'Remove', danger: true }).then(ok => {
+        if (!ok) return;
+        markDeleted(id);
         backlogData = backlogData.filter(b => b.id !== id);
         saveData(); renderBacklog();
-    }
+    });
 }
 
 function renderBacklog() {
+    const safeUrl = u => /^https?:\/\//i.test(u || '') ? escapeHTML(u) : '';
     const container = document.getElementById('backlog-list-container'); if (!container) return; container.innerHTML = '';
     const filterView = document.getElementById('backlog-filter') ? document.getElementById('backlog-filter').value : 'all';
     
@@ -3696,7 +3729,7 @@ function renderBacklog() {
     if (filterView === 'pending') filteredData = backlogData.filter(b => !b.completed);
     if (filterView === 'completed') filteredData = backlogData.filter(b => b.completed);
 
-    if (filteredData.length === 0) { container.innerHTML = '<p style="color:#aaa; text-align:center;">Library is empty for this view.</p>'; return; }
+    if (filteredData.length === 0) { container.innerHTML = '<p style="color:var(--muted); text-align:center;">Library is empty for this view.</p>'; return; }
 
     filteredData.sort((a, b) => {
         if (a.completed === b.completed) return b.addedAt - a.addedAt;
@@ -3708,17 +3741,17 @@ function renderBacklog() {
     filteredData.forEach(item => {
         const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--backlog)'; if (item.completed) div.style.opacity = '0.5';
 
-        let imageHtml = item.imageUrl ? `<img src="${item.imageUrl}" style="width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin-bottom:10px; background:#111;" onerror="this.style.display='none'">` : '';
-        let linkHtml = item.link ? `<a href="${item.link}" target="_blank" style="color:var(--backlog); font-size:0.85rem; text-decoration:none; display:block; margin-bottom:5px;">🔗 Open Link</a>` : '';
-        let notesHtml = item.notes ? `<div style="font-size:0.85rem; color:#aaa; margin-bottom:8px; background:#111; padding:8px; border-radius:5px;">${item.notes}</div>` : '';
+        let imageHtml = item.imageUrl ? `<img src="${safeUrl(item.imageUrl)}" style="width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin-bottom:10px; background:var(--surface-2);" onerror="this.style.display='none'">` : '';
+        let linkHtml = item.link ? `<a href="${safeUrl(item.link)}" rel="noopener" target="_blank" style="color:var(--backlog); font-size:0.85rem; text-decoration:none; display:block; margin-bottom:5px;">🔗 Open Link</a>` : '';
+        let notesHtml = item.notes ? `<div style="font-size:0.85rem; color:var(--muted); margin-bottom:8px; background:var(--surface-2); padding:8px; border-radius:5px;">${escapeHTML(item.notes)}</div>` : '';
         let statusBadge = item.completed ? `<span class="badge done-badge">✅ Finished</span>` : '';
 
         div.innerHTML = `
             ${imageHtml}
             <div class="task-header" style="margin-bottom:10px;">
                 <div style="flex:1;">
-                    <div style="font-size:0.8rem; color:#888; margin-bottom:3px;">${typeIcons[item.type] || '🔖'} ${item.type.toUpperCase()}</div>
-                    <div class="task-title" style="${item.completed ? 'text-decoration:line-through;' : ''}">${item.title}</div>
+                    <div style="font-size:0.8rem; color:var(--muted); margin-bottom:3px;">${typeIcons[item.type] || '🔖'} ${escapeHTML((item.type || 'other').toUpperCase())}</div>
+                    <div class="task-title" style="${item.completed ? 'text-decoration:line-through;' : ''}">${escapeHTML(item.title)}</div>
                     ${statusBadge}
                 </div>
                 <div class="task-controls">
@@ -3728,7 +3761,7 @@ function renderBacklog() {
             </div>
             ${linkHtml}
             ${notesHtml}
-            <button onclick="toggleBacklogStatus('${item.id}')" style="background:${item.completed ? '#333' : 'var(--backlog)'}; color:${item.completed ? '#fff' : '#000'}; width:100%; margin:0; padding:8px;">
+            <button onclick="toggleBacklogStatus('${item.id}')" style="background:${item.completed ? 'var(--surface-3)' : 'var(--backlog)'}; color:${item.completed ? 'var(--text)' : '#fff'}; width:100%; margin:0; padding:8px;">
                 ${item.completed ? 'Undo (Mark as Pending)' : 'Mark as Done'}
             </button>
         `;
@@ -3739,46 +3772,95 @@ function renderBacklog() {
 // ==========================================
 // BACKGROUND REMINDER ENGINE
 // ==========================================
-setInterval(() => {
-    const now = new Date();
-    const timeString = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const todayKey = toDateKey(Date.now());
+setInterval(runReminderEngine, 30000);
+setTimeout(runReminderEngine, 4000);
 
-    if ("Notification" in window && Notification.permission === "granted") {
+function runReminderEngine() {
+    const now = new Date();
+    const ctx = Core.ctxFromLocalDate(now);
+    const todayKey = ctx.todayKey;
+    const nowMin = ctx.minuteOfDay;
+    const canNotify = ("Notification" in window && Notification.permission === "granted");
+    // When background push is active, the server sends reminders — avoid duplicates.
+    const serverHandles = localStorage.getItem('hisab_push_active') === '1';
+
+    if (canNotify && !serverHandles) {
+        const timings = getTodayPrayerTimings();
+        let changed = false;
         tasks.forEach(t => {
-            const doneToday = activityHistory.some(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= startOfDay);
-            if (t.reminderTime === timeString && !t.isCompleted && !doneToday && t.currentTarget > 0) {
-                if (t.lastNotified !== timeString) {
-                    sendAppNotification("⏰ Hisab Reminder: " + t.title, { body: `Target today: ${t.baseTarget} (${t.currentTarget} remaining in year)`, tag: 'task-' + t.id });
-                    t.lastNotified = timeString;
-                    saveDataLocallyOnly();
+            if ((t.currentTarget ?? 1) <= 0) return;
+            const st = getTaskStatus(t, now);
+            if (st.isDone || !st.isDueToday) return;
+
+            // Snoozed reminders
+            if (t.snoozedUntil) {
+                if (Date.now() < t.snoozedUntil) return;
+                if (t.snoozeFired !== t.snoozedUntil) {
+                    notifyTask(t, st, '(snoozed)');
+                    t.snoozeFired = t.snoozedUntil; changed = true;
+                    return;
                 }
             }
+            const rMin = Core.reminderMinute(t, timings);
+            if (rMin == null) return;
+            // 5-minute window so a throttled background tab doesn't skip reminders
+            if (nowMin < rMin || nowMin >= rMin + 5) return;
+            const notifiedKey = `${todayKey} ${Core.minToHm(rMin)}`;
+            if (t.lastNotified === notifiedKey) return;
+            notifyTask(t, st);
+            t.lastNotified = notifiedKey; changed = true;
         });
 
-        // Evening summary notification
-        const eveningTime = localStorage.getItem('hisab_evening_notif_time') || '21:00';
-        if (timeString === eveningTime) {
+        // Recurring bills: remind at 09:00 inside each bill's reminder window
+        if (nowMin >= 9 * 60) {
+            (budgetData.bills || []).forEach(b => {
+                const bs = Core.billStatus(b, ctx);
+                if (!bs.inWindow) return;
+                const k = `hisab_bill_notif_${b.id}_${todayKey}`;
+                if (localStorage.getItem(k)) return;
+                sendAppNotification(`💳 ${b.name} — ₹${Number(b.amount).toLocaleString()}`, { body: Core.dueLabel(bs.daysLeft), tag: 'bill-' + b.id, data: { kind: 'bill', billId: b.id }, actions: [{ action: 'billpaid', title: 'Mark paid' }] });
+                localStorage.setItem(k, '1');
+            });
+        }
+
+        // Evening summary
+        const eveningMin = Core.hmToMin(getSetting('eveningTime', '21:00'));
+        if (eveningMin != null && nowMin >= eveningMin && nowMin < eveningMin + 5) {
             const eodKey = `hisab_eod_notif_${todayKey}`;
             if (!localStorage.getItem(eodKey)) {
-                const dailyTasks = tasks.filter(t => t.type === 'daily' && t.currentTarget > 0);
-                const incompleteTasks = dailyTasks.filter(t => {
-                    const doneAmt = activityHistory.filter(h => h.taskId === t.id && h.actionType === 'complete' && h.timestamp >= startOfDay).reduce((s, h) => s + (h.amount || 1), 0);
-                    return doneAmt < (t.baseTarget || 1);
-                });
-                if (incompleteTasks.length > 0) {
-                    sendAppNotification(`🌙 Hisab: ${incompleteTasks.length} task(s) remaining today!`, {
-                        body: incompleteTasks.slice(0, 3).map(t => `• ${t.title}`).join('\n') + (incompleteTasks.length > 3 ? `\n+${incompleteTasks.length - 3} more` : ''),
+                const incomplete = tasks.filter(t => (t.currentTarget ?? 1) > 0 && getTaskStatus(t, now).isDueToday && (t.type === 'daily' || t.type === 'once'));
+                if (incomplete.length > 0) {
+                    sendAppNotification(`🌙 ${incomplete.length} task${incomplete.length > 1 ? 's' : ''} left today`, {
+                        body: incomplete.slice(0, 3).map(t => `• ${t.title}`).join('\n') + (incomplete.length > 3 ? `\n+${incomplete.length - 3} more` : ''),
                         tag: 'eod-summary'
                     });
-                    localStorage.setItem(eodKey, '1');
                 }
+                localStorage.setItem(eodKey, '1');
             }
         }
+
+        // Sunday weekly report at 20:00
+        if (ctx.dow === 0 && nowMin >= 20 * 60 && nowMin < 20 * 60 + 5 && !localStorage.getItem('hisab_wr_notif_' + todayKey)) {
+            const r = getWeeklyReport(0);
+            sendAppNotification('📊 Your week in Hisab', { body: `${r.rate != null ? r.rate + '% of daily tasks done' : r.completed + ' tasks done'} · ₹${r.spent.toLocaleString()} spent${r.best ? ` · Best: ${r.best.title}` : ''}`, tag: 'weekly-report', data: { kind: 'report' } });
+            localStorage.setItem('hisab_wr_notif_' + todayKey, '1');
+        }
+        if (changed) saveDataLocallyOnly();
     }
     if (processAutomaticPenalties()) { saveData(); render(); }
-}, 60000); 
+}
+
+function notifyTask(t, st, suffix = '') {
+    const left = Math.max(0, st.target - st.doneAmt);
+    const anchor = t.prayerAnchor ? Core.describeAnchor(t.prayerAnchor) : '';
+    const body = [st.dueLabel, st.target > 1 ? `${fmtNum(left)} left ${st.periodLabel}` : '', anchor, suffix].filter(Boolean).join(' · ') || 'Time to do this';
+    sendAppNotification('⏰ ' + t.title, {
+        body, tag: 'task-' + t.id, requireInteraction: true,
+        data: { kind: 'task', taskId: t.id },
+        actions: [{ action: 'done', title: '✓ Done' }, { action: 'snooze10', title: 'Snooze 10m' }, { action: 'snooze60', title: '1 hour' }]
+    });
+}
+
 
 // ==========================================
 // CORE APP ROUTING & UI
@@ -3888,7 +3970,7 @@ function togglePomodoroTimer() {
                     if (countEl) countEl.innerText = pomodoroSessionsToday;
                     if (pomodoroTaskId) logProgress(pomodoroTaskId);
                     if ("Notification" in window && Notification.permission === "granted") {
-                        new Notification("🍅 Pomodoro Complete!", { body: "Great work! Time for a 5-minute break.", icon: "icon.png" });
+                        new Notification("🍅 Pomodoro Complete!", { body: "Great work! Time for a 5-minute break.", icon: "icons/icon-192.png" });
                     }
                     if (typeof confetti === 'function') confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
                     pomodoroPhase = 'break';
@@ -3977,7 +4059,7 @@ function renderJournal() {
                 const dateLabel = new Date(y, m-1, d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
                 const preview = text.length > 120 ? text.slice(0, 120) + '...' : text;
                 return `
-                    <div class="journal-entry-card" onclick="currentJournalDateKey='${dk}'; renderJournal();" style="cursor:pointer;">
+                    <div class="journal-entry-card" onclick="openJournalDate('${dk}')" style="cursor:pointer;">
                         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:6px; font-weight:600;">${dateLabel}</div>
                         <div style="font-size:0.85rem; color:var(--text-main); line-height:1.5;">${preview}</div>
                     </div>
@@ -3986,6 +4068,9 @@ function renderJournal() {
         }
     }
 }
+
+function openJournalDate(dk) { currentJournalDateKey = dk; renderJournal(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+window.openJournalDate = openJournalDate;
 
 function journalNavigateDay(direction) {
     const [y, m, d] = currentJournalDateKey.split('-').map(Number);
@@ -4002,7 +4087,7 @@ function journalAutoSave() {
     const charCount = document.getElementById('journal-char-count');
     if (!textarea) return;
     if (charCount) charCount.innerText = `${textarea.value.length} chars`;
-    if (statusEl) statusEl.innerText = 'Saving...';
+    if (statusEl) statusEl.innerText = 'Saving…';
     clearTimeout(journalAutoSaveTimeout);
     journalAutoSaveTimeout = setTimeout(() => {
         journalData[currentJournalDateKey] = textarea.value;
@@ -4121,11 +4206,11 @@ function getWeekKey() {
 
 function saveWeeklyGoal() {
     const val = document.getElementById('weekly-goal-input')?.value.trim();
-    if (!val) return;
-    weeklyGoalData[getWeekKey()] = val;
+    if (val) weeklyGoalData[getWeekKey()] = val; else delete weeklyGoalData[getWeekKey()];
     saveData();
-    closeModal('weekly-goal-modal');
+    closeModal('weekly-report-modal');
     updateWeeklyGoalBanner();
+    if (val) showToast('Weekly focus set', '🎯');
 }
 
 function updateWeeklyGoalBanner() {
@@ -4168,16 +4253,19 @@ function checkWeeklyGoalPrompt() {
 // ==========================================
 function openNotifSettings() {
     const timeInput = document.getElementById('evening-notif-time');
-    if (timeInput) timeInput.value = localStorage.getItem('hisab_evening_notif_time') || '21:00';
+    if (timeInput) timeInput.value = getSetting('eveningTime', '21:00');
+    refreshNotifButtons();
+    const lbl = document.getElementById('theme-mode-label');
+    if (lbl) lbl.textContent = { light: 'Light', dark: 'Dark', system: 'Auto (follows device)' }[localStorage.getItem('hisab_theme_mode') || 'system'];
     openModal('notif-settings-modal');
 }
 
 function saveEveningNotifTime() {
     const val = document.getElementById('evening-notif-time')?.value;
     if (val) {
-        localStorage.setItem('hisab_evening_notif_time', val);
+        setSetting('eveningTime', val);
         closeModal('notif-settings-modal');
-        alert(`✅ Evening reminder set for ${val}`);
+        showToast(`Evening summary set for ${val}`, '🌙');
     }
 }
 
@@ -4267,8 +4355,8 @@ async function sendAppNotification(title, options = {}) {
         try { navigator.vibrate([200, 100, 200, 100, 400]); } catch (e) {}
     }
     const defaultOptions = {
-        icon: 'icon.png',
-        badge: 'icon.png',
+        icon: 'icons/icon-192.png',
+        badge: 'icons/icon-96.png',
         vibrate: [200, 100, 200, 100, 400],
         requireInteraction: true,
         ...options
@@ -4350,6 +4438,10 @@ function switchTab(tabName, element, fromPopState = false) {
     const drawerItem = document.getElementById(`drawer-nav-${tabName}`);
     if (drawerItem) drawerItem.classList.add('active');
 
+    const ac = document.getElementById('auth-container');
+    if (ac && ac.dataset.ready) ac.style.display = tabName === 'dashboard' ? 'flex' : 'none';
+    const lp = document.getElementById('login-prompt');
+    if (lp && !currentUser) lp.style.display = tabName === 'dashboard' ? 'flex' : 'none';
     if (tabName === 'tasks') renderTasks();
     if (tabName === 'dashboard') updateDashboard();
     if (tabName === 'journal') { currentJournalDateKey = toDateKey(Date.now()); renderJournal(); }
@@ -4359,12 +4451,37 @@ function switchTab(tabName, element, fromPopState = false) {
 window.switchTab = switchTab;
 window.fullSwitchTab = switchTab;
 
-function initNotifications() { const btn = document.getElementById('btn-notifications'); if (!btn) return; if (!("Notification" in window)) { btn.style.display = 'none'; return; } if (Notification.permission === "granted") { btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }
-function toggleNotifications() { if (!("Notification" in window)) return alert("Browser does not support notifications."); if (Notification.permission === "granted") { alert("Notifications already enabled!"); } else if (Notification.permission !== "denied") { Notification.requestPermission().then(p => { if (p === "granted") { const btn = document.getElementById('btn-notifications'); btn.innerText = "🔔 Alerts On"; btn.classList.add('enabled'); } }); } else { alert("Notifications blocked in device settings."); } }
+function refreshNotifButtons() {
+    const btn = document.getElementById('btn-notifications');
+    const push = document.getElementById('btn-enable-push');
+    const supported = 'Notification' in window;
+    const granted = supported && Notification.permission === 'granted';
+    if (btn) btn.classList.toggle('enabled', granted);
+    if (push) {
+        push.disabled = !supported || Notification.permission === 'denied' || (granted && (localStorage.getItem('hisab_push_active') === '1' || !pushConfigured() || !currentUser));
+        push.innerHTML = !supported ? 'Not supported on this browser'
+            : granted ? (localStorage.getItem('hisab_push_active') === '1' ? `${svgIcon('check', 'icon icon-sm')}On · works when app is closed` : (pushConfigured() && currentUser ? `${svgIcon('bell', 'icon icon-sm')}Turn on background reminders` : `${svgIcon('check', 'icon icon-sm')}On · while Hisab is open`))
+            : Notification.permission === 'denied' ? 'Blocked — allow in browser settings'
+            : `${svgIcon('bell', 'icon icon-sm')}Enable notifications`;
+    }
+}
+function initNotifications() { refreshNotifButtons(); }
+function toggleNotifications() {
+    if (!('Notification' in window)) return showToast('Notifications are not supported here', '⚠️');
+    if (Notification.permission === 'granted') { refreshNotifButtons(); registerPushToken(false); return; }
+    Notification.requestPermission().then(p => {
+        refreshNotifButtons();
+        if (p === 'granted') {
+            showToast('Reminders enabled', '🔔');
+            sendAppNotification('Hisab reminders are on', { body: 'You will be notified at each task\'s reminder time.' });
+            registerPushToken(true);
+        }
+    });
+}
 function openModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'flex'; }
 function closeModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
-function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard(); updateNavBadges(); }
+function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard(); else renderTodayAgenda(); updateNavBadges(); }
 
 // Exports
 window.deductFromSurplus = deductFromSurplus; window.openModal = openModal; window.closeModal = closeModal;
@@ -4375,11 +4492,11 @@ window.deductFromSurplus = deductFromSurplus; window.openModal = openModal; wind
 function showToast(msg, icon = '✨') {
     const toast = document.getElementById('app-toast');
     if (!toast) return;
-    toast.innerHTML = `<span style="font-size:1.1rem;">${icon}</span> <span>${msg}</span>`;
+    toast.innerHTML = `<span>${icon}</span><span>${escapeHTML(msg)}</span>`;
     toast.style.transform = 'translateX(-50%) translateY(0)';
     clearTimeout(window._toastTimeout);
     window._toastTimeout = setTimeout(() => {
-        toast.style.transform = 'translateX(-50%) translateY(-100px)';
+        toast.style.transform = 'translateX(-50%) translateY(-140px)';
     }, 3200);
 }
 
@@ -4513,7 +4630,7 @@ function saveYouTubePlaylistConfig() {
     if (!input) return;
     const val = input.value.trim();
     const keyVal = keyInput ? keyInput.value.trim() : '';
-    localStorage.setItem('hisab_yt_playlist', val);
+    setSetting('ytPlaylist', val);
     localStorage.setItem('hisab_yt_api_key', keyVal);
     const status = document.getElementById('yt-sync-status');
     if (status) status.innerHTML = `<span style="color:var(--success);">✅ Settings saved!</span>`;
@@ -4666,6 +4783,471 @@ window.triggerHaptic = triggerHaptic;
 window.sendAppNotification = sendAppNotification;
 window.playAlarmChime = playAlarmChime;
 
+// =====================================================================
+// v2.1 FEATURES: settings sync · prayer anchors · background push ·
+// snooze · quick add · checklists · bills · category limits · weekly report
+// (state below uses `var` so it is ready before the first render)
+// =====================================================================
+
+// ---------- Settings that follow you across devices ----------
+var SETTING_KEYS = { themeMode: 'hisab_theme_mode', eveningTime: 'hisab_evening_notif_time', ytPlaylist: 'hisab_yt_playlist' };
+function getSetting(name, fallback = '') { return localStorage.getItem(SETTING_KEYS[name]) || fallback; }
+function setSetting(name, value) {
+    localStorage.setItem(SETTING_KEYS[name], value);
+    localStorage.setItem('hisab_settings_updated', String(Date.now()));
+    saveData();
+}
+function collectSettings() {
+    const out = { updatedAt: Number(localStorage.getItem('hisab_settings_updated') || 0) };
+    for (const [k, ls] of Object.entries(SETTING_KEYS)) { const v = localStorage.getItem(ls); if (v) out[k] = v; }
+    return out;
+}
+function applyCloudSettings(st) {
+    if (!st || !st.updatedAt) return;
+    const local = Number(localStorage.getItem('hisab_settings_updated') || 0);
+    if (st.updatedAt <= local) return;
+    for (const [k, ls] of Object.entries(SETTING_KEYS)) if (st[k]) localStorage.setItem(ls, st[k]);
+    localStorage.setItem('hisab_settings_updated', String(st.updatedAt));
+    if (st.themeMode && typeof window.applyThemeMode === 'function') window.applyThemeMode(st.themeMode);
+}
+function setThemeMode(mode) { window.applyThemeMode(mode); setSetting('themeMode', mode); }
+window.setThemeMode = setThemeMode;
+window.getSetting = getSetting;
+
+// ---------- Prayer times (cached daily, refreshed silently from saved location) ----------
+function getTodayPrayerTimings() {
+    const c = JSON.parse(localStorage.getItem('hisab_prayer_times') || 'null');
+    return (c && c.date === toDateKey(Date.now())) ? c.timings : null;
+}
+async function ensurePrayerTimes(force = false) {
+    if (!force && getTodayPrayerTimings()) return getTodayPrayerTimings();
+    const loc = deenData.location;
+    if (!loc || loc.lat == null) return null;
+    try {
+        const d = new Date();
+        const dd = `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+        const resp = await fetch(`https://api.aladhan.com/v1/timings/${dd}?latitude=${loc.lat}&longitude=${loc.lng}&method=${loc.method || 2}`);
+        const data = await resp.json();
+        if (data.code === 200) {
+            prayerTimesData = data.data.timings;
+            localStorage.setItem('hisab_prayer_times', JSON.stringify({ timings: prayerTimesData, date: toDateKey(Date.now()) }));
+            if (document.getElementById('tab-deen')?.classList.contains('active')) renderPrayerTimes();
+            return prayerTimesData;
+        }
+    } catch (e) { /* offline */ }
+    return null;
+}
+window.ensurePrayerTimes = ensurePrayerTimes;
+
+function effectiveReminderLabel(task) {
+    if (task.prayerAnchor && task.prayerAnchor.prayer) {
+        const m = Core.reminderMinute(task, getTodayPrayerTimings());
+        return `${Core.describeAnchor(task.prayerAnchor)}${m != null ? ' · ' + Core.minToHm(m) : ''}`;
+    }
+    return task.reminderTime || '';
+}
+
+function onReminderPrayerChange() {
+    const sel = document.getElementById('task-reminder-prayer');
+    const time = document.getElementById('task-reminder-time');
+    const off = document.getElementById('task-prayer-offset-wrap');
+    const anchored = sel && sel.value;
+    if (time) { time.disabled = !!anchored; time.style.opacity = anchored ? .5 : 1; }
+    if (off) off.style.display = anchored ? 'block' : 'none';
+    if (anchored && !deenData.location) {
+        const hint = document.getElementById('task-prayer-hint');
+        if (hint) hint.innerHTML = 'Set your location once in <b>Deen → Prayer times</b> so Hisab knows the times.';
+    } else {
+        const hint = document.getElementById('task-prayer-hint'); if (hint) hint.innerHTML = '';
+    }
+}
+window.onReminderPrayerChange = onReminderPrayerChange;
+function readPrayerAnchorFromForm() {
+    const v = document.getElementById('task-reminder-prayer')?.value || '';
+    if (!v) return null;
+    const [dir, prayer] = v.split(':');
+    const mins = Math.abs(parseInt(document.getElementById('task-prayer-offset')?.value || '0', 10) || 0);
+    return { prayer, offset: dir === 'before' ? -mins : mins };
+}
+function writePrayerAnchorToForm(anchor) {
+    const sel = document.getElementById('task-reminder-prayer');
+    const off = document.getElementById('task-prayer-offset');
+    if (sel) sel.value = anchor ? `${anchor.offset < 0 ? 'before' : 'after'}:${anchor.prayer}` : '';
+    if (off) off.value = anchor ? Math.abs(anchor.offset || 0) : 10;
+    onReminderPrayerChange();
+}
+
+// ---------- Background push (Firebase Cloud Messaging) ----------
+function pushConfigured() { return !!(FCM_VAPID_KEY && firebaseConfig.messagingSenderId && firebaseConfig.appId); }
+async function registerPushToken(silent = true) {
+    if (!pushConfigured()) { if (!silent) showToast('Background push is not configured yet (see setup guide)', 'ℹ️'); return false; }
+    if (!currentUser) { if (!silent) showToast('Sign in first to get reminders when the app is closed', '🔐'); return false; }
+    if (!('Notification' in window) || Notification.permission !== 'granted') return false;
+    try {
+        const { getMessaging, getToken, isSupported } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js");
+        if (!(await isSupported())) { if (!silent) showToast('This browser does not support background push', '⚠️'); return false; }
+        const reg = await navigator.serviceWorker.ready;
+        const token = await getToken(getMessaging(app), { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+        if (!token) return false;
+        await setDoc(doc(db, 'pushTokens', currentUser.uid), {
+            tokens: { [token.slice(-40)]: { token, ua: navigator.userAgent.slice(0, 120), updatedAt: Date.now() } },
+            tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata',
+            updatedAt: Date.now()
+        }, { merge: true });
+        localStorage.setItem('hisab_push_active', '1');
+        refreshNotifButtons();
+        if (!silent) showToast('Reminders will arrive even when Hisab is closed', '🔔');
+        return true;
+    } catch (e) {
+        console.warn('Push registration failed', e);
+        localStorage.removeItem('hisab_push_active');
+        if (!silent) showToast('Could not enable background push: ' + (e.message || e), '⚠️');
+        return false;
+    }
+}
+window.registerPushToken = registerPushToken;
+
+// ---------- Snooze & notification actions ----------
+function snoozeTask(id, minutes) {
+    const t = tasks.find(x => x.id === id); if (!t) return;
+    let until;
+    if (minutes === 'tomorrow') {
+        const d = new Date(); d.setDate(d.getDate() + 1);
+        const m = Core.reminderMinute(t, getTodayPrayerTimings()) ?? 9 * 60;
+        d.setHours(Math.floor(m / 60), m % 60, 0, 0); until = d.getTime();
+    } else until = Date.now() + Number(minutes) * 60000;
+    t.snoozedUntil = until; t.snoozeFired = null;
+    saveData(); render();
+    showToast(`Snoozed until ${new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${minutes === 'tomorrow' ? ' tomorrow' : ''}`, '😴');
+}
+window.snoozeTask = snoozeTask;
+
+function handleNotifAction(msg) {
+    if (!msg) return;
+    const { action, taskId, billId } = msg;
+    if (taskId && action === 'done') { quickCompleteTask(taskId); switchTab('dashboard'); }
+    else if (taskId && action === 'snooze10') snoozeTask(taskId, 10);
+    else if (taskId && action === 'snooze60') snoozeTask(taskId, 60);
+    else if (billId && action === 'billpaid') markBillPaid(billId);
+    else if (msg.kind === 'report') openWeeklyReport(0);
+    else if (taskId) { switchTab('tasks'); setTimeout(() => toggleTaskSlider(taskId), 200); }
+}
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'hisab-notif') handleNotifAction(e.data); });
+}
+(function handleLaunchAction() {
+    const q = new URLSearchParams(location.search);
+    if (!q.get('na')) return;
+    const msg = { action: q.get('na'), taskId: q.get('task') || null, billId: q.get('bill') || null, kind: q.get('kind') || null };
+    history.replaceState({ tab: 'dashboard' }, '', location.pathname + '#dashboard');
+    setTimeout(() => handleNotifAction(msg), 900);
+})();
+
+// ---------- Quick add ----------
+function quickAddPreview(inputEl) {
+    const prev = document.getElementById(inputEl.dataset.preview);
+    if (!prev) return;
+    const v = inputEl.value.trim();
+    if (!v) { prev.innerHTML = ''; return; }
+    const ctx = Core.ctxFromLocalDate();
+    const p = Core.parseQuickAdd(v, ctx);
+    prev.innerHTML = p.title
+        ? `<span class="qa-title">${escapeHTML(p.title)}</span>` + Core.describeParsed(p, ctx).map(b => `<span class="qa-chip">${escapeHTML(b)}</span>`).join('')
+        : '';
+}
+function quickAddKey(e, inputEl) {
+    if (e.key === 'Enter') { e.preventDefault(); quickAddSubmit(inputEl.id); }
+    if (e.key === 'Escape') { inputEl.value = ''; quickAddPreview(inputEl); }
+}
+function quickAddSubmit(inputId, openForm = false) {
+    const el = document.getElementById(inputId); if (!el) return;
+    const raw = el.value.trim();
+    if (!raw) { el.focus(); return; }
+    const p = Core.parseQuickAdd(raw, Core.ctxFromLocalDate());
+    if (!p.title) { showToast('Add a task name', '✏️'); return; }
+    if (openForm) {
+        cancelEdit();
+        document.getElementById('task-title').value = p.title;
+        document.getElementById('task-type').value = p.activeDays ? 'daily-custom' : p.type;
+        toggleActiveDaysSelector(); setActiveDays(p.activeDays || []);
+        document.getElementById('task-base-target').value = p.baseTarget > 1 ? p.baseTarget : '';
+        document.getElementById('task-due-date').value = p.dueDate || '';
+        document.getElementById('task-reminder-time').value = p.reminderTime || '';
+        document.getElementById('task-donation').value = p.donationPenalty || '';
+        writePrayerAnchorToForm(p.prayerAnchor);
+        resetTagSelector(p.tags);
+        openModal('task-modal');
+    } else {
+        createTaskFromFields({ ...p, title: p.title });
+        showToast(`Added: ${p.title}`, '✅');
+    }
+    el.value = ''; quickAddPreview(el);
+}
+function createTaskFromFields(f) {
+    const creationTime = Date.now();
+    const type = f.type || 'once';
+    const baseTarget = f.baseTarget || 1;
+    const totalYearlyTarget = getPeriodsLeft(type, creationTime) * baseTarget;
+    tasks.push({
+        id: creationTime.toString(), createdAt: creationTime, title: f.title, type,
+        activeDays: f.activeDays && f.activeDays.length ? f.activeDays : null,
+        dueDate: type === 'once' ? (f.dueDate || '') : '', tags: f.tags || [],
+        baseTarget, totalYearlyTarget, currentTarget: totalYearlyTarget,
+        reminderTime: f.prayerAnchor ? '' : (f.reminderTime || ''), prayerAnchor: f.prayerAnchor || null,
+        donationPenalty: f.donationPenalty || 0, isMaxOnceDaily: false, missedCount: 0,
+        sortOrder: tasks.filter(t => t.type === type).length, subtasks: [],
+        penaltyCheckDate: new Date().toDateString(), lastEvaluatedDateKey: toDateKey(Date.now() - 86400000),
+        isCompleted: false, legacyMigrated: true
+    });
+    if (f.prayerAnchor) ensurePrayerTimes();
+    saveData(); render();
+}
+Object.assign(window, { quickAddPreview, quickAddKey, quickAddSubmit, handleNotifAction });
+
+// ---------- Checklists (subtasks) ----------
+function subtaskPeriodKey(task) { return Core.periodKey(task, Core.ctxFromLocalDate()); }
+function subtaskState(task) {
+    const list = task.subtasks || [];
+    const pk = subtaskPeriodKey(task);
+    const done = list.filter(s => s.doneKey === pk).length;
+    return { list, pk, done, total: list.length };
+}
+function renderSubtasksHtml(task) {
+    const { list, pk, done, total } = subtaskState(task);
+    const items = list.map(s => `
+        <div class="subtask ${s.doneKey === pk ? 'done' : ''}">
+            <input type="checkbox" ${s.doneKey === pk ? 'checked' : ''} onchange="toggleSubtask('${task.id}', '${s.id}')" aria-label="Toggle">
+            <span class="st-text">${escapeHTML(s.t)}</span>
+            <button class="btn-icon st-del" onclick="deleteSubtask('${task.id}', '${s.id}')" aria-label="Remove">${svgIcon('x', 'icon icon-sm')}</button>
+        </div>`).join('');
+    return `<div class="tray-label">Checklist${total ? ` · ${done}/${total}${task.type !== 'once' ? ' ' + ({ daily: 'today', weekly: 'this week', monthly: 'this month' }[task.type] || '') : ''}` : ''}</div>
+        <div class="subtasks">${items}
+            <div class="subtask add"><input type="text" id="st-new-${task.id}" placeholder="Add a step and press Enter" onkeydown="if(event.key==='Enter'){event.preventDefault(); addSubtask('${task.id}')}"></div>
+        </div>`;
+}
+function addSubtask(taskId) {
+    const t = tasks.find(x => x.id === taskId); const el = document.getElementById(`st-new-${taskId}`);
+    if (!t || !el || !el.value.trim()) return;
+    t.subtasks = t.subtasks || [];
+    t.subtasks.push({ id: Date.now().toString(36), t: el.value.trim(), doneKey: '' });
+    saveData(); renderTasks(); reopenTray(taskId); setTimeout(() => document.getElementById(`st-new-${taskId}`)?.focus(), 30);
+}
+function toggleSubtask(taskId, sid) {
+    const t = tasks.find(x => x.id === taskId); if (!t) return;
+    const s = (t.subtasks || []).find(x => x.id === sid); if (!s) return;
+    const pk = subtaskPeriodKey(t);
+    s.doneKey = s.doneKey === pk ? '' : pk;
+    const st = subtaskState(t);
+    saveData();
+    if (st.total > 0 && st.done === st.total && !getTaskStatus(t).isDone) {
+        quickCompleteTask(taskId);  // finishing the checklist completes the task
+    } else { renderTasks(); renderTodayAgenda(); reopenTray(taskId); }
+}
+function deleteSubtask(taskId, sid) {
+    const t = tasks.find(x => x.id === taskId); if (!t) return;
+    t.subtasks = (t.subtasks || []).filter(x => x.id !== sid);
+    saveData(); renderTasks(); reopenTray(taskId);
+}
+function reopenTray(taskId) { document.getElementById('task-card-' + taskId)?.classList.add('slider-open'); }
+Object.assign(window, { addSubtask, toggleSubtask, deleteSubtask });
+
+// ---------- Recurring bills ----------
+var BILL_CATS = { food: 'Food & dining', transport: 'Transport', shopping: 'Shopping', bills: 'Bills & utilities', health: 'Health', education: 'Education', entertainment: 'Entertainment', other: 'Other' };
+function openBillModal(id = null) {
+    const b = id ? (budgetData.bills || []).find(x => x.id === id) : null;
+    document.getElementById('bill-id').value = b ? b.id : '';
+    document.getElementById('bill-name').value = b ? b.name : '';
+    document.getElementById('bill-amount').value = b ? b.amount : '';
+    document.getElementById('bill-day').value = b ? b.dueDay : '';
+    document.getElementById('bill-category').value = b ? (b.category || 'bills') : 'bills';
+    document.getElementById('bill-remind').value = b ? (b.remindBefore ?? 2) : 2;
+    document.getElementById('bill-modal-title').innerText = b ? 'Edit bill' : 'New recurring bill';
+    openModal('bill-modal');
+}
+function saveBill() {
+    const id = document.getElementById('bill-id').value;
+    const name = document.getElementById('bill-name').value.trim();
+    const amount = parseFloat(document.getElementById('bill-amount').value);
+    const dueDay = parseInt(document.getElementById('bill-day').value, 10);
+    const category = document.getElementById('bill-category').value;
+    const remindBefore = Math.max(0, parseInt(document.getElementById('bill-remind').value, 10) || 0);
+    if (!name || !(amount > 0) || !(dueDay >= 1 && dueDay <= 31)) { showToast('Enter a name, amount and due day (1–31)', '✏️'); return; }
+    budgetData.bills = budgetData.bills || [];
+    if (id) Object.assign(budgetData.bills.find(b => b.id === id) || {}, { name, amount, dueDay, category, remindBefore });
+    else budgetData.bills.push({ id: Date.now().toString(), name, amount, dueDay, category, remindBefore, paid: {}, startKey: toDateKey(Date.now()) });
+    closeModal('bill-modal'); saveData(); renderBudget(); renderTodayAgenda();
+    showToast(id ? 'Bill updated' : 'Bill added', '💳');
+}
+function deleteBill(id) {
+    showConfirmSheet('Delete this recurring bill? Past payments stay in your expenses.', { title: 'Delete bill', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => {
+        if (!ok) return;
+        budgetData.bills = (budgetData.bills || []).filter(b => b.id !== id);
+        saveData(); renderBudget(); renderTodayAgenda();
+    });
+}
+function markBillPaid(id) {
+    const b = (budgetData.bills || []).find(x => x.id === id); if (!b) return;
+    const bs = Core.billStatus(b, Core.ctxFromLocalDate());
+    if (bs.paid) return;
+    const expenseId = Date.now().toString();
+    budgetData.expenses.push({ id: expenseId, desc: b.name, amount: Number(b.amount), category: b.category || 'bills', date: Date.now(), billId: b.id });
+    b.paid = b.paid || {}; b.paid[bs.monthKey] = expenseId;
+    const log = { id: (Date.now() + 1).toString(), expenseId, taskId: 'bill-' + b.id, category: 'budget', timestamp: Date.now(), title: 'Bill paid: ' + b.name, actionType: 'expense', amount: Number(b.amount) };
+    activityHistory.push(log); syncToGoogleSheets(log);
+    saveData(); renderBudget(); renderTodayAgenda(); updateDashboard();
+    showToast(`${b.name} marked paid · ₹${Number(b.amount).toLocaleString()} logged`, '✅');
+    checkCategoryWarning(b.category || 'bills');
+}
+function undoBillPaid(id, monthKey) {
+    const b = (budgetData.bills || []).find(x => x.id === id); if (!b || !b.paid || !b.paid[monthKey]) return;
+    const expId = b.paid[monthKey];
+    budgetData.expenses = budgetData.expenses.filter(e => e.id !== expId);
+    activityHistory.filter(h => h.expenseId === expId).forEach(h => markDeleted(h.id));
+    activityHistory = activityHistory.filter(h => h.expenseId !== expId);
+    delete b.paid[monthKey];
+    saveData(); renderBudget(); renderTodayAgenda();
+}
+function renderBills() {
+    const box = document.getElementById('bills-list'); if (!box) return;
+    const bills = budgetData.bills || [];
+    if (!bills.length) { box.innerHTML = `<div class="muted" style="font-size:13.5px; padding:4px 2px;">Rent, phone, internet, EMIs — add them once and Hisab reminds you before each due date.</div>`; return; }
+    const ctx = Core.ctxFromLocalDate();
+    box.innerHTML = bills.map(b => ({ b, s: Core.billStatus(b, ctx) })).sort((x, y) => x.s.daysLeft - y.s.daysLeft).map(({ b, s }) => {
+        const label = s.paidThisMonth && !s.inWindow ? `Paid this month · next ${Core.dueLabel(s.daysLeft).toLowerCase()}` : s.startsNext && !s.inWindow ? `Starts next month · ${Core.dueLabel(s.daysLeft).toLowerCase()}` : Core.dueLabel(s.daysLeft);
+        const cls = s.overdue ? 'danger' : (s.inWindow ? 'donation' : (s.paidThisMonth ? 'done-badge' : ''));
+        const curMonth = ctx.monthKey;
+        return `<div class="bill-row">
+            <div class="bill-main">
+                <div class="bill-name">${escapeHTML(b.name)}</div>
+                <div class="bill-meta">Every month on the ${b.dueDay}${['th', 'st', 'nd', 'rd'][(b.dueDay % 10 > 3 || [11, 12, 13].includes(b.dueDay % 100)) ? 0 : b.dueDay % 10]} · ${BILL_CATS[b.category] || 'Bills'}</div>
+            </div>
+            <div class="bill-right">
+                <div class="num" style="font-weight:700;">₹${Number(b.amount).toLocaleString()}</div>
+                <span class="badge ${cls}">${label}</span>
+            </div>
+            <div class="bill-actions">
+                ${!s.paid && (s.inWindow || (!s.paidThisMonth && !s.startsNext)) ? `<button class="btn-sm" onclick="markBillPaid('${b.id}')">Mark paid</button>` : ''}
+                ${s.paidThisMonth ? `<button class="btn-sm btn-ghost" onclick="undoBillPaid('${b.id}', '${curMonth}')">Undo</button>` : ''}
+                <button class="btn-icon" onclick="openBillModal('${b.id}')" aria-label="Edit">${svgIcon('pen', 'icon icon-sm')}</button>
+                <button class="btn-icon" onclick="deleteBill('${b.id}')" aria-label="Delete">${svgIcon('trash', 'icon icon-sm')}</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+function dueBillsForAgenda() {
+    const ctx = Core.ctxFromLocalDate();
+    return (budgetData.bills || []).map(b => ({ b, s: Core.billStatus(b, ctx) })).filter(x => x.s.inWindow);
+}
+Object.assign(window, { openBillModal, saveBill, deleteBill, markBillPaid, undoBillPaid });
+
+// ---------- Category limits ----------
+function monthCategoryTotals() {
+    const now = new Date(); const totals = {};
+    (budgetData.expenses || []).forEach(e => { const d = new Date(e.date); if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) totals[e.category || 'other'] = (totals[e.category || 'other'] || 0) + (Number(e.amount) || 0); });
+    return totals;
+}
+function openCategoryLimits() {
+    const lim = budgetData.categoryLimits || {};
+    document.getElementById('cat-limits-form').innerHTML = Object.entries(BILL_CATS).map(([k, label]) => `
+        <div class="field-row" style="align-items:center; margin-bottom:8px;">
+            <label for="cl-${k}" style="flex:1.2; font-size:14px; font-weight:600;">${label}</label>
+            <input type="number" id="cl-${k}" value="${lim[k] || ''}" placeholder="No limit" inputmode="decimal" style="margin:0;">
+        </div>`).join('');
+    openModal('cat-limits-modal');
+}
+function saveCategoryLimits() {
+    const lim = {};
+    Object.keys(BILL_CATS).forEach(k => { const v = parseFloat(document.getElementById('cl-' + k)?.value); if (v > 0) lim[k] = v; });
+    budgetData.categoryLimits = lim;
+    closeModal('cat-limits-modal'); saveData(); renderBudget();
+    showToast('Category limits saved', '🎯');
+}
+function checkCategoryWarning(cat) {
+    const lim = (budgetData.categoryLimits || {})[cat]; if (!lim) return;
+    const spent = monthCategoryTotals()[cat] || 0;
+    const pct = spent / lim;
+    const name = BILL_CATS[cat] || cat;
+    if (pct >= 1) showToast(`${name}: over limit by ₹${(spent - lim).toLocaleString()}`, '🚨');
+    else if (pct >= 0.8) showToast(`${name}: ${Math.round(pct * 100)}% of ₹${lim.toLocaleString()} used`, '⚠️');
+}
+function renderCategoryBreakdown(catConfig) {
+    const el = document.getElementById('category-breakdown-list'); if (!el) return;
+    const totals = monthCategoryTotals(); const lim = budgetData.categoryLimits || {};
+    const keys = [...new Set([...Object.keys(totals), ...Object.keys(lim)])].sort((a, b) => (totals[b] || 0) - (totals[a] || 0));
+    const head = `<div class="card-head"><h3>By category</h3><button class="btn-sm btn-ghost" onclick="openCategoryLimits()">${svgIcon('target', 'icon icon-sm')}Limits</button></div>`;
+    if (!keys.length) { el.innerHTML = head + '<div class="muted" style="font-size:13.5px;">No expenses this month. Set limits per category to get warnings at 80%.</div>'; return; }
+    el.innerHTML = head + keys.map(k => {
+        const spent = totals[k] || 0, l = lim[k];
+        const pct = l ? Math.min(100, Math.round(spent / l * 100)) : null;
+        const color = pct == null ? (catConfig[k]?.color || 'var(--indigo)') : pct >= 100 ? 'var(--red)' : pct >= 80 ? 'var(--amber)' : 'var(--green)';
+        return `<div class="cat-row">
+            <div class="cat-top"><span><i style="background:${catConfig[k]?.color || '#888'}"></i>${BILL_CATS[k] || escapeHTML(k)}</span>
+            <span class="num">₹${spent.toLocaleString()}${l ? `<span class="muted"> / ${l.toLocaleString()}</span>` : ''}</span></div>
+            ${l ? `<div class="progress" style="margin:6px 0 0; height:6px;"><span style="width:${pct}%; background:${color}"></span></div>` : ''}
+        </div>`;
+    }).join('');
+}
+Object.assign(window, { openCategoryLimits, saveCategoryLimits });
+
+// ---------- Weekly report ----------
+function getWeeklyReport(weeksAgo = 0) {
+    // Last 7 full days ending at the start of today (so on Sunday it covers Sun→Sat)
+    const now = new Date();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - weeksAgo * 7 * 86400000;
+    const start = end - 7 * 86400000;
+    const r = Core.weeklyReport({ tasks, history: activityHistory, budget: budgetData, journal: journalData, goodHabits }, start, end);
+    let bestStreak = 0, bestStreakName = '';
+    tasks.filter(t => t.type === 'daily').forEach(t => { const s = computeItemStreak(t.id, 'tasks').currentStreak; if (s > bestStreak) { bestStreak = s; bestStreakName = t.title; } });
+    (goodHabits || []).forEach(h => { const s = computeHabitStreak(h.id, 'good').currentStreak; if (s > bestStreak) { bestStreak = s; bestStreakName = h.title; } });
+    return { ...r, start, end, bestStreak, bestStreakName };
+}
+var reportWeeksAgo = 0;
+function openWeeklyReport(weeksAgo = 0) {
+    reportWeeksAgo = Math.max(0, weeksAgo);
+    const r = getWeeklyReport(reportWeeksAgo);
+    const fmt = ms => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    const prev = getWeeklyReport(reportWeeksAgo + 1);
+    const delta = (a, b) => (a == null || b == null) ? '' : (a === b ? '' : `<span class="${a > b ? 'up' : 'down'}">${a > b ? '▲' : '▼'} ${Math.abs(a - b)} pts vs the week before</span>`);
+    document.getElementById('weekly-report-range').innerText = `${fmt(r.start)} – ${fmt(r.end - 1)}`;
+    document.getElementById('weekly-report-body').innerHTML = `
+        <div class="report-hero">
+            <div class="report-rate">${r.rate != null ? r.rate + '%' : '—'}</div>
+            <div><div style="font-weight:700;">Daily tasks completed</div><div class="muted" style="font-size:13px;">${r.hit} of ${r.slots} scheduled · ${delta(r.rate, prev.rate) || 'same as the week before'}</div></div>
+        </div>
+        <div class="grid-3" style="margin:14px 0;">
+            <div class="stat-box"><div class="l">Tasks done</div><div class="v">${r.completed}</div></div>
+            <div class="stat-box"><div class="l">Missed</div><div class="v" style="color:${r.missed ? 'var(--red)' : 'inherit'}">${r.missed}</div></div>
+            <div class="stat-box"><div class="l">Best streak</div><div class="v">${r.bestStreak}d</div></div>
+            <div class="stat-box"><div class="l">Spent</div><div class="v" style="font-size:17px;">₹${r.spent.toLocaleString()}</div></div>
+            <div class="stat-box"><div class="l">Penalties</div><div class="v" style="font-size:17px; color:${r.penalties ? 'var(--amber)' : 'inherit'}">₹${r.penalties.toLocaleString()}</div></div>
+            <div class="stat-box"><div class="l">Journal</div><div class="v">${r.journalDays}/7</div></div>
+        </div>
+        <div class="report-lines">
+            ${r.best ? `<div>🏆 Most consistent: <b>${escapeHTML(r.best.title)}</b> (${r.best.hit}/${r.best.slots})</div>` : ''}
+            ${r.worst && r.worst.rate < 1 ? `<div>🎯 Needs attention: <b>${escapeHTML(r.worst.title)}</b> (${r.worst.hit}/${r.worst.slots})</div>` : ''}
+            ${r.bestStreak ? `<div>🔥 Longest live streak: <b>${escapeHTML(r.bestStreakName)}</b> — ${r.bestStreak} day${r.bestStreak === 1 ? '' : 's'}</div>` : ''}
+            <div>🕌 ${fmtNum(r.hizb)} hizb · ${r.swalath.toLocaleString()} swalath · ${r.goodLogs} good-habit logs${r.badLogs ? ` · ${r.badLogs} slips` : ''}</div>
+        </div>`;
+    const goalEl = document.getElementById('weekly-goal-input');
+    if (goalEl) goalEl.value = weeklyGoalData[getWeekKey()] || '';
+    document.getElementById('weekly-report-next').disabled = reportWeeksAgo === 0;
+    document.getElementById('weekly-focus-row').style.display = reportWeeksAgo === 0 ? 'block' : 'none';
+    openModal('weekly-report-modal');
+}
+function checkWeeklyReportPrompt() {
+    const now = new Date();
+    const shownKey = `hisab_weekly_report_${getWeekKey()}`;
+    if (now.getDay() === 0 && !localStorage.getItem(shownKey) && tasks.length > 0) {
+        localStorage.setItem(shownKey, '1');
+        setTimeout(() => openWeeklyReport(0), 1200);
+    }
+    updateWeeklyGoalBanner();
+}
+Object.assign(window, { openWeeklyReport, getWeeklyReport, reportNav: d => openWeeklyReport(reportWeeksAgo + d) });
+
+// ---------- Startup for v2.1 ----------
+setTimeout(() => { ensurePrayerTimes().then(() => { try { renderTodayAgenda(); } catch (e) {} }); }, 1500);
+
 initNotifications();
 const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
 
@@ -4681,21 +5263,23 @@ if (savedTab !== 'dashboard') {
 }
 
 handleIncomingShare();
-setTimeout(checkWeeklyGoalPrompt, 1500);
+setTimeout(checkWeeklyReportPrompt, 1500);
 
 // Initialize Firebase Auth Listener safely after all state & functions are defined
 onAuthStateChanged(auth, async (user) => {
     if (user) {
         currentUser = user;
-        showProfile({ name: user.displayName || 'Hisab User', email: user.email || '', picture: user.photoURL || 'icon.png' });
-        setSyncIndicator('synced', '⏳ Connecting...');
+        showProfile({ name: user.displayName || 'Hisab User', email: user.email || '', picture: user.photoURL || 'icons/icon-96.png' });
+        setSyncIndicator('synced', 'Connecting…');
         listenToFirebase(); 
+        if ('Notification' in window && Notification.permission === 'granted') setTimeout(() => registerPushToken(true), 2500);
     } else {
         currentUser = null;
-        setSyncIndicator('local', '📴 Local');
+        setSyncIndicator('local', 'Local only');
         const loginPrompt = document.getElementById('login-prompt');
         const authContainer = document.getElementById('auth-container');
-        if (loginPrompt) loginPrompt.style.display = 'block';
+        if (loginPrompt) loginPrompt.style.display = (localStorage.getItem('hisab_active_tab') || 'dashboard') === 'dashboard' ? 'flex' : 'none';
+        const so = document.getElementById('drawer-signout'); if (so) so.style.display = 'none';
         if (authContainer) authContainer.style.display = 'none';
         hasInitialCloudSync = true;
         migrateLegacyTasks();
@@ -4711,7 +5295,7 @@ onAuthStateChanged(auth, async (user) => {
 // ==========================================
 function recoverMissingTasks(silent = false) {
     let recoveredCount = 0;
-    const existingIds = new Set((tasks || []).map(t => String(t.id)));
+    const existingIds = new Set([...(tasks || []), ...(archivedTasks || [])].map(t => String(t.id)));
     const existingTitles = new Set((tasks || []).map(t => (t.title || '').trim().toLowerCase()));
 
     // 1. Recover from activityHistory
@@ -4720,12 +5304,14 @@ function recoverMissingTasks(silent = false) {
         const rawTitle = h.title || '';
         const cleanTitle = rawTitle.replace(/^(Completed:\s*|Missed:\s*|Task:\s*)/i, '').trim();
         const taskId = String(h.taskId || h.id);
-        if (!cleanTitle || taskId === 'unknown') return;
+        if (!cleanTitle || taskId === 'unknown' || isDeleted(taskId)) return;
+        if (!h.taskId || (h.category && h.category !== 'tasks')) return; // only real task logs can be restored
 
         if (!existingIds.has(taskId) && !existingTitles.has(cleanTitle.toLowerCase())) {
             const taskType = h.taskType || 'daily';
             const baseTarget = h.amount || 1;
             const createdAt = h.timestamp || Date.now();
+            if (cleanTitle.startsWith('Missed (')) return;
             const periodsLeft = getPeriodsLeft(taskType, createdAt);
             const totalYearlyTarget = periodsLeft * baseTarget;
 
@@ -4743,33 +5329,6 @@ function recoverMissingTasks(silent = false) {
             });
             existingIds.add(taskId);
             existingTitles.add(cleanTitle.toLowerCase());
-            recoveredCount++;
-        }
-    });
-
-    // 2. Confirmed user tasks from history/screenshots
-    const confirmedDefaults = [
-        { title: 'Excercise', type: 'daily', baseTarget: 1, donation: 50 },
-        { title: 'خشوع', type: 'daily', baseTarget: 1, donation: 50 }
-    ];
-    confirmedDefaults.forEach(preset => {
-        if (!existingTitles.has(preset.title.toLowerCase())) {
-            const newId = Date.now().toString() + Math.floor(Math.random() * 1000);
-            const periodsLeft = getPeriodsLeft(preset.type, Date.now());
-            tasks.push({
-                id: newId,
-                title: preset.title,
-                type: preset.type,
-                baseTarget: preset.baseTarget,
-                totalYearlyTarget: periodsLeft * preset.baseTarget,
-                currentTarget: periodsLeft * preset.baseTarget,
-                donation: preset.donation,
-                createdAt: Date.now(),
-                legacyMigrated: true,
-                isCompleted: false
-            });
-            existingIds.add(newId);
-            existingTitles.add(preset.title.toLowerCase());
             recoveredCount++;
         }
     });

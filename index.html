@@ -95,6 +95,7 @@
         <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></symbol>
         <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M9 7h6"/></symbol>
         <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
         <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M10 2h4"/></symbol>
         <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
         <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
@@ -153,6 +154,7 @@
     <button class="drawer-item" id="drawer-nav-journal" onclick="switchTab('journal')"><svg class="icon"><use href="#i-book"/></svg>Journal</button>
 
     <div class="drawer-section">Tools</div>
+    <button class="drawer-item" id="drawer-nav-compact" onclick="switchTab('compact')"><svg class="icon"><use href="#i-target"/></svg>Compact today</button>
     <button class="drawer-item" onclick="closeNavDrawer(); openWeeklyReport(0);"><svg class="icon"><use href="#i-chart"/></svg>Weekly report</button>
     <button class="drawer-item" onclick="closeNavDrawer(); openHistory();"><svg class="icon"><use href="#i-history"/></svg>History & Backup</button>
     <button class="drawer-item" onclick="closeNavDrawer(); openPomodoroTimer();"><svg class="icon"><use href="#i-timer"/></svg>Focus Timer</button>
@@ -225,6 +227,7 @@
         </div>
 
         <div id="dash-penalty-banner-wrap"></div>
+        <div id="backup-nudge"></div>
 
         <!-- Today's agenda -->
         <div class="card" id="today-agenda-card">
@@ -401,6 +404,8 @@
             </div>
         </div>
 
+        <div id="deen-extras-top"></div>
+
         <div class="dashboard-grid">
             <div class="card">
                 <div class="card-head"><h3>Swalath counter</h3></div>
@@ -455,6 +460,8 @@
             </div>
         </div>
 
+        <div id="deen-extras-bottom"></div>
+
         <div class="card">
             <div class="card-head"><h3>Zakat calculator</h3></div>
             <div class="grid-3">
@@ -466,6 +473,7 @@
                 <span style="color:var(--brand-ink); font-weight:650;">Estimated due (2.5%)</span>
                 <span class="big-figure" style="font-size:24px; color:var(--brand-ink)">₹<span id="zakat-due">0.00</span></span>
             </div>
+            <div id="zakat-extra" style="margin-top:14px;"></div>
         </div>
     </section>
 
@@ -500,6 +508,8 @@
             </div>
         </div>
 
+        <div id="savings-goal-card"></div>
+
         <div class="dashboard-grid">
             <div class="card">
                 <div class="card-head"><h3>Spending by category</h3></div>
@@ -527,6 +537,12 @@
                 <div id="lent-list-container" style="display:flex; flex-direction:column; gap:8px;"></div>
             </div>
         </div>
+    </section>
+
+    <!-- ===================== COMPACT TODAY ===================== -->
+    <section id="tab-compact" class="tab-content">
+        <div class="page-head"><div><h2>Today, at a glance</h2><div class="sub" id="compact-sub"></div></div></div>
+        <div id="compact-body"></div>
     </section>
 
     <!-- ===================== SAVED LIBRARY ===================== -->
@@ -588,6 +604,7 @@
                 <select id="task-type" onchange="toggleActiveDaysSelector()">
                     <option value="daily">Every day</option>
                     <option value="daily-custom">Specific days</option>
+                    <option value="daily-flex">Custom repeat…</option>
                     <option value="weekly">Every week</option>
                     <option value="monthly">Every month</option>
                     <option value="once">One time</option>
@@ -609,6 +626,29 @@
                 <label class="day-toggle-label"><input type="checkbox" class="day-toggle" value="6">Sat</label>
                 <label class="day-toggle-label"><input type="checkbox" class="day-toggle" value="0">Sun</label>
             </div>
+        </div>
+        <div id="flex-recur-selector" style="display:none; margin-bottom:12px;">
+            <label class="field-label" for="recur-kind">Repeat rule</label>
+            <select id="recur-kind" onchange="toggleRecurFields()">
+                <option value="everyN">Every N days</option>
+                <option value="nth">Nth weekday of the month</option>
+                <option value="monthday">Day of the month</option>
+            </select>
+            <div id="recur-everyN" class="field-row" style="margin-top:8px; align-items:center;">
+                <label for="recur-n" style="flex:1; font-size:13.5px;">Every</label>
+                <input type="number" id="recur-n" min="2" max="365" value="2" inputmode="numeric" style="flex:1;">
+                <span class="muted" style="flex:1; font-size:13.5px;">days from</span>
+                <input type="date" id="recur-anchor" style="flex:2;">
+            </div>
+            <div id="recur-nth" class="field-row" style="margin-top:8px; display:none;">
+                <select id="recur-nth-n"><option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option><option value="4">4th</option><option value="-1">Last</option></select>
+                <select id="recur-nth-dow"><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option></select>
+            </div>
+            <div id="recur-monthday" class="field-row" style="margin-top:8px; display:none; align-items:center;">
+                <label for="recur-day" style="flex:2; font-size:13.5px;">On day</label>
+                <input type="number" id="recur-day" min="1" max="31" value="1" inputmode="numeric" style="flex:1;">
+            </div>
+            <div class="field-hint">The task only shows up, and only counts as missed, on matching days.</div>
         </div>
         <div id="due-date-row" style="display:none;">
             <label class="field-label" for="task-due-date">Due date</label>
@@ -780,12 +820,30 @@
             <div><label class="field-label" for="debt-amount">Amount (₹)</label><input type="number" id="debt-amount" placeholder="0" inputmode="decimal"></div>
             <div><label class="field-label" for="debt-date">Date</label><input type="date" id="debt-date"></div>
         </div>
+        <label class="field-label" for="debt-due">Due date (optional — you'll get a reminder)</label>
+        <input type="date" id="debt-due">
         <label class="field-label" for="debt-type">Type</label>
         <select id="debt-type">
             <option value="borrowed">I borrowed (I owe them)</option>
             <option value="lent">I lent (they owe me)</option>
         </select>
         <button onclick="addDebt()" style="margin-top:6px;">Save</button>
+    </div>
+</div>
+
+<div id="debt-due-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('debt-due-modal')">
+    <div class="modal-content" style="max-width:380px;">
+        <div class="modal-head">
+            <h2>Due date</h2>
+            <button class="btn-icon" onclick="closeModal('debt-due-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="debt-due-id">
+        <label class="field-label" for="debt-due-input">Remind me on</label>
+        <input type="date" id="debt-due-input">
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="saveDebtDue(true)">Clear</button>
+            <button onclick="saveDebtDue(false)">Save</button>
+        </div>
     </div>
 </div>
 
@@ -902,6 +960,7 @@
             </div>
         </div>
         <div id="weekly-report-body"></div>
+        <div id="weekly-focus-card"></div>
         <div id="weekly-focus-row" style="margin-top:16px;">
             <label class="field-label" for="weekly-goal-input">Focus for this week</label>
             <div class="inline-form">
@@ -971,13 +1030,21 @@
             <div class="muted" style="font-size:12.5px; margin-bottom:10px;">Needed for reminders. When you're signed in and background push is set up, reminders arrive even when Hisab is closed — with Done and Snooze buttons.</div>
             <button id="btn-enable-push" onclick="toggleNotifications()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-bell"/></svg>Enable notifications</button>
         </div>
-        <div class="card" style="box-shadow:none; background:var(--surface-2); border:0; padding:14px; margin-bottom:0;">
+        <div class="card" style="box-shadow:none; background:var(--surface-2); border:0; padding:14px;">
             <div style="font-weight:650; font-size:14px;">Evening summary</div>
             <div class="muted" style="font-size:12.5px; margin-bottom:10px;">A daily notification listing what's still left to do.</div>
             <div class="inline-form">
                 <input type="time" id="evening-notif-time" value="21:00">
                 <button onclick="saveEveningNotifTime()">Save</button>
             </div>
+        </div>
+
+        <label class="field-label" style="margin-top:16px;">Privacy &amp; backup</label>
+        <div class="card" style="box-shadow:none; background:var(--surface-2); border:0; padding:14px;" id="applock-settings"></div>
+        <div class="card" style="box-shadow:none; background:var(--surface-2); border:0; padding:14px; margin-bottom:0;">
+            <div style="font-weight:650; font-size:14px;">Backup</div>
+            <div class="muted" style="font-size:12.5px; margin-bottom:10px;" id="backup-status-line"></div>
+            <button class="btn-secondary" onclick="exportDataBackup()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-download"/></svg>Export backup now</button>
         </div>
     </div>
 </div>
@@ -1026,6 +1093,17 @@
 
 <!-- Quick actions -->
 <div id="quick-action-overlay" class="quick-action-overlay" onclick="closeQuickActionSheet()"></div>
+<div id="app-lock" class="app-lock" style="display:none;" role="dialog" aria-modal="true" aria-label="Hisab is locked">
+    <div class="app-lock-box">
+        <img src="icons/icon-96.png" alt="" class="app-lock-logo">
+        <div class="app-lock-title" id="app-lock-title">Enter your PIN</div>
+        <div class="app-lock-dots" id="app-lock-dots"></div>
+        <div class="app-lock-msg" id="app-lock-msg"></div>
+        <div class="app-lock-pad" id="app-lock-pad"></div>
+        <button class="app-lock-forgot" id="app-lock-forgot" onclick="forgotPin()">Forgot PIN?</button>
+    </div>
+</div>
+
 <div id="quick-action-sheet" class="quick-action-sheet" role="dialog" aria-modal="true" aria-label="Quick add">
     <div class="quick-action-handle"></div>
     <div style="font-weight:750; font-size:16px; margin:0 2px 14px;">Quick add</div>

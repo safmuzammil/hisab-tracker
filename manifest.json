@@ -71,6 +71,17 @@
           "sizes": "96x96"
         }
       ]
+    },
+    {
+      "name": "Today, at a glance",
+      "short_name": "Today",
+      "url": "/#compact",
+      "icons": [
+        {
+          "src": "icons/icon-96.png",
+          "sizes": "96x96"
+        }
+      ]
     }
   ]
 }

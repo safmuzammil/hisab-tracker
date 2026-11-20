@@ -268,8 +268,9 @@ let lastCloudError = null;
 function setSyncIndicator(state, text, err = null) {
     const el = document.getElementById('cloud-sync-indicator');
     if (!el) return;
-    el.className = 'sync-status-dot ' + (state === 'synced' ? 'synced' : (state === 'error' ? 'error' : ''));
+    el.className = 'sync-status-dot ' + (state === 'synced' ? 'synced' : (state === 'error' ? 'error' : (state === 'pending' ? 'pending' : '')));
     el.innerText = text;
+    el.title = state === 'pending' ? 'Saved on this device only — it will upload when you are back online' : 'Tap to sync';
     if (err) lastCloudError = err;
     if (state === 'synced') lastCloudError = null;
 }
@@ -364,6 +365,11 @@ if (!deenData.zakatInputs) deenData.zakatInputs = { cash: 0, gold: 0, invest: 0 
 if (!deenData.quran) deenData.quran = [];
 if (!deenData.dhikr) deenData.dhikr = [];
 
+let extraData = JSON.parse(localStorage.getItem('hisab_extra') || 'null') || {};
+if (!extraData.prayerLog) extraData.prayerLog = {};
+if (!extraData.focusLog) extraData.focusLog = {};
+if (!extraData.goals) extraData.goals = {};
+
 let budgetData = JSON.parse(localStorage.getItem('hisab_budget')) || { limit: 0, expenses: [], debts: [] };
 if (!budgetData.debts) budgetData.debts = [];
 let backlogData = JSON.parse(localStorage.getItem('hisab_backlog')) || [];
@@ -436,8 +442,8 @@ function isDeleted(id) { return id !== undefined && id !== null && !!deletedIds[
 
 // Is a task scheduled for the given day? (custom-days tasks rest on other days)
 function isTaskActiveOn(task, dateObj = new Date()) {
-    if (!task.activeDays || task.activeDays.length === 0) return true;
-    return task.activeDays.includes(new Date(dateObj).getDay());
+    const d = new Date(dateObj);
+    return Core.isActiveOnDate(task, toDateKey(d), d.getDay());
 }
 
 // Single source of truth for "how far along is this task in its current period?"
@@ -689,6 +695,7 @@ function applyCloudPayload(parsed) {
         localStorage.setItem('hisab_journal', JSON.stringify(journalData));
     }
     weeklyGoalData = parsed.weeklyGoal || weeklyGoalData;
+    mergeExtra(parsed.extra);
     applyCloudSettings(parsed.settings);
 
     // Deen safe merge
@@ -890,7 +897,7 @@ function processAutomaticPenalties() {
                 const { start, noon } = getDayBounds(checkKey);
 
                 const checkDayOfWeek = new Date(cursor).getDay();
-                const isActiveDay = !t.activeDays || t.activeDays.length === 0 || t.activeDays.includes(checkDayOfWeek);
+                const isActiveDay = Core.isActiveOnDate(t, checkKey, checkDayOfWeek);
                 if (start >= createdStart.getTime() && isActiveDay) {
                     const doneLogs = activityHistory.filter(h =>
                         h.taskId === t.id &&
@@ -1024,6 +1031,7 @@ function saveDataLocallyOnly() {
     localStorage.setItem('hisab_journal', JSON.stringify(journalData));
     localStorage.setItem('hisab_weekly_goal', JSON.stringify(weeklyGoalData));
     localStorage.setItem('hisab_deleted_ids', JSON.stringify(deletedIds));
+    localStorage.setItem('hisab_extra', JSON.stringify(extraData));
 }
 
 function sanitizeForFirestore(val) {
@@ -1060,12 +1068,14 @@ async function syncDataToFirebase() {
                 journal: journalData,
                 weeklyGoal: weeklyGoalData,
                 deletedIds,
+                extra: extraData,
                 settings: collectSettings(),
                 lastModified: lastModifiedLocal
             };
             const cleanPayload = sanitizeForFirestore(rawPayload);
             await setDoc(doc(db, 'users', currentUser.uid), cleanPayload);
             lastCloudError = null;
+            localStorage.removeItem('hisab_unsynced');
             setSyncIndicator('synced', 'Synced');
         } catch(e) {
             console.error('Firebase sync failed', e);
@@ -1074,7 +1084,7 @@ async function syncDataToFirebase() {
     }
 }
 
-function saveData() { lastModifiedLocal = Date.now(); localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString()); saveDataLocallyOnly(); syncDataToFirebase(); }
+function saveData() { if (currentUser) localStorage.setItem('hisab_unsynced', '1'); lastModifiedLocal = Date.now(); localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString()); saveDataLocallyOnly(); syncDataToFirebase(); }
 
 // ==========================================
 // VISUAL EFFECTS ENGINE
@@ -1224,6 +1234,11 @@ function toggleActiveDaysSelector() {
     if (selectorEl) {
         selectorEl.style.display = typeEl?.value === 'daily-custom' ? 'block' : 'none';
     }
+    const flexEl = document.getElementById('flex-recur-selector');
+    if (flexEl) {
+        flexEl.style.display = typeEl?.value === 'daily-flex' ? 'block' : 'none';
+        if (typeEl?.value === 'daily-flex') { toggleRecurFields(); const a = document.getElementById('recur-anchor'); if (a && !a.value) a.value = toDateKey(Date.now()); }
+    }
     const dueRow = document.getElementById('due-date-row');
     if (dueRow) dueRow.style.display = typeEl?.value === 'once' ? 'block' : 'none';
 }
@@ -1242,8 +1257,9 @@ function saveTask() {
     const id = document.getElementById('task-id').value;
     const title = document.getElementById('task-title').value.trim();
     const rawType = document.getElementById('task-type').value;
-    const type = rawType === 'daily-custom' ? 'daily' : rawType;
+    const type = (rawType === 'daily-custom' || rawType === 'daily-flex') ? 'daily' : rawType;
     const activeDays = rawType === 'daily-custom' ? getActiveDays() : null;
+    const recur = rawType === 'daily-flex' ? readRecurFromForm() : null;
     const baseTarget = parseFloat(document.getElementById('task-base-target').value) || 1;
     const donationPenalty = parseFloat(document.getElementById('task-donation').value) || 0;
     const reminderTime = document.getElementById('task-reminder-time').value;
@@ -1262,6 +1278,7 @@ function saveTask() {
         task.isMaxOnceDaily = isMaxOnceDaily;
         task.tags = tags;
         task.activeDays = activeDays;
+        task.recur = recur;
         task.dueDate = dueDate;
         task.prayerAnchor = prayerAnchor;
         if (prayerAnchor) task.reminderTime = '';
@@ -1286,6 +1303,7 @@ function saveTask() {
             title,
             type,
             activeDays,
+            recur,
             dueDate,
             prayerAnchor,
             subtasks: [],
@@ -1323,7 +1341,12 @@ function editTask(id) {
     document.getElementById('task-id').value = task.id;
     document.getElementById('task-title').value = task.title;
     const typeSelect = document.getElementById('task-type');
-    if (task.activeDays && task.activeDays.length > 0) {
+    if (task.recur && task.recur.kind) {
+        if (typeSelect) typeSelect.value = 'daily-flex';
+        writeRecurToForm(task.recur);
+        toggleActiveDaysSelector();
+        setActiveDays([]);
+    } else if (task.activeDays && task.activeDays.length > 0) {
         if (typeSelect) typeSelect.value = 'daily-custom';
         toggleActiveDaysSelector();
         setActiveDays(task.activeDays);
@@ -1994,7 +2017,7 @@ function renderTasks() {
 
             // Meta line
             const meta = [];
-            meta.push(`<span class="task-chip chip-${task.type}">${task.activeDays && task.activeDays.length ? task.activeDays.slice().sort((a,b)=>((a+6)%7)-((b+6)%7)).map(d => dayNames[d]).join(' ') : task.type}</span>`);
+            meta.push(`<span class="task-chip chip-${task.type}">${task.recur && task.recur.kind ? escapeHTML(Core.describeRecur(task.recur)) : task.activeDays && task.activeDays.length ? task.activeDays.slice().sort((a,b)=>((a+6)%7)-((b+6)%7)).map(d => dayNames[d]).join(' ') : task.type}</span>`);
             if (task.type !== 'once' || (task.baseTarget || 1) > 1) meta.push(`<span class="num">${fmtNum(st.doneAmt)}/${fmtNum(st.target)} ${st.periodLabel}</span>`);
             if (!st.isActiveToday) meta.push(`<span>Rest day</span>`);
             if (st.dueLabel) meta.push(`<span class="${st.isOverdue ? 'warn' : ''}">${st.dueLabel}</span>`);
@@ -2669,6 +2692,8 @@ function exportDataBackup() {
         archivedTasks,
         journal: journalData,
         weeklyGoal: weeklyGoalData,
+        deletedIds,
+        extra: extraData,
         settings: collectSettings()
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -2678,6 +2703,9 @@ function exportDataBackup() {
     a.download = `hisab_backup_${toDateKey(Date.now())}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    localStorage.setItem('hisab_last_backup', String(Date.now()));
+    if (typeof renderBackupNudge === 'function') { renderBackupNudge(); updateBackupStatusLine(); }
+    showToast('Backup saved to your downloads', '💾');
 }
 
 function importDataBackup(event) {
@@ -3385,7 +3413,9 @@ function addDebt() {
     if (!desc || isNaN(amount) || amount <= 0) return alert("Please enter a valid description and amount.");
     
     const debtDate = dateInput ? new Date(dateInput).getTime() : Date.now();
-    budgetData.debts.push({ id: Date.now().toString(), desc, amount, type, date: debtDate, repaid: 0 });
+    const dueInput = document.getElementById('debt-due');
+    budgetData.debts.push({ id: Date.now().toString(), desc, amount, type, date: debtDate, repaid: 0, due: (dueInput && dueInput.value) || '' });
+    if (dueInput) dueInput.value = '';
     
     let newLog = { id: Date.now().toString(), taskId: 'debt-'+Date.now(), category: 'budget', taskType: type, timestamp: Date.now(), title: desc, actionType: 'debt', amount: amount };
     activityHistory.push(newLog); syncToGoogleSheets(newLog);
@@ -3544,12 +3574,14 @@ function renderBudget() {
                 <div>
                     <div style="font-weight:bold; font-size:0.85rem;">${escapeHTML(debt.desc)}</div>
                     <div style="font-size:0.75rem; color:var(--muted);">${dDate.toLocaleDateString()}</div>
+                    ${debtDueBadge(debt)}
                     ${progressHtml}
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
                     <div style="text-align:right;">
                         <span style="font-weight:bold; font-size:0.9rem; color:${debt.type === 'borrowed' ? 'var(--bad)' : 'var(--success)'};">₹${pending.toLocaleString()}</span>
                     </div>
+                    <button class="btn-icon" onclick="openDebtDue('${debt.id}')" title="Set due date" aria-label="Set due date">📅</button>
                     <button class="btn-icon" onclick="repayDebt('${debt.id}')" style="background:rgba(3, 218, 198, 0.15); color:var(--success);" title="Log Repayment">💰</button>
                     <button class="btn-icon" onclick="deleteDebt('${debt.id}')" title="Delete Record">🗑️</button>
                 </div>
@@ -3823,6 +3855,8 @@ function runReminderEngine() {
             });
         }
 
+        runExtraReminders(ctx, nowMin, todayKey);
+
         // Evening summary
         const eveningMin = Core.hmToMin(getSetting('eveningTime', '21:00'));
         if (eveningMin != null && nowMin >= eveningMin && nowMin < eveningMin + 5) {
@@ -3968,6 +4002,7 @@ function togglePomodoroTimer() {
                     localStorage.setItem(`hisab_pomo_${toDateKey(Date.now())}`, pomodoroSessionsToday.toString());
                     const countEl = document.getElementById('pomodoro-count');
                     if (countEl) countEl.innerText = pomodoroSessionsToday;
+                    addFocusMinutes(pomodoroTaskId, POMODORO_WORK / 60);
                     if (pomodoroTaskId) logProgress(pomodoroTaskId);
                     if ("Notification" in window && Notification.permission === "granted") {
                         new Notification("🍅 Pomodoro Complete!", { body: "Great work! Time for a 5-minute break.", icon: "icons/icon-192.png" });
@@ -4255,6 +4290,7 @@ function openNotifSettings() {
     const timeInput = document.getElementById('evening-notif-time');
     if (timeInput) timeInput.value = getSetting('eveningTime', '21:00');
     refreshNotifButtons();
+    renderAppLockSettings(); updateBackupStatusLine();
     const lbl = document.getElementById('theme-mode-label');
     if (lbl) lbl.textContent = { light: 'Light', dark: 'Dark', system: 'Auto (follows device)' }[localStorage.getItem('hisab_theme_mode') || 'system'];
     openModal('notif-settings-modal');
@@ -4406,7 +4442,7 @@ function switchTab(tabName, element, fromPopState = false) {
     closeQuickActionSheet();
 
     triggerHaptic(10);
-    localStorage.setItem('hisab_active_tab', tabName);
+    if (tabName !== 'compact') localStorage.setItem('hisab_active_tab', tabName);
 
     // 2. Manage history stack so mobile back gestures work reliably
     if (window.history && window.history.pushState && !fromPopState) {
@@ -4443,7 +4479,8 @@ function switchTab(tabName, element, fromPopState = false) {
     const lp = document.getElementById('login-prompt');
     if (lp && !currentUser) lp.style.display = tabName === 'dashboard' ? 'flex' : 'none';
     if (tabName === 'tasks') renderTasks();
-    if (tabName === 'dashboard') updateDashboard();
+    if (tabName === 'compact') renderCompact();
+    if (tabName === 'dashboard') { updateDashboard(); renderBackupNudge(); }
     if (tabName === 'journal') { currentJournalDateKey = toDateKey(Date.now()); renderJournal(); }
 
     if (typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4481,7 +4518,7 @@ function toggleNotifications() {
 function openModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'flex'; }
 function closeModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
-function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard(); else renderTodayAgenda(); updateNavBadges(); }
+function render() { renderTasks(); renderHabits(); renderDeen(); renderBudget(); renderBacklog(); if (document.getElementById('tab-dashboard')?.classList.contains('active')) updateDashboard(); else renderTodayAgenda(); updateNavBadges(); renderDeenExtras(); renderSavingsGoal(); renderBackupNudge(); if (document.getElementById('tab-compact')?.classList.contains('active')) renderCompact(); }
 
 // Exports
 window.deductFromSurplus = deductFromSurplus; window.openModal = openModal; window.closeModal = closeModal;
@@ -5230,6 +5267,7 @@ function openWeeklyReport(weeksAgo = 0) {
         </div>`;
     const goalEl = document.getElementById('weekly-goal-input');
     if (goalEl) goalEl.value = weeklyGoalData[getWeekKey()] || '';
+    renderWeeklyFocus(r.start);
     document.getElementById('weekly-report-next').disabled = reportWeeksAgo === 0;
     document.getElementById('weekly-focus-row').style.display = reportWeeksAgo === 0 ? 'block' : 'none';
     openModal('weekly-report-modal');
@@ -5249,7 +5287,7 @@ Object.assign(window, { openWeeklyReport, getWeeklyReport, reportNav: d => openW
 setTimeout(() => { ensurePrayerTimes().then(() => { try { renderTodayAgenda(); } catch (e) {} }); }, 1500);
 
 initNotifications();
-const savedTab = localStorage.getItem('hisab_active_tab') || 'dashboard';
+const savedTab = (window.location.hash === '#compact') ? 'compact' : (localStorage.getItem('hisab_active_tab') || 'dashboard');
 
 // Establish #dashboard as the base root of the history stack
 if (window.history && window.history.replaceState) {
@@ -5345,3 +5383,575 @@ function recoverMissingTasks(silent = false) {
     return recoveredCount;
 }
 window.recoverMissingTasks = recoverMissingTasks;
+
+
+// ==========================================================================
+// v2.2 FEATURES — goals & streaks, prayer tracker, Khatm planner, intentions,
+// zakat date, savings goal, debt due dates, backup nudge, compact view,
+// focus log, flexible repeats, app lock.
+// (Declared as functions only, so nothing here is touched before it is defined.)
+// ==========================================================================
+
+function touchExtra() { extraData.updatedAt = Date.now(); }
+
+function mergeExtra(cloud) {
+    if (!cloud || typeof cloud !== 'object') return;
+    if (!extraData.prayerLog) extraData.prayerLog = {};
+    if (!extraData.focusLog) extraData.focusLog = {};
+    // Per-day logs: union. For the same prayer, this device's value wins (cleared = '').
+    for (const [day, rec] of Object.entries(cloud.prayerLog || {})) {
+        extraData.prayerLog[day] = { ...rec, ...(extraData.prayerLog[day] || {}) };
+    }
+    for (const [day, rec] of Object.entries(cloud.focusLog || {})) {
+        const local = extraData.focusLog[day] || (extraData.focusLog[day] = {});
+        for (const [tid, mins] of Object.entries(rec || {})) local[tid] = Math.max(Number(local[tid]) || 0, Number(mins) || 0);
+    }
+    // Single settings: last writer wins.
+    if ((cloud.updatedAt || 0) > (extraData.updatedAt || 0)) {
+        for (const k of ['goals', 'khatm', 'savings', 'zakatDate']) {
+            if (k in cloud) extraData[k] = cloud[k]; else delete extraData[k];
+        }
+        if (!extraData.goals) extraData.goals = {};
+        extraData.updatedAt = cloud.updatedAt;
+    }
+    localStorage.setItem('hisab_extra', JSON.stringify(extraData));
+}
+
+// Re-render a container unless the user is typing inside it.
+function setHTMLUnlessFocused(el, html) {
+    if (!el) return;
+    if (el.contains(document.activeElement) && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+    el.innerHTML = html;
+}
+function addDaysToKey(key, n) { return Core.addDaysKey(key, n); }
+function fmtNum1(n) { return (Math.round(n * 10) / 10).toLocaleString(); }
+
+// ---------- Daily Deen totals (derived from history, so undo stays consistent) ----------
+function dailyDeenMap() {
+    const map = {};
+    const swalathRe = /swalath|salawat|salawaat|darood|durood/i;
+    for (const h of activityHistory) {
+        if (!h || h.category !== 'deen') continue;
+        const key = h.fulfilledDateKey || toDateKey(h.timestamp);
+        const rec = map[key] || (map[key] = { hizb: 0, swalath: 0, dhikr: 0 });
+        const amt = Number(h.amount) || 0;
+        if (h.actionType === 'deen_hizb') rec.hizb += amt;
+        else if (h.actionType === 'deen_swalath') rec.swalath += amt;
+        else if (h.actionType === 'complete' && String(h.taskId || '').startsWith('dhikr-')) {
+            rec.dhikr += amt;
+            if (swalathRe.test(h.title || '')) rec.swalath += amt;
+            if (/hizb/i.test(h.title || '')) rec.hizb += amt;
+        }
+    }
+    // Tasks the user ticks off that are Deen items (e.g. "Read 1 hizb") also count.
+    for (const h of activityHistory) {
+        if (!h || h.actionType !== 'complete' || h.category === 'deen') continue;
+        const t = /hizb|swalath|salawat|salawaat|darood|durood/i.test(h.title || '');
+        if (!t) continue;
+        const key = h.fulfilledDateKey || toDateKey(h.timestamp);
+        const rec = map[key] || (map[key] = { hizb: 0, swalath: 0, dhikr: 0 });
+        const amt = Number(h.amount) || 0;
+        if (/hizb/i.test(h.title)) rec.hizb += amt;
+        if (swalathRe.test(h.title)) rec.swalath += amt;
+    }
+    return map;
+}
+function goalStreak(map, field, goal, todayKey) {
+    if (!goal) return 0;
+    let streak = 0, key = todayKey;
+    if (((map[key] || {})[field] || 0) < goal) key = addDaysToKey(key, -1); // today still open
+    for (let i = 0; i < 400; i++) {
+        if (((map[key] || {})[field] || 0) >= goal) { streak++; key = addDaysToKey(key, -1); } else break;
+    }
+    return streak;
+}
+
+function goalRingHTML(label, color, done, goal, streak, unit) {
+    const C = 2 * Math.PI * 30;
+    const pct = goal ? Math.min(1, done / goal) : 0;
+    return `<div class="goal-ring">
+        <div class="ring-wrap"><svg viewBox="0 0 72 72"><circle class="track" cx="36" cy="36" r="30" fill="none" stroke-width="7"/><circle class="fill" cx="36" cy="36" r="30" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - pct)).toFixed(1)}"/></svg>
+        <div class="pct">${goal ? Math.round(pct * 100) + '%' : '—'}</div></div>
+        <div class="gl">${label}</div>
+        <div class="gv">${goal ? `${fmtNum1(done)} / ${fmtNum1(goal)}${unit}` : 'No goal'}</div>
+        ${streak ? `<div class="gs">🔥 ${streak} day${streak === 1 ? '' : 's'}</div>` : ''}
+    </div>`;
+}
+
+function saveDeenGoals() {
+    const g = id => Math.max(0, parseFloat(document.getElementById(id)?.value) || 0);
+    extraData.goals = { hizb: g('goal-hizb'), swalath: g('goal-swalath'), dhikr: g('goal-dhikr') };
+    touchExtra(); saveData(); showToast('Daily goals saved', '🎯'); renderDeenExtras();
+}
+function toggleGoalEdit() { document.getElementById('goal-edit')?.classList.toggle('open'); }
+
+// ---------- Prayer tracker ----------
+function prayerNames() { return ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha']; }
+function setPrayerState(day, prayer, state) {
+    if (!extraData.prayerLog) extraData.prayerLog = {};
+    const rec = extraData.prayerLog[day] || (extraData.prayerLog[day] = {});
+    rec[prayer] = rec[prayer] === state ? '' : state;
+    // keep the log bounded (≈ 13 months)
+    const cutoff = addDaysToKey(toDateKey(Date.now()), -400);
+    for (const k of Object.keys(extraData.prayerLog)) if (k < cutoff) delete extraData.prayerLog[k];
+    saveData(); renderDeenExtras();
+    if (document.getElementById('tab-compact')?.classList.contains('active')) renderCompact();
+}
+function prayerDayComplete(day) {
+    const rec = (extraData.prayerLog || {})[day] || {};
+    return prayerNames().every(p => rec[p] === 'on' || rec[p] === 'late');
+}
+function prayerStreak(todayKey) {
+    let streak = 0, key = todayKey;
+    if (!prayerDayComplete(key)) key = addDaysToKey(key, -1);
+    for (let i = 0; i < 400; i++) { if (prayerDayComplete(key)) { streak++; key = addDaysToKey(key, -1); } else break; }
+    return streak;
+}
+function prayerRowsHTML(todayKey, compact) {
+    const rec = (extraData.prayerLog || {})[todayKey] || {};
+    const timings = getTodayPrayerTimings && getTodayPrayerTimings();
+    return prayerNames().map(p => {
+        const st = rec[p] || '';
+        const t = timings && timings[p] ? String(timings[p]).slice(0, 5) : '';
+        const btn = (state, label, title) => `<button class="${st === state ? 'on-' + state : ''}" onclick="setPrayerState('${todayKey}','${p}','${state}')" title="${title}" aria-label="${p}: ${title}">${label}</button>`;
+        return `<div class="prayer-row"><div><div class="pn">${p}</div>${t ? `<div class="pt">${t}</div>` : ''}</div>
+            <div class="pstate">${btn('on', compact ? '✓' : '✓ On time', 'On time')}${btn('late', compact ? 'L' : 'Late', 'Late')}${btn('missed', compact ? '✕' : '✕ Missed', 'Missed')}</div></div>`;
+    }).join('');
+}
+function prayerWeekGridHTML(todayKey) {
+    const dayLbl = k => new Date(getDayBounds(k).noon).toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 2);
+    const keys = []; for (let i = 6; i >= 0; i--) keys.push(addDaysToKey(todayKey, -i));
+    let html = `<div class="pweek"><span></span>${keys.map(k => `<span class="h">${dayLbl(k)}</span>`).join('')}`;
+    prayerNames().forEach(p => {
+        html += `<span class="n">${p.slice(0, 3)}</span>` + keys.map(k => {
+            const st = ((extraData.prayerLog || {})[k] || {})[p] || '';
+            return `<span class="pdot ${st}" title="${p} ${k}${st ? ': ' + st : ''}"></span>`;
+        }).join('');
+    });
+    return html + '</div>';
+}
+function prayerWeekStats(todayKey) {
+    let on = 0, late = 0, missed = 0, logged = 0;
+    for (let i = 0; i < 7; i++) {
+        const rec = (extraData.prayerLog || {})[addDaysToKey(todayKey, -i)] || {};
+        prayerNames().forEach(p => { if (rec[p]) { logged++; if (rec[p] === 'on') on++; else if (rec[p] === 'late') late++; else if (rec[p] === 'missed') missed++; } });
+    }
+    return { on, late, missed, logged };
+}
+
+// ---------- Khatm planner ----------
+function setKhatmPlan() {
+    const date = document.getElementById('khatm-target-date')?.value;
+    const todayKey = toDateKey(Date.now());
+    if (!date || date < todayKey) { showToast('Pick a finish date in the future', '📅'); return; }
+    const T = (deenData.quranStats && deenData.quranStats.totalHizb) || 0;
+    const goal = (Math.floor(T / 60) + 1) * 60;
+    extraData.khatm = { startDate: todayKey, startHizb: T, goal, targetDate: date };
+    touchExtra(); saveData(); showToast('Khatm plan started', '📖'); renderDeenExtras();
+}
+function clearKhatmPlan() { delete extraData.khatm; touchExtra(); saveData(); renderDeenExtras(); }
+function khatmPlanHTML(todayKey, map) {
+    const T = (deenData.quranStats && deenData.quranStats.totalHizb) || 0;
+    const plan = extraData.khatm;
+    const nextDate = addDaysToKey(todayKey, 30);
+    if (!plan) {
+        return `<div class="muted" style="font-size:13.5px; margin-bottom:10px;">Pick a date to finish your next Khatm (60 hizb) and Hisab works out how much to read each day.</div>
+            <div class="inline-form"><input type="date" id="khatm-target-date" min="${todayKey}" value="${nextDate}"><button onclick="setKhatmPlan()">Start plan</button></div>`;
+    }
+    const remaining = Math.max(0, plan.goal - T);
+    const doneToday = (map[todayKey] || {}).hizb || 0;
+    if (remaining <= 0) {
+        return `<div class="plan-status ahead">🎉 Khatm complete — ${fmtNum1(plan.goal / 60)} in total. Barakallahu feek!</div>
+            <button class="btn-secondary" onclick="clearKhatmPlan()" style="margin:8px 0 0;">Plan the next Khatm</button>`;
+    }
+    const totalDays = Math.max(1, Core.daysBetweenKeys(plan.startDate, plan.targetDate) + 1);
+    const elapsed = Math.max(0, Core.daysBetweenKeys(plan.startDate, todayKey));
+    const daysLeft = Core.daysBetweenKeys(todayKey, plan.targetDate) + 1;
+    const pastDue = daysLeft <= 0;
+    const perDay = pastDue ? remaining : remaining / daysLeft;
+    const expected = plan.startHizb + (plan.goal - plan.startHizb) * Math.min(1, (elapsed + 1) / totalDays);
+    const diff = T - expected;
+    let status, cls = '';
+    if (pastDue) { status = `Target date passed — ${fmtNum1(remaining)} hizb to go`; cls = 'behind'; }
+    else if (diff >= 0.05) { status = `Ahead of plan by ${fmtNum1(diff)} hizb`; cls = 'ahead'; }
+    else if (diff <= -0.05) { status = `Behind plan by ${fmtNum1(-diff)} hizb — ${fmtNum1(perDay)}/day catches you up`; cls = 'behind'; }
+    else status = 'Right on plan';
+    let paceTotal = 0; for (let i = 0; i < 14; i++) paceTotal += (map[addDaysToKey(todayKey, -i)] || {}).hizb || 0;
+    const pace = paceTotal / 14;
+    let proj = '';
+    if (pace > 0) { const d = Math.ceil(remaining / pace); proj = `At your 14-day pace (${fmtNum1(pace)}/day) you finish around <b>${new Date(getDayBounds(addDaysToKey(todayKey, d)).noon).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</b>.`; }
+    const progress = Math.min(100, Math.round(((T - plan.startHizb) / Math.max(1, plan.goal - plan.startHizb)) * 100));
+    return `<div style="display:flex; justify-content:space-between; font-size:13.5px; margin-bottom:6px;"><span><b>${fmtNum1(T)}</b> / ${plan.goal} hizb</span><span class="muted">${daysLeft > 0 ? daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left' : 'overdue'}</span></div>
+        <div class="mini-bar"><span style="width:${progress}%"></span></div>
+        <div class="plan-status ${cls}">${status}</div>
+        <div style="font-size:13.5px; margin-top:8px;">Today: <b>${fmtNum1(doneToday)}</b> of <b>${fmtNum1(perDay)}</b> hizb</div>
+        ${proj ? `<div class="muted" style="font-size:12.5px; margin-top:6px;">${proj}</div>` : ''}
+        <button class="btn-sm btn-ghost" onclick="clearKhatmPlan()" style="margin-top:10px;">Change plan</button>`;
+}
+
+// ---------- Intentions ----------
+function intentionsHTML() {
+    const m = {};
+    const ensure = label => { const k = label.toLowerCase(); return m[k] || (m[k] = { label, count: 0, target: 0, dhikr: 0, juz: 0, juzDone: 0 }); };
+    (deenData.dhikr || []).forEach(d => { const l = (d.intention || '').trim(); if (!l) return; const e = ensure(l); e.count += Number(d.current) || 0; e.target += Number(d.target) || 0; e.dhikr++; });
+    (deenData.quran || []).forEach(q => { const l = (q.intention || '').trim(); if (!l) return; const e = ensure(l); e.juz++; if (q.completed) e.juzDone++; });
+    const rows = Object.values(m).sort((a, b) => b.count - a.count);
+    if (!rows.length) return `<div class="muted" style="font-size:13.5px;">Add an intention to a dhikr or a Juz dedication and the total you've offered for each one shows up here.</div>`;
+    return rows.map(e => {
+        const parts = [];
+        if (e.dhikr) parts.push(`${e.count.toLocaleString()} recited across ${e.dhikr} dhikr`);
+        if (e.juz) parts.push(`${e.juzDone}/${e.juz} Juz completed`);
+        const pct = e.target ? Math.min(100, Math.round((e.count / e.target) * 100)) : 0;
+        return `<div class="intent-row"><div class="it">${escapeHTML(e.label)}</div><div class="im">${parts.join(' · ')}</div>${e.target ? `<div class="mini-bar"><span style="width:${pct}%"></span></div>` : ''}</div>`;
+    }).join('');
+}
+
+// ---------- Zakat date ----------
+function saveZakatDate() {
+    const v = document.getElementById('zakat-date')?.value || '';
+    if (v) extraData.zakatDate = v; else delete extraData.zakatDate;
+    touchExtra(); saveData(); showToast(v ? 'Zakat date saved' : 'Zakat date cleared', '🕌'); renderDeenExtras();
+}
+function zakatExtraHTML() {
+    const ctx = Core.ctxFromLocalDate(new Date());
+    const z = Core.zakatStatus(extraData.zakatDate, ctx);
+    const info = z.set
+        ? `<div style="font-size:13.5px; margin-top:8px;">Next zakat due <b>${new Date(getDayBounds(z.next).noon).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</b> — ${z.daysLeft === 0 ? '<b>today</b>' : 'in ' + z.daysLeft + ' day' + (z.daysLeft === 1 ? '' : 's')}.</div><div class="muted" style="font-size:12.5px; margin-top:4px;">You'll be reminded 7 days before, 1 day before and on the day.</div>`
+        : `<div class="muted" style="font-size:12.5px; margin-top:8px;">Set the date your zakat year ends (your nisab anniversary) to get a yearly reminder.</div>`;
+    return `<label class="field-label" for="zakat-date">Zakat anniversary date</label>
+        <div class="inline-form"><input type="date" id="zakat-date" value="${escapeHTML(extraData.zakatDate || '')}"><button onclick="saveZakatDate()">Save</button></div>${info}`;
+}
+
+// ---------- Render the Deen extras ----------
+function renderDeenExtras() {
+    const top = document.getElementById('deen-extras-top');
+    const bottom = document.getElementById('deen-extras-bottom');
+    if (!top && !bottom) return;
+    const todayKey = toDateKey(Date.now());
+    const map = dailyDeenMap();
+    const goals = extraData.goals || {};
+    const td = map[todayKey] || { hizb: 0, swalath: 0, dhikr: 0 };
+
+    if (top) {
+        const ps = prayerWeekStats(todayKey);
+        const pStreak = prayerStreak(todayKey);
+        setHTMLUnlessFocused(top, `
+        <div class="card">
+            <div class="card-head"><h3>Daily goals</h3><button class="btn-sm btn-ghost" onclick="toggleGoalEdit()">Edit goals</button></div>
+            <div class="goal-rings">
+                ${goalRingHTML('Hizb', 'var(--brand)', td.hizb, goals.hizb || 0, goalStreak(map, 'hizb', goals.hizb || 0, todayKey), '')}
+                ${goalRingHTML('Swalath', 'var(--amber)', td.swalath, goals.swalath || 0, goalStreak(map, 'swalath', goals.swalath || 0, todayKey), '')}
+                ${goalRingHTML('Dhikr', 'var(--indigo)', td.dhikr, goals.dhikr || 0, goalStreak(map, 'dhikr', goals.dhikr || 0, todayKey), '')}
+            </div>
+            <div class="goal-edit" id="goal-edit">
+                <div class="grid-3">
+                    <div><label class="field-label" for="goal-hizb">Hizb / day</label><input type="number" id="goal-hizb" min="0" step="any" value="${goals.hizb || ''}" inputmode="decimal"></div>
+                    <div><label class="field-label" for="goal-swalath">Swalath / day</label><input type="number" id="goal-swalath" min="0" value="${goals.swalath || ''}" inputmode="numeric"></div>
+                    <div><label class="field-label" for="goal-dhikr">Dhikr / day</label><input type="number" id="goal-dhikr" min="0" value="${goals.dhikr || ''}" inputmode="numeric"></div>
+                </div>
+                <button onclick="saveDeenGoals()" style="margin:6px 0 0;">Save goals</button>
+            </div>
+        </div>
+        <div class="card" id="prayer-tracker-card">
+            <div class="card-head"><h3>Prayer tracker</h3><span class="badge ${pStreak ? 'done-badge' : ''}">${pStreak ? '🔥 ' + pStreak + '-day streak' : 'Today'}</span></div>
+            ${prayerRowsHTML(todayKey, false)}
+            ${prayerWeekGridHTML(todayKey)}
+            <div class="muted" style="font-size:12.5px; margin-top:10px;">This week: ${ps.on} on time · ${ps.late} late · ${ps.missed} missed${ps.logged ? ` (${Math.round(((ps.on + ps.late) / ps.logged) * 100)}% prayed)` : ''}</div>
+        </div>`);
+    }
+    if (bottom) {
+        setHTMLUnlessFocused(bottom, `
+        <div class="card">
+            <div class="card-head"><h3>Khatm planner</h3></div>
+            ${khatmPlanHTML(todayKey, map)}
+        </div>
+        <div class="card">
+            <div class="card-head"><h3>Intentions</h3></div>
+            ${intentionsHTML()}
+        </div>`);
+    }
+    const zx = document.getElementById('zakat-extra');
+    if (zx) setHTMLUnlessFocused(zx, zakatExtraHTML());
+}
+
+// ---------- Savings goal with monthly carry-over ----------
+function ymKey(d) { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`; }
+function monthSpentFor(ym) { return (budgetData.expenses || []).reduce((s, e) => ymKey(e.date) === ym ? s + (Number(e.amount) || 0) : s, 0); }
+function savingsProgress() {
+    const sv = extraData.savings;
+    if (!sv || !(Number(sv.goal) > 0)) return null;
+    const limit = Number(budgetData.limit) || 0;
+    const nowYm = ymKey(Date.now());
+    let saved = 0, months = 0, ym = sv.since || nowYm;
+    let guard = 0;
+    while (ym < nowYm && guard++ < 600) {
+        if (limit > 0) saved += Math.max(0, limit - monthSpentFor(ym));
+        months++;
+        const [y, m] = ym.split('-').map(Number);
+        ym = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+    }
+    const thisMonthLeft = limit > 0 ? Math.max(0, limit - monthSpentFor(nowYm)) : 0;
+    const goal = Number(sv.goal);
+    const avg = months ? saved / months : 0;
+    const togo = Math.max(0, goal - saved);
+    return { saved, thisMonthLeft, goal, limit, months, avg, togo, monthsToGo: avg > 0 ? Math.ceil(togo / avg) : null };
+}
+function saveSavingsGoal() {
+    const name = (document.getElementById('sv-name')?.value || '').trim() || 'Savings goal';
+    const goal = parseFloat(document.getElementById('sv-goal')?.value);
+    if (!(goal > 0)) { showToast('Enter a goal amount', '💰'); return; }
+    extraData.savings = { name, goal, since: ymKey(Date.now()) };
+    touchExtra(); saveData(); showToast('Savings goal set', '🎯'); renderSavingsGoal();
+}
+function clearSavingsGoal() { delete extraData.savings; touchExtra(); saveData(); renderSavingsGoal(); }
+function renderSavingsGoal() {
+    const el = document.getElementById('savings-goal-card');
+    if (!el) return;
+    const p = savingsProgress();
+    const fmt = n => '₹' + Math.round(n).toLocaleString();
+    if (!p) {
+        setHTMLUnlessFocused(el, `<div class="card"><div class="card-head"><h3>Savings goal</h3></div>
+            <div class="muted" style="font-size:13.5px; margin-bottom:10px;">Whatever you don't spend of your monthly limit rolls into a savings goal automatically. Set a monthly limit first, then a goal.</div>
+            <div class="field-row"><input type="text" id="sv-name" placeholder="Goal (e.g. Laptop, Hajj fund)" style="flex:2;"><input type="number" id="sv-goal" placeholder="Amount ₹" inputmode="decimal"></div>
+            <button onclick="saveSavingsGoal()" style="margin:0;">Start saving</button></div>`);
+        return;
+    }
+    const pct = Math.min(100, Math.round((p.saved / p.goal) * 100));
+    const line = p.limit <= 0 ? 'Set a monthly limit above — unspent budget only counts once a limit exists.'
+        : p.months === 0 ? `Your first month is in progress. Staying under budget would add ${fmt(p.thisMonthLeft)} so far.`
+        : `Averaging ${fmt(p.avg)}/month${p.monthsToGo != null && p.togo > 0 ? ` — about ${p.monthsToGo} more month${p.monthsToGo === 1 ? '' : 's'} to go` : ''}. This month so far: ${fmt(p.thisMonthLeft)} unspent.`;
+    setHTMLUnlessFocused(el, `<div class="card"><div class="card-head"><h3>${escapeHTML(extraData.savings.name || 'Savings goal')}</h3><button class="btn-sm btn-ghost" onclick="clearSavingsGoal()">Remove</button></div>
+        <div style="display:flex; justify-content:space-between; align-items:flex-end;"><div class="big-figure" style="color:var(--green)">${fmt(p.saved)}</div><div class="muted" style="font-size:13px;">of ${fmt(p.goal)}</div></div>
+        <div class="progress-bar-container"><div class="progress-bar-fill" style="width:${pct}%; background:var(--green)"></div></div>
+        <div class="muted" style="font-size:12.5px;">${line}</div></div>`);
+}
+
+// ---------- Debt due dates ----------
+function debtDueBadge(debt) {
+    const st = Core.debtStatus(debt, Core.ctxFromLocalDate(new Date()));
+    if (!st.active) return '';
+    const label = st.daysLeft < 0 ? `Overdue ${-st.daysLeft}d` : st.daysLeft === 0 ? 'Due today' : st.daysLeft === 1 ? 'Due tomorrow' : `Due in ${st.daysLeft}d`;
+    return `<div style="margin-top:3px;"><span class="badge ${st.daysLeft < 0 ? 'debt-over' : 'debt-due'}">${label}</span></div>`;
+}
+function openDebtDue(id) {
+    const d = (budgetData.debts || []).find(x => x.id === id); if (!d) return;
+    document.getElementById('debt-due-id').value = id;
+    document.getElementById('debt-due-input').value = d.due || '';
+    openModal('debt-due-modal');
+}
+function saveDebtDue(clear) {
+    const id = document.getElementById('debt-due-id').value;
+    const d = (budgetData.debts || []).find(x => x.id === id); if (!d) return;
+    d.due = clear ? '' : (document.getElementById('debt-due-input').value || '');
+    closeModal('debt-due-modal'); saveData(); renderBudget();
+    showToast(d.due ? 'Reminder set' : 'Due date cleared', '📅');
+}
+
+// ---------- Backup nudge + status ----------
+function backupDaysSince() { const t = Number(localStorage.getItem('hisab_last_backup')) || 0; return t ? Math.floor((Date.now() - t) / 86400000) : null; }
+function updateBackupStatusLine() {
+    const el = document.getElementById('backup-status-line'); if (!el) return;
+    const d = backupDaysSince();
+    el.innerText = (d == null ? 'No backup file saved yet.' : d === 0 ? 'Last backup: today.' : `Last backup: ${d} day${d === 1 ? '' : 's'} ago.`) + (currentUser ? ' Cloud sync is on.' : ' Data is stored on this device only.');
+}
+function snoozeBackupNudge() { localStorage.setItem('hisab_backup_snooze', String(Date.now() + 3 * 86400000)); renderBackupNudge(); }
+function renderBackupNudge() {
+    const el = document.getElementById('backup-nudge'); if (!el) return;
+    const hasData = tasks.length > 0 || activityHistory.length > 20;
+    const d = backupDaysSince();
+    const snoozed = Date.now() < (Number(localStorage.getItem('hisab_backup_snooze')) || 0);
+    let msg = '';
+    if (hasData && !snoozed) {
+        if (!currentUser && (d == null || d >= 7)) msg = d == null ? 'Your data lives only on this device and has never been backed up.' : `Your last backup was ${d} days ago and your data is only on this device.`;
+        else if (currentUser && localStorage.getItem('hisab_unsynced') === '1' && lastCloudError) msg = 'Cloud sync is failing, so recent changes are only on this device.';
+    }
+    el.innerHTML = msg ? `<div class="nudge"><span class="grow"><b>Back up your data.</b> ${msg}${currentUser ? '' : ' Sign in with Google, or save a backup file.'}</span><button onclick="exportDataBackup()">Back up now</button><button class="btn-secondary" onclick="snoozeBackupNudge()">Later</button></div>` : '';
+}
+
+// ---------- Focus log ----------
+function addFocusMinutes(taskId, minutes) {
+    const day = toDateKey(Date.now());
+    if (!extraData.focusLog) extraData.focusLog = {};
+    const rec = extraData.focusLog[day] || (extraData.focusLog[day] = {});
+    const k = taskId || '_none';
+    rec[k] = (Number(rec[k]) || 0) + minutes;
+    const cutoff = addDaysToKey(day, -400);
+    for (const d of Object.keys(extraData.focusLog)) if (d < cutoff) delete extraData.focusLog[d];
+    saveData();
+}
+function renderWeeklyFocus(startMs) {
+    const el = document.getElementById('weekly-focus-card'); if (!el) return;
+    const days = [], perTask = {};
+    let total = 0;
+    for (let i = 0; i < 7; i++) {
+        const key = toDateKey(startMs + i * 86400000 + 3600000);
+        const rec = (extraData.focusLog || {})[key] || {};
+        const mins = Object.values(rec).reduce((s, v) => s + (Number(v) || 0), 0);
+        Object.entries(rec).forEach(([tid, v]) => { perTask[tid] = (perTask[tid] || 0) + (Number(v) || 0); });
+        total += mins;
+        days.push({ key, mins, lbl: new Date(startMs + i * 86400000 + 3600000).toLocaleDateString(undefined, { weekday: 'short' }).slice(0, 2) });
+    }
+    if (!total) { el.innerHTML = ''; return; }
+    const max = Math.max(...days.map(d => d.mins), 1);
+    const nameOf = tid => tid === '_none' ? 'No task selected' : ((tasks.find(t => t.id === tid) || (archivedTasks || []).find(t => t.id === tid) || {}).title || 'Deleted task');
+    const top = Object.entries(perTask).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const fmtM = m => m >= 60 ? `${Math.floor(m / 60)}h ${Math.round(m % 60)}m` : `${Math.round(m)}m`;
+    el.innerHTML = `<div class="card" style="margin-top:14px; box-shadow:none; background:var(--surface-2); border:0;">
+        <div class="card-head" style="margin-bottom:4px;"><h3>Focus time</h3><span class="muted" style="font-size:13px;">${fmtM(total)} this week</span></div>
+        <div class="focus-bars">${days.map(d => `<div class="fb"><b>${d.mins ? fmtM(d.mins) : ''}</b><span style="height:${Math.max(3, Math.round((d.mins / max) * 70))}px"></span>${d.lbl}</div>`).join('')}</div>
+        <div class="report-lines" style="margin-top:10px;">${top.map(([tid, m]) => `<div>⏱ <b>${escapeHTML(nameOf(tid))}</b> — ${fmtM(m)}</div>`).join('')}</div></div>`;
+}
+
+// ---------- Flexible repeat form helpers ----------
+function toggleRecurFields() {
+    const k = document.getElementById('recur-kind')?.value || 'everyN';
+    const show = (id, on) => { const e = document.getElementById(id); if (e) e.style.display = on ? 'flex' : 'none'; };
+    show('recur-everyN', k === 'everyN'); show('recur-nth', k === 'nth'); show('recur-monthday', k === 'monthday');
+}
+function readRecurFromForm() {
+    const k = document.getElementById('recur-kind').value;
+    if (k === 'everyN') return { kind: 'everyN', n: Math.min(365, Math.max(2, parseInt(document.getElementById('recur-n').value, 10) || 2)), anchor: document.getElementById('recur-anchor').value || toDateKey(Date.now()) };
+    if (k === 'nth') return { kind: 'nth', nth: parseInt(document.getElementById('recur-nth-n').value, 10), dow: parseInt(document.getElementById('recur-nth-dow').value, 10) };
+    return { kind: 'monthday', day: Math.min(31, Math.max(1, parseInt(document.getElementById('recur-day').value, 10) || 1)) };
+}
+function writeRecurToForm(r) {
+    document.getElementById('recur-kind').value = r.kind;
+    if (r.kind === 'everyN') { document.getElementById('recur-n').value = r.n; document.getElementById('recur-anchor').value = r.anchor || ''; }
+    if (r.kind === 'nth') { document.getElementById('recur-nth-n').value = String(r.nth); document.getElementById('recur-nth-dow').value = String(r.dow); }
+    if (r.kind === 'monthday') document.getElementById('recur-day').value = r.day;
+    toggleRecurFields();
+}
+
+// ---------- Compact "Today" view ----------
+function compactDone(id) {
+    const t = tasks.find(x => x.id === id); if (!t) return;
+    const st = getTaskStatus(t, new Date());
+    const left = Math.max(0, st.target - st.doneAmt) || st.target || 1;
+    logProgress(id, left);
+    renderCompact();
+}
+function renderCompact() {
+    const body = document.getElementById('compact-body'); if (!body) return;
+    const now = new Date(), todayKey = toDateKey(now);
+    const due = tasks.filter(t => (t.currentTarget ?? 1) > 0).map(t => ({ t, st: getTaskStatus(t, now) })).filter(x => x.st.isDueToday && !x.st.isDone);
+    const doneCount = tasks.filter(t => { const st = getTaskStatus(t, now); return st.isActiveToday && st.isDone && t.type === 'daily'; }).length;
+    const sub = document.getElementById('compact-sub');
+    if (sub) sub.innerText = now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }) + ` · ${due.length} left`;
+    const map = dailyDeenMap(), goals = extraData.goals || {}, td = map[todayKey] || {};
+    const goalLines = [['Hizb', 'hizb'], ['Swalath', 'swalath'], ['Dhikr', 'dhikr']].filter(([, k]) => goals[k] > 0)
+        .map(([l, k]) => `<span class="badge ${(td[k] || 0) >= goals[k] ? 'done-badge' : ''}">${l} ${fmtNum1(td[k] || 0)}/${fmtNum1(goals[k])}</span>`).join(' ');
+    const items = due.length ? due.map(({ t, st }) => `<div class="compact-item"><div class="ct">${escapeHTML(t.title)}<div class="cm">${[st.dueLabel, st.target > 1 ? fmtNum1(st.target - st.doneAmt) + ' left ' + st.periodLabel : '', t.reminderTime ? '⏰ ' + t.reminderTime : ''].filter(Boolean).join(' · ') || st.periodLabel}</div></div><button onclick="compactDone('${t.id}')" aria-label="Mark ${escapeHTML(t.title)} done">✓</button></div>`).join('')
+        : `<div class="empty-state">${doneCount ? '🎉 Everything for today is done.' : 'Nothing scheduled for today.'}</div>`;
+    body.innerHTML = `${goalLines ? `<div style="margin-bottom:12px; display:flex; gap:6px; flex-wrap:wrap;">${goalLines}</div>` : ''}${items}
+        <div class="section-title"><h3>Prayers</h3></div><div class="card" style="padding:4px 16px;">${prayerRowsHTML(todayKey, true)}</div>`;
+}
+
+// ---------- Debt & zakat reminders (client side, used when background push is off) ----------
+function runExtraReminders(ctx, nowMin, todayKey) {
+    if (nowMin < 9 * 60) return;
+    (budgetData.debts || []).forEach(d => {
+        const ds = Core.debtStatus(d, ctx);
+        if (!ds.remind) return;
+        const k = `hisab_debt_notif_${d.id}_${todayKey}`;
+        if (localStorage.getItem(k)) return;
+        const verb = d.type === 'borrowed' ? 'You owe' : 'Owed to you by';
+        sendAppNotification(`🤝 ${d.type === 'borrowed' ? 'Repay' : 'Collect from'} ${d.desc} — ₹${Math.round(ds.pending).toLocaleString()}`, { body: `${verb} ${d.desc}: ${Core.dueLabel(ds.daysLeft)}`, tag: 'debt-' + d.id, data: { kind: 'debt' } });
+        localStorage.setItem(k, '1');
+    });
+    const z = Core.zakatStatus(extraData.zakatDate, ctx);
+    if (z.remind && !localStorage.getItem('hisab_zakat_notif_' + todayKey)) {
+        sendAppNotification('🕌 Zakat reminder', { body: z.daysLeft === 0 ? 'Your zakat anniversary is today.' : `Your zakat anniversary is in ${z.daysLeft} day${z.daysLeft === 1 ? '' : 's'}.`, tag: 'zakat', data: { kind: 'zakat' } });
+        localStorage.setItem('hisab_zakat_notif_' + todayKey, '1');
+    }
+}
+
+// ---------- App lock (PIN) ----------
+function lockCfg() { try { return JSON.parse(localStorage.getItem('hisab_lock') || 'null'); } catch (e) { return null; } }
+async function hashPin(pin, salt) {
+    const buf = new TextEncoder().encode(salt + ':' + pin);
+    const h = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+const lockState = { mode: 'unlock', entry: '', first: '', fails: 0, until: 0, onDone: null, hiddenAt: 0 };
+function lockDraw() {
+    const dots = document.getElementById('app-lock-dots'); if (!dots) return;
+    dots.innerHTML = [0, 1, 2, 3].map(i => `<i class="${i < lockState.entry.length ? 'f' : ''}"></i>`).join('');
+}
+function lockBuildPad() {
+    const pad = document.getElementById('app-lock-pad'); if (!pad || pad.dataset.ready) return;
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'c', '0', 'b'];
+    pad.innerHTML = keys.map(k => k === 'c' ? '<button type="button" data-k="c" aria-label="Cancel" id="app-lock-cancel">✕</button>' : k === 'b' ? '<button type="button" data-k="b" aria-label="Delete">⌫</button>' : `<button type="button" data-k="${k}">${k}</button>`).join('');
+    pad.addEventListener('click', e => { const b = e.target.closest('button'); if (b) lockKey(b.dataset.k); });
+    pad.dataset.ready = '1';
+}
+function lockShow(mode, onDone) {
+    lockState.mode = mode; lockState.entry = ''; lockState.first = ''; lockState.onDone = onDone || null;
+    const titles = { unlock: 'Enter your PIN', set1: 'Choose a 4-digit PIN', set2: 'Confirm your PIN', verify: 'Enter your current PIN' };
+    lockBuildPad();
+    document.getElementById('app-lock-title').innerText = titles[mode] || '';
+    document.getElementById('app-lock-msg').innerText = '';
+    document.getElementById('app-lock-forgot').style.display = (mode === 'unlock' || mode === 'verify') ? 'inline-block' : 'none';
+    document.getElementById('app-lock-cancel').style.visibility = mode === 'unlock' ? 'hidden' : 'visible';
+    lockDraw();
+    document.getElementById('app-lock').style.display = 'flex';
+}
+function lockHide() { const el = document.getElementById('app-lock'); if (el) el.style.display = 'none'; }
+async function lockKey(k) {
+    const msg = document.getElementById('app-lock-msg');
+    if (k === 'c') { if (lockState.mode !== 'unlock') lockHide(); return; }
+    if (Date.now() < lockState.until) { msg.innerText = `Too many tries — wait ${Math.ceil((lockState.until - Date.now()) / 1000)}s`; return; }
+    if (k === 'b') { lockState.entry = lockState.entry.slice(0, -1); lockDraw(); return; }
+    if (lockState.entry.length >= 4) return;
+    lockState.entry += k; lockDraw();
+    if (lockState.entry.length < 4) return;
+    const pin = lockState.entry; lockState.entry = '';
+    const cfg = lockCfg();
+    if (lockState.mode === 'unlock' || lockState.mode === 'verify') {
+        const ok = cfg && (await hashPin(pin, cfg.salt)) === cfg.hash;
+        if (ok) { lockState.fails = 0; const cb = lockState.onDone; lockHide(); if (cb) cb(); return; }
+        lockState.fails++; msg.innerText = 'Wrong PIN';
+        if (lockState.fails >= 5) { lockState.until = Date.now() + 30000; lockState.fails = 0; msg.innerText = 'Too many tries — wait 30s'; }
+        setTimeout(lockDraw, 120); lockDraw(); return;
+    }
+    if (lockState.mode === 'set1') { lockState.first = pin; lockState.mode = 'set2'; document.getElementById('app-lock-title').innerText = 'Confirm your PIN'; lockDraw(); return; }
+    if (lockState.mode === 'set2') {
+        if (pin !== lockState.first) { lockState.mode = 'set1'; lockState.first = ''; document.getElementById('app-lock-title').innerText = 'Choose a 4-digit PIN'; msg.innerText = "PINs didn't match — try again"; lockDraw(); return; }
+        const salt = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem('hisab_lock', JSON.stringify({ salt, hash: await hashPin(pin, salt) }));
+        lockHide(); renderAppLockSettings(); showToast('App lock is on', '🔒');
+    }
+}
+function startSetPin() { lockShow('set1'); }
+function changePin() { lockShow('verify', () => lockShow('set1')); }
+function disableLock() { lockShow('verify', () => { localStorage.removeItem('hisab_lock'); renderAppLockSettings(); showToast('App lock turned off', '🔓'); }); }
+function forgotPin() {
+    if (confirm('Forgot your PIN?\n\nThe only way back in is to reset Hisab on this device. That erases the data stored here. If you are signed in with Google, your cloud data comes back after you sign in; otherwise it is lost.\n\nReset this device?')) {
+        localStorage.clear(); location.reload();
+    }
+}
+function renderAppLockSettings() {
+    const el = document.getElementById('applock-settings'); if (!el) return;
+    const on = !!lockCfg();
+    el.innerHTML = `<div style="font-weight:650; font-size:14px;">App lock</div>
+        <div class="muted" style="font-size:12.5px; margin-bottom:10px;">${on ? 'Hisab asks for your PIN when you open it and after it has been in the background for 30 seconds.' : 'Ask for a 4-digit PIN when Hisab opens. It keeps casual snoopers out of your journal and intentions; it is not encryption.'}</div>
+        ${on ? `<div class="field-row"><button class="btn-secondary" onclick="changePin()" style="margin:0;">Change PIN</button><button class="btn-secondary" onclick="disableLock()" style="margin:0;">Turn off</button></div>`
+             : `<button class="btn-secondary" onclick="startSetPin()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-lock"/></svg>Set a PIN</button>`}`;
+}
+function initAppLock() {
+    if (lockCfg()) lockShow('unlock');
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') lockState.hiddenAt = Date.now();
+        else if (lockCfg() && lockState.hiddenAt && Date.now() - lockState.hiddenAt > 30000 && document.getElementById('app-lock').style.display !== 'flex') lockShow('unlock');
+    });
+}
+
+// ---------- Wiring ----------
+window.addEventListener('offline', () => { if (currentUser) setSyncIndicator('pending', 'Offline'); });
+window.addEventListener('online', () => { if (currentUser && localStorage.getItem('hisab_unsynced') === '1') setSyncIndicator('pending', 'Syncing…'); });
+Object.assign(window, {
+    setPrayerState, saveDeenGoals, toggleGoalEdit, setKhatmPlan, clearKhatmPlan, saveZakatDate, saveSavingsGoal, clearSavingsGoal,
+    openDebtDue, saveDebtDue, snoozeBackupNudge, toggleRecurFields, compactDone, renderCompact, startSetPin, changePin, disableLock, forgotPin,
+    renderDeenExtras, renderSavingsGoal, renderBackupNudge, updateBackupStatusLine, renderAppLockSettings,
+    addFocusMinutes, mergeExtra, getExtraData: () => extraData
+});
+initAppLock();

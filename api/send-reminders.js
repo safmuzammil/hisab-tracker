@@ -84,6 +84,22 @@ export async function runReminders(db, messaging, now) {
                 }
             }
 
+            // 2b) Debts & loans with a due date, and the yearly zakat anniversary — 09:00
+            if (inWindow(9 * 60)) {
+                for (const d of (u.budget && u.budget.debts) || []) {
+                    const ds = Core.debtStatus(d, ctx);
+                    if (!ds.remind || sent['d:' + d.id]) continue;
+                    const owe = d.type === 'borrowed';
+                    outbox.push({ kind: 'debt', title: `🤝 ${owe ? 'Repay' : 'Collect from'} ${d.desc} — ₹${Math.round(ds.pending).toLocaleString('en-IN')}`, body: `${owe ? 'You owe' : 'Owed to you by'} ${d.desc}: ${Core.dueLabel(ds.daysLeft)}`, tag: 'debt-' + d.id });
+                    sent['d:' + d.id] = 1;
+                }
+                const z = Core.zakatStatus(u.extra && u.extra.zakatDate, ctx);
+                if (z.remind && !sent.zakat) {
+                    outbox.push({ kind: 'zakat', title: '🕌 Zakat reminder', body: z.daysLeft === 0 ? 'Your zakat anniversary is today.' : `Your zakat anniversary is in ${z.daysLeft} day${z.daysLeft === 1 ? '' : 's'}.`, tag: 'zakat' });
+                    sent.zakat = 1;
+                }
+            }
+
             // 3) Evening summary
             const eveMin = Core.hmToMin((u.settings && u.settings.eveningTime) || '21:00');
             if (inWindow(eveMin) && !sent.eod) {

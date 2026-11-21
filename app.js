@@ -1185,9 +1185,39 @@ function applyDeenAutomation(taskTitle, amountDelta) {
         deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
         deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
     }
+    // A task logged elsewhere as "Juz" counts in Hizb-equivalent terms (1 Juz = 2 Hizb) so it
+    // feeds the same Hizb/Juz/Khatm totals shown on the Deen tab, instead of being a separate silo.
+    else if (tName.includes('juz') || tName.includes('khatm')) {
+        deenData.quranStats.totalHizb = Math.max(0, (deenData.quranStats.totalHizb || 0) + amountDelta * 2);
+        deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+        deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+    }
     if (tName.includes('swalath') || tName.includes('salawat') || tName.includes('salawaat') || tName.includes('darood') || tName.includes('durood')) {
         deenData.swalathStats.total = Math.max(0, (deenData.swalathStats.total || 0) + amountDelta);
     }
+}
+
+function resetSwalathCounter() {
+    if (!confirm("Start the Swalath counter afresh from 0? This only resets the total shown here — past logs stay in your history.")) return;
+    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+    deenData.swalathStats.total = 0;
+    saveData(); renderDeen();
+    showToast('Swalath counter reset to 0', '🔄');
+}
+
+function resetHizbCounter() {
+    if (!confirm("Start the Quran progress counter (Hizb / Juz / Khatm) afresh from 0? This only resets the totals shown here — past logs stay in your history.")) return;
+    deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    saveData(); renderDeen();
+    showToast('Quran progress reset to 0', '🔄');
+}
+
+function resetDhikrProgress(index) {
+    const d = deenData.dhikr[index]; if (!d) return;
+    if (!confirm(`Start "${d.name}" afresh from 0? Its target and intention stay the same — only the count resets.`)) return;
+    d.current = 0; d.completed = false;
+    saveData(); renderDeen();
+    showToast(`"${d.name}" reset to 0`, '🔄');
 }
 
 function getPeriodsLeft(type, dateObj) {
@@ -3273,7 +3303,7 @@ function renderDeen() {
         deenData.dhikr.forEach((d, index) => {
             const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--deen)'; if (d.completed) div.style.opacity = '0.6';
             let intentionHtml = d.intention ? `<div style="font-size:0.85rem; color:var(--muted); margin-bottom:8px;"><em>" ${escapeHTML(d.intention)} "</em></div>` : ''; let deadlineHtml = d.deadline ? `<span class="badge" style="background:rgba(246, 229, 141, 0.15); color:var(--warning);">⏳ ${d.deadline}</span>` : ''; let progressHtml = d.completed ? `<span class="badge done-badge">✅ Completed</span>` : `<span class="badge target">Progress: ${d.current} / ${d.target}</span>`;
-            div.innerHTML = `<div class="task-header"><div><div class="task-title">${escapeHTML(d.name)}</div>${intentionHtml}<div class="task-badges">${progressHtml}${deadlineHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="openDhikrEdit(${index})" title="Edit" aria-label="Edit dhikr">✏️</button><button class="btn-icon" onclick="deleteDhikr(${index})" title="Delete" aria-label="Delete dhikr">🗑️</button></div></div>${!d.completed ? `<div class="task-action-row"><div class="task-input-box"><input type="number" id="dhikr-input-${index}" value="1" min="1"></div><button class="btn-task-action" style="flex:1; background:var(--deen); color:var(--on-accent);" onclick="logDhikr(${index})">Log Dhikr</button></div>` : ''}`;
+            div.innerHTML = `<div class="task-header"><div><div class="task-title">${escapeHTML(d.name)}</div>${intentionHtml}<div class="task-badges">${progressHtml}${deadlineHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="resetDhikrProgress(${index})" title="Start afresh" aria-label="Reset dhikr progress">🔄</button><button class="btn-icon" onclick="openDhikrEdit(${index})" title="Edit" aria-label="Edit dhikr">✏️</button><button class="btn-icon" onclick="deleteDhikr(${index})" title="Delete" aria-label="Delete dhikr">🗑️</button></div></div>${!d.completed ? `<div class="task-action-row"><div class="task-input-box"><input type="number" id="dhikr-input-${index}" value="1" min="1"></div><button class="btn-task-action" style="flex:1; background:var(--deen); color:var(--on-accent);" onclick="logDhikr(${index})">Log Dhikr</button></div>` : ''}`;
             dhikrContainer.appendChild(div);
         });
     }
@@ -4799,6 +4829,7 @@ window.payDonation = payDonation;
 window.addGoodHabit = addGoodHabit; window.editGoodHabit = editGoodHabit; window.cancelEditGoodHabit = cancelEditGoodHabit; window.logGoodHabit = logGoodHabit; window.deleteGoodHabit = deleteGoodHabit; 
 window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.cancelEditBadHabit = cancelEditBadHabit; window.logBadHabit = logBadHabit; window.deleteBadHabit = deleteBadHabit;
 window.logSwalathDirect = logSwalathDirect; window.logHizbDirect = logHizbDirect;
+Object.assign(window, { resetSwalathCounter, resetHizbCounter, resetDhikrProgress });
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
 window.addBacklogItem = addBacklogItem; window.editBacklogItem = editBacklogItem; window.cancelEditBacklogItem = cancelEditBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;

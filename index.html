@@ -408,7 +408,7 @@
 
         <div class="dashboard-grid">
             <div class="card">
-                <div class="card-head"><h3>Swalath counter</h3></div>
+                <div class="card-head"><h3>Swalath counter</h3><button class="btn-icon" onclick="resetSwalathCounter()" title="Start afresh" aria-label="Reset Swalath counter"><svg class="icon icon-sm"><use href="#i-refresh"/></svg></button></div>
                 <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px;">
                     <span class="muted" style="font-size:13.5px;">Total</span>
                     <span class="big-figure" style="color:var(--brand)" id="deen-total-swalath">0</span>
@@ -419,7 +419,7 @@
                 </div>
             </div>
             <div class="card">
-                <div class="card-head"><h3>Quran progress</h3></div>
+                <div class="card-head"><h3>Quran progress</h3><button class="btn-icon" onclick="resetHizbCounter()" title="Start afresh" aria-label="Reset Hizb counter"><svg class="icon icon-sm"><use href="#i-refresh"/></svg></button></div>
                 <div class="grid-3" style="margin-bottom:14px;">
                     <div class="stat-box"><div class="l">Hizb</div><div class="v" id="deen-total-hizb">0</div></div>
                     <div class="stat-box"><div class="l">Juz</div><div class="v" id="deen-total-juz">0</div></div>

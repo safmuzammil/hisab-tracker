@@ -6108,13 +6108,29 @@ async function recoverFromSheet() {
     }
 }
 
+// Some exports (the Apps Script "Export all" backup) dump every tab into one text file,
+// separated by "## Sheet name: X" markers. Pull out just the raw log tab before parsing it as CSV.
+function extractLogSection(text) {
+    if (!/^##\s*Sheet name:/im.test(text)) return text; // a plain single-tab CSV — use as-is
+    const lines = text.split(/\r?\n/);
+    let start = -1, end = lines.length;
+    for (let i = 0; i < lines.length; i++) {
+        if (/^##\s*Sheet name:/i.test(lines[i])) {
+            if (start === -1 && /rawlog|raw[\s_-]?log|^##\s*sheet name:\s*logs?$/i.test(lines[i])) { start = i + 1; continue; }
+            if (start !== -1) { end = i; break; }
+        }
+    }
+    if (start === -1) return text; // no obviously-named logs tab found; fall back to the whole thing
+    return lines.slice(start, end).join('\n');
+}
+
 function recoverFromFile(event) {
     const file = event.target.files && event.target.files[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = e => {
         try {
             const text = String(e.target.result || '');
-            const data = /^\s*[\[{]/.test(text) ? JSON.parse(text) : parseCSV(text);
+            const data = /^\s*[\[{]/.test(text) ? JSON.parse(text) : parseCSV(extractLogSection(text));
             renderRecoverPreview(normalizeRecoveredLogs(data), file.name);
         } catch (err) {
             document.getElementById('recover-result').innerHTML = `<div class="empty-state" style="margin-top:12px;">${escapeHTML(err.message || String(err))}</div>`;

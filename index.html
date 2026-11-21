@@ -389,7 +389,7 @@
 
     <!-- ===================== DEEN ===================== -->
     <section id="tab-deen" class="tab-content">
-        <div class="page-head"><div><h2>Deen</h2><div class="sub">Prayers, Quran, dhikr and zakat</div></div></div>
+        <div class="page-head"><div><h2>Deen</h2><div class="sub">Prayers, Quran, dhikr and zakat</div></div><div class="actions"><button class="btn-sm btn-secondary" onclick="openRecover()"><svg class="icon icon-sm"><use href="#i-history"/></svg>Recover</button></div></div>
 
         <div class="card" id="prayer-times-card">
             <div class="card-head">
@@ -441,6 +441,10 @@
             <div class="field-row">
                 <input type="text" id="dhikr-intention" placeholder="Intention (optional)" style="flex:2;">
                 <input type="time" id="dhikr-deadline">
+            </div>
+            <div class="field-row" style="align-items:center;">
+                <label for="dhikr-start" style="flex:2; font-size:13.5px;" class="muted">Already recited (optional)</label>
+                <input type="number" id="dhikr-start" placeholder="0" min="0" inputmode="numeric" style="flex:1;">
             </div>
             <button onclick="addDhikr()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Add dhikr</button>
         </div>
@@ -847,6 +851,41 @@
     </div>
 </div>
 
+<div id="dhikr-edit-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('dhikr-edit-modal')">
+    <div class="modal-content" style="max-width:420px;">
+        <div class="modal-head">
+            <h2>Edit dhikr</h2>
+            <button class="btn-icon" onclick="closeModal('dhikr-edit-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="dhikr-edit-index">
+        <label class="field-label" for="dhikr-edit-name">Dhikr</label>
+        <input type="text" id="dhikr-edit-name">
+        <label class="field-label" for="dhikr-edit-intention">Intention / for whom</label>
+        <input type="text" id="dhikr-edit-intention" placeholder="e.g. For Mansoor Ustad's health">
+        <div class="field-row">
+            <div><label class="field-label" for="dhikr-edit-current">Recited so far</label><input type="number" id="dhikr-edit-current" min="0" inputmode="numeric"></div>
+            <div><label class="field-label" for="dhikr-edit-target">Target</label><input type="number" id="dhikr-edit-target" min="1" inputmode="numeric"></div>
+        </div>
+        <button onclick="saveDhikrEdit()" style="margin-top:6px;">Save</button>
+    </div>
+</div>
+
+<div id="recover-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('recover-modal')">
+    <div class="modal-content" style="max-width:600px;">
+        <div class="modal-head">
+            <div><h2>Recover Deen data</h2><div class="sub">Rebuild your dhikr, swalath and hizb from the copies sent to your Google Sheet.</div></div>
+            <button class="btn-icon" onclick="closeModal('recover-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="field-row" style="margin-bottom:6px;">
+            <button onclick="recoverFromSheet()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-cloud"/></svg>Fetch from Google Sheet</button>
+            <button class="btn-secondary" onclick="document.getElementById('recover-file').click()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-upload"/></svg>Import CSV / backup</button>
+            <input type="file" id="recover-file" accept=".csv,.tsv,.json,text/csv,application/json" style="display:none;" onchange="recoverFromFile(event)">
+        </div>
+        <div class="field-hint">If fetching finds little, open your Hisab Google Sheet → File → Download → CSV, then use Import.</div>
+        <div id="recover-result"></div>
+    </div>
+</div>
+
 <!-- Backlog -->
 <div id="backlog-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('backlog-modal')">
     <div class="modal-content">
@@ -924,6 +963,7 @@
             <button class="btn-secondary" onclick="exportDataBackup()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-download"/></svg>Export backup</button>
             <button class="btn-secondary" onclick="document.getElementById('import-backup-file').click()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-upload"/></svg>Restore backup</button>
             <input type="file" id="import-backup-file" accept=".json" style="display:none;" onchange="importDataBackup(event)">
+            <button class="btn-secondary" onclick="closeHistory(); openRecover();" style="margin:0;"><svg class="icon icon-sm"><use href="#i-history"/></svg>Recover Deen</button>
         </div>
         <div class="horizontal-pill-slider">
             <button class="hist-filter-btn active" onclick="filterHistory('all', this)">All</button>

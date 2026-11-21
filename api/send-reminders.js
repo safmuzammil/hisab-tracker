@@ -15,8 +15,12 @@ export default async function handler(req, res) {
 
     let db, messaging;
     try { ({ db, messaging } = admin()); } catch (e) { return res.status(500).json({ ok: false, error: e.message }); }
-    const summary = await runReminders(db, messaging, Date.now());
-    return summary;
+    try {
+        const summary = await runReminders(db, messaging, Date.now());
+        return res.status(200).json({ ok: true, ...summary });
+    } catch (e) {
+        return res.status(500).json({ ok: false, error: e.message });
+    }
 }
 
 export async function runReminders(db, messaging, now) {

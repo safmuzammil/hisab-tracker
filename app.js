@@ -3273,7 +3273,7 @@ function renderDeen() {
         deenData.dhikr.forEach((d, index) => {
             const div = document.createElement('div'); div.className = 'task-item'; div.style.borderLeftColor = 'var(--deen)'; if (d.completed) div.style.opacity = '0.6';
             let intentionHtml = d.intention ? `<div style="font-size:0.85rem; color:var(--muted); margin-bottom:8px;"><em>" ${escapeHTML(d.intention)} "</em></div>` : ''; let deadlineHtml = d.deadline ? `<span class="badge" style="background:rgba(246, 229, 141, 0.15); color:var(--warning);">⏳ ${d.deadline}</span>` : ''; let progressHtml = d.completed ? `<span class="badge done-badge">✅ Completed</span>` : `<span class="badge target">Progress: ${d.current} / ${d.target}</span>`;
-            div.innerHTML = `<div class="task-header"><div><div class="task-title">${escapeHTML(d.name)}</div>${intentionHtml}<div class="task-badges">${progressHtml}${deadlineHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="deleteDhikr(${index})">🗑️</button></div></div>${!d.completed ? `<div class="task-action-row"><div class="task-input-box"><input type="number" id="dhikr-input-${index}" value="1" min="1"></div><button class="btn-task-action" style="flex:1; background:var(--deen); color:var(--on-accent);" onclick="logDhikr(${index})">Log Dhikr</button></div>` : ''}`;
+            div.innerHTML = `<div class="task-header"><div><div class="task-title">${escapeHTML(d.name)}</div>${intentionHtml}<div class="task-badges">${progressHtml}${deadlineHtml}</div></div><div class="task-controls"><button class="btn-icon" onclick="openDhikrEdit(${index})" title="Edit" aria-label="Edit dhikr">✏️</button><button class="btn-icon" onclick="deleteDhikr(${index})" title="Delete" aria-label="Delete dhikr">🗑️</button></div></div>${!d.completed ? `<div class="task-action-row"><div class="task-input-box"><input type="number" id="dhikr-input-${index}" value="1" min="1"></div><button class="btn-task-action" style="flex:1; background:var(--deen); color:var(--on-accent);" onclick="logDhikr(${index})">Log Dhikr</button></div>` : ''}`;
             dhikrContainer.appendChild(div);
         });
     }
@@ -3326,7 +3326,7 @@ function renderDeen() {
 }
 
 function updateQada(prayer, amount) { deenData.qada[prayer] += amount; if(deenData.qada[prayer] < 0) deenData.qada[prayer] = 0; saveData(); renderDeen(); }
-function addDhikr() { const name = document.getElementById('dhikr-name').value.trim(); const target = parseInt(document.getElementById('dhikr-target').value); const intention = document.getElementById('dhikr-intention').value.trim(); const deadline = document.getElementById('dhikr-deadline').value; if (!name || !target || target <= 0) return alert("Please provide a valid Dhikr name and target number."); deenData.dhikr.push({ name, target, current: 0, intention, deadline, completed: false }); document.getElementById('dhikr-name').value = ''; document.getElementById('dhikr-target').value = ''; document.getElementById('dhikr-intention').value = ''; document.getElementById('dhikr-deadline').value = ''; saveData(); renderDeen(); }
+function addDhikr() { const name = document.getElementById('dhikr-name').value.trim(); const target = parseInt(document.getElementById('dhikr-target').value); const intention = document.getElementById('dhikr-intention').value.trim(); const deadline = document.getElementById('dhikr-deadline').value; const startEl = document.getElementById('dhikr-start'); const start = Math.max(0, parseInt(startEl && startEl.value) || 0); if (!name || !target || target <= 0) return alert("Please provide a valid Dhikr name and target number."); deenData.dhikr.push({ name, target, current: Math.min(start, target), intention, deadline, completed: start >= target }); if (startEl) startEl.value = ''; document.getElementById('dhikr-name').value = ''; document.getElementById('dhikr-target').value = ''; document.getElementById('dhikr-intention').value = ''; document.getElementById('dhikr-deadline').value = ''; saveData(); renderDeen(); }
 function logDhikr(index) { 
     const amount = parseInt(document.getElementById(`dhikr-input-${index}`).value) || 0; 
     if (amount <= 0) return; 
@@ -5955,3 +5955,237 @@ Object.assign(window, {
     addFocusMinutes, mergeExtra, getExtraData: () => extraData
 });
 initAppLock();
+
+// ==========================================================================
+// DHIKR EDIT + DEEN RECOVERY (rebuild from Google Sheet logs / CSV / backup)
+// ==========================================================================
+function openDhikrEdit(i) {
+    const d = deenData.dhikr[i]; if (!d) return;
+    document.getElementById('dhikr-edit-index').value = i;
+    document.getElementById('dhikr-edit-name').value = d.name || '';
+    document.getElementById('dhikr-edit-intention').value = d.intention || '';
+    document.getElementById('dhikr-edit-current').value = d.current || 0;
+    document.getElementById('dhikr-edit-target').value = d.target || 1;
+    openModal('dhikr-edit-modal');
+}
+function saveDhikrEdit() {
+    const i = parseInt(document.getElementById('dhikr-edit-index').value, 10);
+    const d = deenData.dhikr[i]; if (!d) return;
+    const name = document.getElementById('dhikr-edit-name').value.trim();
+    const target = parseInt(document.getElementById('dhikr-edit-target').value, 10);
+    const current = Math.max(0, parseInt(document.getElementById('dhikr-edit-current').value, 10) || 0);
+    if (!name || !(target > 0)) { showToast('Enter a name and a target', '✏️'); return; }
+    d.name = name; d.target = target; d.current = Math.min(current, target);
+    d.intention = document.getElementById('dhikr-edit-intention').value.trim();
+    d.completed = d.current >= d.target;
+    closeModal('dhikr-edit-modal'); saveData(); renderDeen(); renderDeenExtras();
+    showToast('Dhikr updated', '✅');
+}
+
+let recoverRows = [];
+
+function openRecover() { document.getElementById('recover-result').innerHTML = ''; openModal('recover-modal'); }
+
+function parseCSV(text) {
+    const delim = (text.split('\n')[0].match(/\t/g) || []).length > (text.split('\n')[0].match(/,/g) || []).length ? '\t' : ',';
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+        else if (c === '"') q = true;
+        else if (c === delim) { row.push(cell); cell = ''; }
+        else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+        else cell += c;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(r => r.some(x => String(x).trim() !== ''));
+}
+
+function toTimestamp(v) {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    if (!isNaN(n) && n > 1e11) return n;          // ms epoch
+    if (!isNaN(n) && n > 1e9) return n * 1000;     // s epoch
+    if (!isNaN(n) && n > 20000 && n < 80000) return Math.round((n - 25569) * 86400000); // Sheets serial date
+    const t = Date.parse(v); return isNaN(t) ? null : t;
+}
+
+// Turn sheet rows / API objects / a backup file into normalized log entries.
+function normalizeRecoveredLogs(input) {
+    let objs = [];
+    if (Array.isArray(input) && input.length && Array.isArray(input[0])) {
+        const head = input[0].map(h => String(h).trim().toLowerCase().replace(/[\s_-]/g, ''));
+        const col = (...names) => head.findIndex(h => names.includes(h));
+        const ci = { id: col('id', 'logid'), ts: col('timestamp', 'time', 'ms', 'epoch'), date: col('date', 'datetime', 'loggedat', 'created'), cat: col('category', 'cat'), act: col('actiontype', 'action', 'type'), title: col('title', 'name', 'description', 'desc', 'item'), amt: col('amount', 'count', 'qty', 'value'), task: col('taskid') };
+        if (ci.title < 0) throw new Error("Couldn't find a Title column in that file");
+        objs = input.slice(1).map(r => ({
+            id: ci.id >= 0 ? r[ci.id] : '', timestamp: (ci.ts >= 0 ? toTimestamp(r[ci.ts]) : null) ?? (ci.date >= 0 ? toTimestamp(r[ci.date]) : null),
+            category: ci.cat >= 0 ? r[ci.cat] : '', actionType: ci.act >= 0 ? r[ci.act] : '', title: r[ci.title], amount: ci.amt >= 0 ? r[ci.amt] : 1, taskId: ci.task >= 0 ? r[ci.task] : ''
+        }));
+    } else if (Array.isArray(input)) objs = input;
+    else if (input && Array.isArray(input.history)) objs = input.history;   // a Hisab backup file
+    else if (input && Array.isArray(input.logs)) objs = input.logs;
+    else if (input && Array.isArray(input.data)) objs = input.data;
+
+    const out = [];
+    for (const o of objs) {
+        if (!o) continue;
+        const title = String(o.title || '').trim(); if (!title) continue;
+        const ts = toTimestamp(o.timestamp) ?? toTimestamp(o.date) ?? null;
+        const amount = Number(o.amount); const amt = isNaN(amount) || amount <= 0 ? 1 : amount;
+        let kind = null, name = '', juz = null;
+        const act = String(o.actionType || '').trim();
+        if (/^dhikr:/i.test(title)) { kind = 'dhikr'; name = title.replace(/^dhikr:\s*/i, '').trim(); }
+        else if (act === 'deen_swalath' || /^logged swalath/i.test(title)) kind = 'swalath';
+        else if (act === 'deen_hizb' || /^logged hizb/i.test(title)) kind = 'hizb';
+        else if (/^completed juz\s*(\d+)/i.test(title)) { kind = 'juz'; juz = parseInt(title.match(/(\d+)/)[1], 10); }
+        else if (act === 'deen_qada' || /^qada:/i.test(title)) kind = 'qada';
+        if (!kind) continue;
+        const id = String(o.id || '').trim() || `rec-${ts || 0}-${title.length}-${amt}`;
+        out.push({ id, timestamp: ts || Date.now(), title, amount: amt, kind, name, juz, actionType: act, taskId: String(o.taskId || '') });
+    }
+    return out;
+}
+
+function guessIntention(name) {
+    const m = name.match(/\b(?:for|on behalf of|to)\s+(.+)$/i);
+    return m ? m[1].trim() : '';
+}
+
+function renderRecoverPreview(logs, sourceLabel) {
+    const el = document.getElementById('recover-result');
+    const have = new Set(activityHistory.map(h => String(h.id)));
+    const sig = h => `${h.timestamp}|${h.title}|${h.amount}`;
+    const haveSig = new Set(activityHistory.map(sig));
+    recoverRows = logs.map(l => ({ ...l, isNew: !have.has(l.id) && !haveSig.has(sig(l)) }));
+    if (!recoverRows.length) {
+        el.innerHTML = `<div class="empty-state" style="margin-top:12px;">No dhikr, swalath, hizb or Juz entries found in ${escapeHTML(sourceLabel)}.<br>If your Sheet has them, download it as CSV and use Import.</div>`;
+        return;
+    }
+    const groups = {};
+    let swalath = 0, hizb = 0, juz = new Set(), newCount = 0;
+    recoverRows.forEach(r => {
+        if (r.isNew) newCount++;
+        if (r.kind === 'dhikr') { const k = r.name.toLowerCase(); const g = groups[k] || (groups[k] = { name: r.name, total: 0, n: 0, first: r.timestamp, last: r.timestamp }); g.total += r.amount; g.n++; g.first = Math.min(g.first, r.timestamp); g.last = Math.max(g.last, r.timestamp); }
+        if (r.kind === 'swalath') swalath += r.amount;
+        if (r.kind === 'hizb') hizb += r.amount;
+        if (r.kind === 'juz') juz.add(r.juz);
+    });
+    const fmtD = t => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' });
+    const existing = name => (deenData.dhikr || []).find(d => (d.name || '').toLowerCase() === name.toLowerCase());
+    const gl = Object.values(groups).sort((a, b) => b.last - a.last);
+    el.innerHTML = `
+        <div class="plan-status" style="margin-top:12px;">Found ${recoverRows.length} entries in ${escapeHTML(sourceLabel)} — ${newCount} not on this device yet.</div>
+        <div class="grid-3" style="margin:10px 0;">
+            <div class="stat-box"><div class="l">Swalath logs</div><div class="v" style="font-size:17px;">${swalath.toLocaleString()}</div></div>
+            <div class="stat-box"><div class="l">Hizb logs</div><div class="v" style="font-size:17px;">${fmtNum1(hizb)}</div></div>
+            <div class="stat-box"><div class="l">Juz done</div><div class="v" style="font-size:17px;">${juz.size}</div></div>
+        </div>
+        ${gl.length ? `<div class="field-label" style="margin-top:6px;">Committed dhikr found (${gl.length}) — fill in the target and intention; these weren't stored in the Sheet</div>` : ''}
+        ${gl.map((g, i) => { const ex = existing(g.name); return `
+        <div class="card" style="box-shadow:none; background:var(--surface-2); border:0; padding:12px; margin-bottom:8px;">
+            <label class="check-row" style="margin:0 0 6px;"><input type="checkbox" class="rec-pick" data-i="${i}" checked><span><b>${escapeHTML(g.name)}</b> — ${g.total.toLocaleString()} recited in ${g.n} log${g.n === 1 ? '' : 's'} (${fmtD(g.first)} – ${fmtD(g.last)})${ex ? ` · <span style="color:var(--amber)">already in your list (${(ex.current || 0).toLocaleString()} / ${(ex.target || 0).toLocaleString()})</span>` : ''}</span></label>
+            <div class="field-row" style="margin:0;">
+                <input type="text" id="rec-int-${i}" placeholder="Intention / for whom" value="${escapeHTML(ex ? (ex.intention || '') : guessIntention(g.name))}" style="flex:2;">
+                <input type="number" id="rec-tgt-${i}" placeholder="Target" min="1" value="${ex ? ex.target : ''}" inputmode="numeric">
+            </div>
+            <input type="hidden" id="rec-name-${i}" value="${escapeHTML(g.name)}"><input type="hidden" id="rec-total-${i}" value="${g.total}">
+        </div>`; }).join('')}
+        <button onclick="applyRecovery()" style="margin-top:8px;">Restore ${newCount ? newCount + ' entries' : ''}${gl.length ? (newCount ? ' and ' : '') + 'dhikr commitments' : ''}</button>
+        <div class="field-hint" style="margin-top:8px;">Totals only go up, entries already on this device are skipped, and nothing is sent back to the Sheet, so it's safe to run again.</div>`;
+}
+
+async function recoverFromSheet() {
+    const el = document.getElementById('recover-result');
+    el.innerHTML = '<div class="muted" style="padding:14px 0;">Fetching from your Google Sheet…</div>';
+    try {
+        const res = await fetch(`${GOOGLE_SHEETS_URL}?action=pull_email_logs&since=0`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderRecoverPreview(normalizeRecoveredLogs(data), 'your Google Sheet');
+    } catch (e) {
+        el.innerHTML = `<div class="empty-state" style="margin-top:12px;">Couldn't read the Sheet (${escapeHTML(e.message || String(e))}).<br>Open the Sheet → File → Download → CSV, then tap Import.</div>`;
+    }
+}
+
+function recoverFromFile(event) {
+    const file = event.target.files && event.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        try {
+            const text = String(e.target.result || '');
+            const data = /^\s*[\[{]/.test(text) ? JSON.parse(text) : parseCSV(text);
+            renderRecoverPreview(normalizeRecoveredLogs(data), file.name);
+        } catch (err) {
+            document.getElementById('recover-result').innerHTML = `<div class="empty-state" style="margin-top:12px;">${escapeHTML(err.message || String(err))}</div>`;
+        }
+        event.target.value = '';
+    };
+    reader.readAsText(file);
+}
+
+function applyRecovery() {
+    if (!recoverRows.length) return;
+    if (!deenData.dhikr) deenData.dhikr = [];
+    if (!deenData.quran) deenData.quran = [];
+    // 1) Dhikr commitments
+    const indexByName = {};
+    document.querySelectorAll('.rec-pick').forEach(cb => {
+        const i = cb.dataset.i;
+        const name = document.getElementById('rec-name-' + i).value;
+        const total = Number(document.getElementById('rec-total-' + i).value) || 0;
+        let idx = deenData.dhikr.findIndex(d => (d.name || '').toLowerCase() === name.toLowerCase());
+        if (idx >= 0) indexByName[name.toLowerCase()] = idx;
+        if (!cb.checked) return;
+        const tgtIn = parseInt(document.getElementById('rec-tgt-' + i).value, 10);
+        const intention = document.getElementById('rec-int-' + i).value.trim();
+        if (idx >= 0) {
+            const d = deenData.dhikr[idx];
+            d.target = tgtIn > 0 ? tgtIn : Math.max(d.target || 0, total);
+            d.current = Math.min(d.target, Math.max(d.current || 0, total));
+            if (intention) d.intention = intention;
+            d.completed = d.current >= d.target;
+        } else {
+            const target = tgtIn > 0 ? tgtIn : total;
+            deenData.dhikr.push({ name, target, current: Math.min(total, target), intention, deadline: '', completed: total >= target });
+            idx = deenData.dhikr.length - 1;
+        }
+        indexByName[name.toLowerCase()] = idx;
+    });
+    // 2) History entries (skipped if already present; never re-sent to the Sheet)
+    let added = 0;
+    recoverRows.filter(r => r.isNew).forEach(r => {
+        const e = { id: r.id, timestamp: r.timestamp, category: 'deen', title: r.title, amount: r.amount, recovered: true };
+        if (r.kind === 'dhikr') { e.actionType = 'complete'; const ix = indexByName[r.name.toLowerCase()]; e.taskId = ix != null ? 'dhikr-' + ix : 'dhikr-recovered'; }
+        else if (r.kind === 'swalath') { e.actionType = 'deen_swalath'; e.taskId = 'swalath-direct'; }
+        else if (r.kind === 'hizb') { e.actionType = 'deen_hizb'; e.taskId = 'hizb-direct'; }
+        else if (r.kind === 'juz') { e.actionType = 'complete'; e.taskId = 'juz-recovered'; }
+        else if (r.kind === 'qada') { e.actionType = 'deen_qada'; e.taskId = 'qada'; }
+        activityHistory.push(e); added++;
+        r.isNew = false;
+    });
+    // 3) Juz completions
+    recoverRows.filter(r => r.kind === 'juz').forEach(r => {
+        if (!deenData.quran.some(q => q.juz === r.juz && q.completed)) deenData.quran.push({ juz: r.juz, intention: '', completed: true });
+    });
+    // 4) Totals: recompute from the full history; only ever raise them
+    const swRe = /swalath|salawat|salawaat|darood|durood/i;
+    let sw = 0, hz = 0;
+    activityHistory.forEach(h => {
+        if (!h) return; const a = Number(h.amount) || 0;
+        if (h.actionType === 'deen_swalath') sw += a;
+        else if (h.actionType === 'deen_hizb') hz += a;
+        else if (h.actionType === 'complete') { if (swRe.test(h.title || '')) sw += a; if (/hizb/i.test(h.title || '')) hz += a; }
+    });
+    if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+    if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    deenData.swalathStats.total = Math.max(deenData.swalathStats.total || 0, sw);
+    deenData.quranStats.totalHizb = Math.max(deenData.quranStats.totalHizb || 0, hz);
+    deenData.quranStats.totalJuz = Math.floor(deenData.quranStats.totalHizb / 2);
+    deenData.quranStats.totalKhatm = Math.floor(deenData.quranStats.totalHizb / 60);
+    saveData(); render();
+    closeModal('recover-modal');
+    showToast(`Restored ${added} entries`, '✅');
+}
+
+Object.assign(window, { openDhikrEdit, saveDhikrEdit, openRecover, recoverFromSheet, recoverFromFile, applyRecovery, normalizeRecoveredLogs, parseCSV });

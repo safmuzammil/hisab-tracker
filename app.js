@@ -3499,6 +3499,7 @@ function fillPeopleDatalist() {
     dl.innerHTML = budgetData.people.map(p => `<option value="${escapeHTML(p.name)}"></option>`).join('');
 }
 function openDebtModal(name, type) {
+    pickedContact = null;
     fillPeopleDatalist();
     setDebtType(type || document.getElementById('debt-type').value || 'lent');
     ['debt-amount', 'debt-note', 'debt-due', 'debt-date'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
@@ -3707,15 +3708,27 @@ function renderPeople() {
 
 // ---------- Contacts ----------
 function contactPickerSupported() { return 'contacts' in navigator && 'ContactsManager' in window && typeof navigator.contacts.select === 'function'; }
+let pickedContact = null; // last contact chosen for the open debt form; re-applied if a sync re-render touches the form
+function firstStr(v) { if (Array.isArray(v)) { for (const x of v) { const t = String(x ?? '').trim(); if (t) return t; } return ''; } return String(v ?? '').trim(); }
 async function pickContact() {
     if (contactPickerSupported()) {
+        let res = null;
         try {
-            let props = ['name', 'tel'];
-            try { const avail = await navigator.contacts.getProperties(); props = props.filter(p => avail.includes(p)); } catch (e) { }
-            const res = await navigator.contacts.select(props, { multiple: false });
-            if (res && res.length) { chooseContact((res[0].name || [])[0] || '', (res[0].tel || [])[0] || ''); return; }
-            return; // user cancelled
-        } catch (ex) { console.warn('Contact picker failed, falling back:', ex); }
+            // Call select() straight from the tap: awaiting anything first can use up the tap's permission on some phones.
+            res = await navigator.contacts.select(['name', 'tel'], { multiple: false });
+        } catch (ex) {
+            console.warn('Contact picker (name+tel) failed:', ex);
+            if (ex && ex.name === 'TypeError') { try { res = await navigator.contacts.select(['name'], { multiple: false }); } catch (e2) { console.warn(e2); res = null; } }
+        }
+        if (Array.isArray(res)) {
+            if (!res.length) return; // cancelled
+            const c = res[0] || {};
+            const name = firstStr(c.name), phone = firstStr(c.tel);
+            if (name || phone) { chooseContact(name || phone, phone); return; }
+            showToast("Your phone didn't share that contact's details. Pick from the list or type it.", '⚠️');
+        } else if (res === null) {
+            showToast("Couldn't open your phone's contacts. Showing the list instead.", '📇');
+        }
     }
     openContactChooser();
 }
@@ -3747,12 +3760,25 @@ function renderContactChooser() {
     box.innerHTML = html || `<div class="muted" style="padding:14px 4px; font-size:13px;">No contacts yet. Type a name above, or import your contacts file below.</div>`;
 }
 function chooseContact(name, phone) {
-    document.getElementById('debt-desc').value = String(name || '').trim();
-    if (phone) document.getElementById('debt-phone').value = String(phone).trim();
-    else debtNameTyped();
+    name = String(name || '').trim(); phone = String(phone || '').trim();
+    const nameEl = document.getElementById('debt-desc'), phEl = document.getElementById('debt-phone');
+    nameEl.value = name;
+    if (phone) phEl.value = phone;
+    else { phEl.value = ''; debtNameTyped(); }
+    pickedContact = { name: nameEl.value, phone: phEl.value, at: Date.now() };
     closeModal('contact-modal');
+    if (name) showToast(phone ? `${name} · ${phone}` : name, '👤');
     setTimeout(() => document.getElementById('debt-amount')?.focus(), 60);
 }
+// Returning from the phone's contact screen triggers a cloud sync; make sure the picked contact stays in the form.
+function reapplyPickedContact() {
+    if (!pickedContact || Date.now() - pickedContact.at > 15000) return;
+    const m = document.getElementById('debt-modal'); if (!m || m.style.display !== 'flex') return;
+    const nameEl = document.getElementById('debt-desc'), phEl = document.getElementById('debt-phone');
+    if (!nameEl.value.trim() && pickedContact.name) nameEl.value = pickedContact.name;
+    if (!phEl.value.trim() && pickedContact.phone) phEl.value = pickedContact.phone;
+}
+['focus', 'visibilitychange'].forEach(ev => window.addEventListener(ev, () => { reapplyPickedContact(); setTimeout(reapplyPickedContact, 800); setTimeout(reapplyPickedContact, 2500); }));
 
 // Minimal vCard reader: handles folded lines, FN/N, TEL, and QUOTED-PRINTABLE UTF-8 names (Android exports).
 function decodeQP(s) {

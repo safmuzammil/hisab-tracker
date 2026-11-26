@@ -3721,7 +3721,7 @@ async function pickContact() {
             if (ex && ex.name === 'TypeError') { try { res = await navigator.contacts.select(['name'], { multiple: false }); } catch (e2) { console.warn(e2); res = null; } }
         }
         if (Array.isArray(res)) {
-            if (!res.length) return; // cancelled
+            if (!res.length) { showToast("No contact came back. Tap the person, then tap Done at the top right.", '👆'); return; }
             const c = res[0] || {};
             const name = firstStr(c.name), phone = firstStr(c.tel);
             if (name || phone) { chooseContact(name || phone, phone); return; }

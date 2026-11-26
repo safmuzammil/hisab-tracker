@@ -119,6 +119,9 @@
         <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-4M12 16V8M17 16v-7"/></symbol>
         <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4.1 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3.3.4 1.4 1.3 2.6 2.5 2.8z"/></symbol>
         <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l3-2 3 2 2-2 2 2 3-2 3 2V2l-3 2-3-2-2 2-2-2-3 2z"/><path d="M8 9h8M8 13h6"/></symbol>
+        <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></symbol>
+        <symbol id="i-message" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></symbol>
+        <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
         <symbol id="i-handshake" viewBox="0 0 24 24"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.9-3.9a3 3 0 0 0-4.2 0l-.9.9a1 1 0 1 1-3-3l2.8-2.8a5.8 5.8 0 0 1 7.1-.9l.5.3a2 2 0 0 0 1.4.2L21 4"/><path d="m21 3 1 11h-2M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3M3 4h8"/></symbol>
         <symbol id="i-youtube" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="m10 9 5 3-5 3z"/></symbol>
         <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15v4M17 17h4"/></symbol>
@@ -467,29 +470,34 @@
         <div id="deen-extras-bottom"></div>
 
         <div class="card">
-            <div class="card-head"><h3>Zakat calculator</h3></div>
-            <div class="grid-3">
-                <div><label class="field-label">Cash</label><input type="number" id="zakat-cash" oninput="calculateZakat()" value="0" inputmode="decimal"></div>
-                <div><label class="field-label">Gold</label><input type="number" id="zakat-gold" oninput="calculateZakat()" value="0" inputmode="decimal"></div>
-                <div><label class="field-label">Investments</label><input type="number" id="zakat-invest" oninput="calculateZakat()" value="0" inputmode="decimal"></div>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 16px; background:var(--brand-soft); border-radius:var(--r-md); margin-top:4px;">
-                <span style="color:var(--brand-ink); font-weight:650;">Estimated due (2.5%)</span>
-                <span class="big-figure" style="font-size:24px; color:var(--brand-ink)">₹<span id="zakat-due">0.00</span></span>
-            </div>
-            <div id="zakat-extra" style="margin-top:14px;"></div>
+            <div class="card-head"><h3>Zakat</h3><button class="btn-sm btn-soft" onclick="openZakatInBudget()">Open calculator</button></div>
+            <div id="deen-zakat-summary"></div>
         </div>
     </section>
 
     <!-- ===================== BUDGET ===================== -->
     <section id="tab-budget" class="tab-content">
         <div class="page-head">
-            <div><h2>Budget</h2><div class="sub">Monthly spending, debts and loans</div></div>
+            <div><h2>Budget</h2><div class="sub">Spending, people you lend to or borrow from, and zakat</div></div>
             <div class="actions">
-                <button class="btn-sm" onclick="openModal('expense-modal')"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Expense</button>
-                <button class="btn-sm btn-secondary" onclick="openModal('debt-modal')"><svg class="icon icon-sm"><use href="#i-handshake"/></svg>Debt</button>
+                <button class="btn-sm" onclick="openExpenseModal()"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Expense</button>
+                <button class="btn-sm btn-soft" onclick="openIncomeModal()"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Income</button>
+                <button class="btn-sm btn-secondary" onclick="openDebtModal()"><svg class="icon icon-sm"><use href="#i-handshake"/></svg>Lend / borrow</button>
             </div>
         </div>
+
+        <div class="horizontal-pill-slider" id="budget-view-pills">
+            <button class="filter-pill active" data-bview="overview" onclick="setBudgetView('overview')">Overview</button>
+            <button class="filter-pill" data-bview="expenses" onclick="setBudgetView('expenses')">Transactions</button>
+            <button class="filter-pill" data-bview="people" onclick="setBudgetView('people')">People <span class="c" id="bview-people-count">0</span></button>
+            <button class="filter-pill" data-bview="zakat" onclick="setBudgetView('zakat')">Zakat</button>
+        </div>
+
+        <!-- ---------- Overview ---------- -->
+        <div class="budget-view active" data-bview="overview">
+        <div class="snap-grid" id="budget-snapshot"></div>
+        <button class="report-cta" onclick="openMonthlyReport(0)"><svg class="icon"><use href="#i-chart"/></svg><span><b>Monthly report</b><span class="muted" id="report-cta-sub">Income, spending, savings, Deen and tasks</span></span><svg class="icon icon-sm"><use href="#i-chevron-right"/></svg></button>
+        <div id="budget-upcoming"></div>
 
         <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px;">
@@ -506,6 +514,7 @@
             <div style="display:flex; justify-content:space-between; font-size:12.5px;" class="muted">
                 <span>₹0</span><span id="budget-remaining-text">₹0 remaining</span>
             </div>
+            <div class="month-money" id="month-money-line"></div>
             <div class="inline-form" style="margin-top:14px;">
                 <input type="number" id="budget-set-limit" placeholder="Monthly limit (₹)" inputmode="decimal">
                 <button class="btn-secondary" onclick="setBudgetLimit()">Set limit</button>
@@ -521,25 +530,53 @@
             </div>
             <div class="card" id="category-breakdown-list"></div>
         </div>
+        </div>
+
+        <!-- ---------- Expenses ---------- -->
+        <div class="budget-view" data-bview="expenses">
+        <div class="month-nav">
+            <button class="btn-icon" onclick="shiftExpenseMonth(-1)" aria-label="Previous month"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+            <div class="mn-mid"><div class="mn-title" id="expense-month-label">This month</div><div class="muted" style="font-size:12.5px;" id="expense-month-total"></div></div>
+            <button class="btn-icon" onclick="shiftExpenseMonth(1)" aria-label="Next month"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+        </div>
+        <div class="tx-sum" id="tx-sum"></div>
+        <div class="horizontal-pill-slider" id="tx-filter-pills" style="margin-bottom:10px;">
+            <button class="filter-pill active" data-tf="all" onclick="setTxFilter('all')">All</button>
+            <button class="filter-pill" data-tf="in" onclick="setTxFilter('in')">Income</button>
+            <button class="filter-pill" data-tf="out" onclick="setTxFilter('out')">Spending</button>
+        </div>
+        <input type="search" id="expense-search" placeholder="Search" oninput="renderTransactions()" style="margin-bottom:12px;">
+        <div id="expense-list-container" style="margin-bottom:8px;"></div>
+
+        <div class="section-title"><h3>Monthly income</h3><button class="btn-sm btn-soft" onclick="openIncomeModal({ recurring: true })"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Add</button></div>
+        <div class="card" style="padding:6px 16px;"><div id="recurring-income-list"></div></div>
 
         <div class="section-title"><h3>Recurring bills</h3><button class="btn-sm btn-soft" onclick="openBillModal()"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Bill</button></div>
         <div class="card" id="bills-card" style="padding:6px 16px;"><div id="bills-list"></div></div>
+        </div>
 
-        <div class="section-title"><h3>This month's expenses</h3></div>
-        <div id="expense-list-container" style="margin-bottom:8px;"></div>
+        <!-- ---------- People (lent / borrowed) ---------- -->
+        <div class="budget-view" data-bview="people">
+        <div class="pp-totals">
+            <div class="pp-tot pos"><div class="l">Owed to you</div><div class="v">₹<span id="total-lent">0</span></div></div>
+            <div class="pp-tot neg"><div class="l">You owe</div><div class="v">₹<span id="total-borrowed">0</span></div></div>
+        </div>
+        <div class="people-toolbar">
+            <input type="search" id="people-search" placeholder="Search people" oninput="renderPeople()">
+            <button class="btn-secondary" onclick="openDebtModal()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Add</button>
+        </div>
+        <div class="horizontal-pill-slider" id="people-filter-pills" style="margin-bottom:10px;">
+            <button class="filter-pill active" data-pf="open" onclick="setPeopleFilter('open')">Open</button>
+            <button class="filter-pill" data-pf="owes" onclick="setPeopleFilter('owes')">Owe me</button>
+            <button class="filter-pill" data-pf="iowe" onclick="setPeopleFilter('iowe')">I owe</button>
+            <button class="filter-pill" data-pf="all" onclick="setPeopleFilter('all')">Everyone</button>
+        </div>
+        <div id="people-list"></div>
+        </div>
 
-        <div class="section-title"><h3>Debts & loans</h3></div>
-        <div class="dashboard-grid">
-            <div class="card" style="border-top:3px solid var(--rose);">
-                <div class="muted" style="font-size:13px; font-weight:650;">You owe (borrowed)</div>
-                <div class="big-figure" style="color:var(--rose); margin:4px 0 12px;">₹<span id="total-borrowed">0</span></div>
-                <div id="borrowed-list-container" style="display:flex; flex-direction:column; gap:8px;"></div>
-            </div>
-            <div class="card" style="border-top:3px solid var(--green);">
-                <div class="muted" style="font-size:13px; font-weight:650;">Owed to you (lent)</div>
-                <div class="big-figure" style="color:var(--green); margin:4px 0 12px;">₹<span id="total-lent">0</span></div>
-                <div id="lent-list-container" style="display:flex; flex-direction:column; gap:8px;"></div>
-            </div>
+        <!-- ---------- Zakat (Shafi'i hawl on the Hijri calendar) ---------- -->
+        <div class="budget-view" data-bview="zakat">
+        <div id="zakat-main"></div>
         </div>
     </section>
 
@@ -791,8 +828,9 @@
         <input type="text" id="expense-desc" placeholder="e.g. Groceries">
         <div class="field-row">
             <div><label class="field-label" for="expense-amount">Amount (₹)</label><input type="number" id="expense-amount" placeholder="0" inputmode="decimal"></div>
-            <div><label class="field-label" for="expense-date">Date</label><input type="date" id="expense-date"></div>
+            <div><label class="field-label" for="expense-date">Date</label><input type="date" id="expense-date" oninput="hijriHint('expense-date','expense-hijri')"><div class="hijri-hint" id="expense-hijri"></div></div>
         </div>
+        <div class="acct-pick" id="expense-acct-wrap"><label class="field-label" for="expense-account">Paid from</label><select id="expense-account"></select></div>
         <label class="field-label" for="expense-category">Category</label>
         <select id="expense-category">
             <option value="food">Food & dining</option>
@@ -808,29 +846,55 @@
     </div>
 </div>
 
+<div id="income-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('income-modal')">
+    <div class="modal-content">
+        <div class="modal-head">
+            <h2 id="income-modal-title">Add income</h2>
+            <button class="btn-icon" onclick="closeModal('income-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="income-rec-id">
+        <div class="field-row">
+            <div><label class="field-label" for="income-amount">Amount (₹)</label><input type="number" id="income-amount" placeholder="0" inputmode="decimal"></div>
+            <div><label class="field-label" for="income-source">Source</label><select id="income-source"></select></div>
+        </div>
+        <label class="field-label" for="income-desc">Description (optional)</label>
+        <input type="text" id="income-desc" placeholder="November salary, shop profit…">
+        <div id="income-date-picker"></div>
+        <div class="acct-pick" id="income-acct-wrap"><label class="field-label" for="income-account">Received into</label><select id="income-account"></select></div>
+        <label class="check-row" id="income-repeat-row"><input type="checkbox" id="income-repeat"><span>This comes every month — remind me to log it</span></label>
+        <button onclick="saveIncome()" style="margin-top:6px;">Save income</button>
+    </div>
+</div>
+
 <!-- Debt -->
 <div id="debt-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('debt-modal')">
     <div class="modal-content">
         <div class="modal-head">
-            <h2>Borrowed / lent</h2>
+            <h2>Lend or borrow</h2>
             <button class="btn-icon" onclick="closeModal('debt-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
         </div>
-        <label class="field-label" for="debt-desc">Person / reason</label>
+        <div class="seg-toggle" id="debt-type-seg">
+            <button type="button" data-v="lent" onclick="setDebtType('lent')">I lent (they owe me)</button>
+            <button type="button" data-v="borrowed" onclick="setDebtType('borrowed')">I borrowed (I owe them)</button>
+        </div>
+        <input type="hidden" id="debt-type" value="lent">
+        <label class="field-label" for="debt-desc">Person</label>
         <div class="field-row" style="align-items:flex-start;">
-            <input type="text" id="debt-desc" placeholder="Name" style="flex:1;">
-            <button class="btn-secondary" onclick="pickContact()" style="flex:0 0 auto; width:auto; min-height:44px;">Contacts</button>
+            <input type="text" id="debt-desc" placeholder="Name" list="people-datalist" autocomplete="off" style="flex:1;" oninput="debtNameTyped()">
+            <button class="btn-secondary" onclick="pickContact()" style="flex:0 0 auto; width:auto; min-height:44px; margin:0;"><svg class="icon icon-sm"><use href="#i-users"/></svg>Contacts</button>
         </div>
+        <datalist id="people-datalist"></datalist>
         <div class="field-row">
+            <div><label class="field-label" for="debt-phone">Phone (optional)</label><input type="tel" id="debt-phone" placeholder="+91 98xxxxxxx" inputmode="tel"></div>
             <div><label class="field-label" for="debt-amount">Amount (₹)</label><input type="number" id="debt-amount" placeholder="0" inputmode="decimal"></div>
-            <div><label class="field-label" for="debt-date">Date</label><input type="date" id="debt-date"></div>
         </div>
-        <label class="field-label" for="debt-due">Due date (optional — you'll get a reminder)</label>
-        <input type="date" id="debt-due">
-        <label class="field-label" for="debt-type">Type</label>
-        <select id="debt-type">
-            <option value="borrowed">I borrowed (I owe them)</option>
-            <option value="lent">I lent (they owe me)</option>
-        </select>
+        <label class="field-label" for="debt-note">What for (optional)</label>
+        <input type="text" id="debt-note" placeholder="Hospital bill, car repair…">
+        <div class="field-row">
+            <div><label class="field-label" for="debt-date">Date</label><input type="date" id="debt-date" oninput="hijriHint('debt-date','debt-hijri')"><div class="hijri-hint" id="debt-hijri"></div></div>
+            <div><label class="field-label" for="debt-due">Due date (reminder)</label><input type="date" id="debt-due"></div>
+        </div>
+        <div class="acct-pick" id="debt-acct-wrap"><label class="field-label" for="debt-account">Account</label><select id="debt-account"></select></div>
         <button onclick="addDebt()" style="margin-top:6px;">Save</button>
     </div>
 </div>
@@ -848,6 +912,146 @@
             <button class="btn-secondary" onclick="saveDebtDue(true)">Clear</button>
             <button onclick="saveDebtDue(false)">Save</button>
         </div>
+    </div>
+</div>
+
+<div id="acct-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('acct-modal')">
+    <div class="modal-content" style="max-width:440px;">
+        <div class="modal-head">
+            <h2 id="acct-modal-title">Add account</h2>
+            <button class="btn-icon" onclick="closeModal('acct-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="acct-id">
+        <div class="field-row">
+            <div style="flex:2;"><label class="field-label" for="acct-name">Name</label><input type="text" id="acct-name" placeholder="SBI savings, Cash in hand"></div>
+            <div><label class="field-label" for="acct-type">Type</label><select id="acct-type"><option value="bank">Bank</option><option value="cash">Cash</option></select></div>
+        </div>
+        <div id="acct-open-wrap">
+            <label class="field-label" for="acct-amount">Balance now (₹)</label>
+            <input type="number" id="acct-amount" inputmode="decimal">
+            <div id="acct-held"></div>
+            <div class="field-hint">Its Hijri year counts from this date. If part of the balance came later, add that part separately afterwards with its own date.</div>
+        </div>
+        <div id="acct-opens"></div>
+        <label class="check-row"><input type="checkbox" id="acct-default"><span>Use this account by default for income and expenses</span></label>
+        <div class="modal-actions">
+            <button class="btn-secondary" id="acct-delete" onclick="deleteAccount()" style="display:none;">Delete</button>
+            <button onclick="saveAccount()">Save</button>
+        </div>
+    </div>
+</div>
+
+<div id="corr-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('corr-modal')">
+    <div class="modal-content" style="max-width:420px;">
+        <div class="modal-head">
+            <h2 id="corr-title">Update balance</h2>
+            <button class="btn-icon" onclick="closeModal('corr-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="corr-acct"><input type="hidden" id="corr-mode">
+        <div class="muted" id="corr-sub" style="font-size:13px; margin-bottom:10px;"></div>
+        <label class="field-label" for="corr-amount" id="corr-label">Actual balance (₹)</label>
+        <input type="number" id="corr-amount" inputmode="decimal" oninput="corrTyped()">
+        <div id="corr-held"></div>
+        <div class="modal-actions"><button onclick="saveCorrection()">Save</button></div>
+    </div>
+</div>
+
+<div id="contact-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('contact-modal')">
+    <div class="modal-content" style="max-width:440px;">
+        <div class="modal-head">
+            <h2>Choose a person</h2>
+            <button class="btn-icon" onclick="closeModal('contact-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="search" id="contact-search" placeholder="Search by name or number" oninput="renderContactChooser()" autocomplete="off">
+        <div id="contact-results" class="contact-results"></div>
+        <div class="contact-import">
+            <button class="btn-secondary" onclick="document.getElementById('vcf-file').click()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-upload"/></svg>Import contacts file (.vcf)</button>
+            <input type="file" id="vcf-file" accept=".vcf,text/vcard,text/x-vcard" style="display:none;" onchange="importVcf(event)">
+            <div class="field-hint" id="contact-import-hint"></div>
+            <details class="howto"><summary>How do I get a contacts file?</summary>
+                <div><b>Android:</b> Contacts app → menu → Manage contacts → Export → save the .vcf file.<br>
+                <b>iPhone:</b> Contacts app → Lists → long-press "All Contacts" → Export, then save to Files.<br>
+                <b>Google Contacts:</b> contacts.google.com → Export → vCard.<br>
+                The file stays on this device. Only the people you pick are saved to Hisab.</div>
+            </details>
+        </div>
+    </div>
+</div>
+
+<div id="person-pay-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('person-pay-modal')">
+    <div class="modal-content" style="max-width:400px;">
+        <div class="modal-head">
+            <h2 id="person-pay-title">Record a payment</h2>
+            <button class="btn-icon" onclick="closeModal('person-pay-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="person-pay-key"><input type="hidden" id="person-pay-dir">
+        <div class="muted" id="person-pay-sub" style="font-size:13px; margin-bottom:10px;"></div>
+        <div class="field-row">
+            <div><label class="field-label" for="person-pay-amount">Amount (₹)</label><input type="number" id="person-pay-amount" inputmode="decimal"></div>
+            <div><label class="field-label" for="person-pay-date">Date</label><input type="date" id="person-pay-date"></div>
+        </div>
+        <div class="field-hint">Applied to the oldest open entries first.</div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="fillPersonPayFull()">Full amount</button>
+            <button onclick="savePersonPay()">Save</button>
+        </div>
+    </div>
+</div>
+
+<div id="person-edit-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('person-edit-modal')">
+    <div class="modal-content" style="max-width:400px;">
+        <div class="modal-head">
+            <h2>Edit person</h2>
+            <button class="btn-icon" onclick="closeModal('person-edit-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="person-edit-key">
+        <label class="field-label" for="person-edit-name">Name</label>
+        <input type="text" id="person-edit-name">
+        <label class="field-label" for="person-edit-phone">Phone</label>
+        <input type="tel" id="person-edit-phone" inputmode="tel">
+        <div class="field-hint">Renaming updates every entry for this person.</div>
+        <div class="modal-actions"><button onclick="savePersonEdit()">Save</button></div>
+    </div>
+</div>
+
+<div id="asset-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('asset-modal')">
+    <div class="modal-content" style="max-width:440px;">
+        <div class="modal-head">
+            <h2 id="asset-modal-title">Add asset</h2>
+            <button class="btn-icon" onclick="closeModal('asset-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="asset-id">
+        <label class="field-label" for="asset-cat">Type</label>
+        <select id="asset-cat" onchange="assetCatChanged()"></select>
+        <label class="field-label" for="asset-name">Name</label>
+        <input type="text" id="asset-name" placeholder="">
+        <div id="asset-fields"></div>
+        <div id="asset-held"></div>
+        <div class="field-hint" id="asset-hint"></div>
+        <div class="modal-actions">
+            <button class="btn-secondary" id="asset-delete-btn" onclick="deleteAsset()" style="display:none;">Delete</button>
+            <button onclick="saveAsset()">Save</button>
+        </div>
+    </div>
+</div>
+
+<div id="zakat-pay-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('zakat-pay-modal')">
+    <div class="modal-content" style="max-width:400px;">
+        <div class="modal-head">
+            <h2>Record zakat paid</h2>
+            <button class="btn-icon" onclick="closeModal('zakat-pay-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <label class="field-label" for="zpay-for">This payment is</label>
+        <select id="zpay-for" onchange="zpayForChanged()"></select>
+        <div class="field-hint" id="zpay-adv-hint">Paying before the year completes is allowed in the Shafi'i school once your wealth has reached nisab. It's taken off the next zakat that falls due.</div>
+        <div class="field-row">
+            <div><label class="field-label" for="zpay-amount">Amount (₹)</label><input type="number" id="zpay-amount" inputmode="decimal"></div>
+            <div><label class="field-label" for="zpay-date">Date paid</label><input type="date" id="zpay-date" oninput="hijriHint('zpay-date','zpay-hijri')"><div class="hijri-hint" id="zpay-hijri"></div></div>
+        </div>
+        <label class="field-label" for="zpay-to">Given to (optional)</label>
+        <input type="text" id="zpay-to" placeholder="Masjid, relative, orphanage…">
+        <div class="acct-pick" id="zpay-acct-wrap"><label class="field-label" for="zpay-account">Paid from</label><select id="zpay-account"></select></div>
+        <div class="modal-actions"><button onclick="saveZakatPay()">Save</button></div>
     </div>
 </div>
 
@@ -989,6 +1193,20 @@
 </div>
 
 <!-- Weekly report -->
+<div id="monthly-report-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('monthly-report-modal')">
+    <div class="modal-content" style="max-width:560px;">
+        <div class="modal-head">
+            <div><h2 id="mr-title">Monthly report</h2><div class="sub" id="mr-sub"></div></div>
+            <div style="display:flex; gap:2px;">
+                <button class="btn-icon" onclick="reportShift(-1)" aria-label="Previous month"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+                <button class="btn-icon" id="mr-next" onclick="reportShift(1)" aria-label="Next month"><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+                <button class="btn-icon" onclick="closeModal('monthly-report-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+            </div>
+        </div>
+        <div id="mr-body"></div>
+    </div>
+</div>
+
 <div id="weekly-report-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('weekly-report-modal')">
     <div class="modal-content" style="max-width:540px;">
         <div class="modal-head">
@@ -1149,7 +1367,9 @@
     <div style="font-weight:750; font-size:16px; margin:0 2px 14px;">Quick add</div>
     <div class="quick-action-grid">
         <div class="quick-action-tile tile-tasks" onclick="closeQuickActionSheet(); cancelEdit(); openModal('task-modal');"><span class="ic"><svg class="icon"><use href="#i-check-square"/></svg></span>Task</div>
-        <div class="quick-action-tile tile-budget" onclick="closeQuickActionSheet(); openModal('expense-modal');"><span class="ic"><svg class="icon"><use href="#i-receipt"/></svg></span>Expense</div>
+        <div class="quick-action-tile tile-budget" onclick="closeQuickActionSheet(); openExpenseModal();"><span class="ic"><svg class="icon"><use href="#i-receipt"/></svg></span>Expense</div>
+        <div class="quick-action-tile tile-budget" onclick="closeQuickActionSheet(); openIncomeModal();"><span class="ic"><svg class="icon"><use href="#i-wallet"/></svg></span>Income</div>
+        <div class="quick-action-tile tile-budget" onclick="closeQuickActionSheet(); openDebtModal();"><span class="ic"><svg class="icon"><use href="#i-handshake"/></svg></span>Lend / borrow</div>
         <div class="quick-action-tile tile-habits" onclick="closeQuickActionSheet(); cancelEditGoodHabit(); openModal('good-habit-modal');"><span class="ic"><svg class="icon"><use href="#i-shield"/></svg></span>Habit</div>
         <div class="quick-action-tile tile-deen" onclick="closeQuickActionSheet(); switchTab('deen');"><span class="ic"><svg class="icon"><use href="#i-moon-star"/></svg></span>Deen log</div>
         <div class="quick-action-tile tile-backlog" onclick="closeQuickActionSheet(); cancelEditBacklogItem(); openModal('backlog-modal');"><span class="ic"><svg class="icon"><use href="#i-bookmark"/></svg></span>Save link</div>

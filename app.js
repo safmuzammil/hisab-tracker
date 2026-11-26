@@ -700,16 +700,28 @@ function applyCloudPayload(parsed) {
 
     // Deen safe merge
     if (parsed.deen) {
+        // Totals normally merge by taking the larger number, so a count never goes
+        // backwards. A deliberate reset ("start afresh") is stamped with a time;
+        // whichever side reset most recently wins for that counter.
+        const lr = deenData.counterResets || {}, cr = parsed.deen.counterResets || {};
+        const pick = (key, lv, cv) => {
+            const l = Number(lr[key]) || 0, c = Number(cr[key]) || 0;
+            if (c > l) return cv || 0;
+            if (l > c) return lv || 0;
+            return Math.max(lv || 0, cv || 0);
+        };
+        const lq = deenData.quranStats || {}, cq = parsed.deen.quranStats || {};
         deenData = {
             ...deenData,
             ...parsed.deen,
+            counterResets: { hizb: Math.max(Number(lr.hizb) || 0, Number(cr.hizb) || 0), swalath: Math.max(Number(lr.swalath) || 0, Number(cr.swalath) || 0) },
             quranStats: {
-                totalHizb: Math.max(deenData.quranStats?.totalHizb || 0, parsed.deen.quranStats?.totalHizb || 0),
-                totalJuz: Math.max(deenData.quranStats?.totalJuz || 0, parsed.deen.quranStats?.totalJuz || 0),
-                totalKhatm: Math.max(deenData.quranStats?.totalKhatm || 0, parsed.deen.quranStats?.totalKhatm || 0)
+                totalHizb: pick('hizb', lq.totalHizb, cq.totalHizb),
+                totalJuz: pick('hizb', lq.totalJuz, cq.totalJuz),
+                totalKhatm: pick('hizb', lq.totalKhatm, cq.totalKhatm)
             },
             swalathStats: {
-                total: Math.max(deenData.swalathStats?.total || 0, parsed.deen.swalathStats?.total || 0)
+                total: pick('swalath', deenData.swalathStats?.total, parsed.deen.swalathStats?.total)
             }
         };
     }
@@ -1201,6 +1213,7 @@ function resetSwalathCounter() {
     if (!confirm("Start the Swalath counter afresh from 0? This only resets the total shown here — past logs stay in your history.")) return;
     if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
     deenData.swalathStats.total = 0;
+    deenData.counterResets = { ...(deenData.counterResets || {}), swalath: Date.now() };
     saveData(); renderDeen();
     showToast('Swalath counter reset to 0', '🔄');
 }
@@ -1208,6 +1221,7 @@ function resetSwalathCounter() {
 function resetHizbCounter() {
     if (!confirm("Start the Quran progress counter (Hizb / Juz / Khatm) afresh from 0? This only resets the totals shown here — past logs stay in your history.")) return;
     deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+    deenData.counterResets = { ...(deenData.counterResets || {}), hizb: Date.now() };
     saveData(); renderDeen();
     showToast('Quran progress reset to 0', '🔄');
 }
@@ -3344,15 +3358,7 @@ function renderDeen() {
         const toggleBtn = document.createElement('button'); toggleBtn.style = "background:transparent; border:1px solid var(--deen); color:var(--deen); padding:8px; margin-top:10px; width:100%; border-radius:8px;"; toggleBtn.innerText = showAllQada ? "⬆️ Hide Caught Up Prayers" : "⬇️ Reveal All Prayers"; toggleBtn.onclick = function() { showAllQada = !showAllQada; renderDeen(); }; qadaContainer.appendChild(toggleBtn);
     }
 
-    const zCash = document.getElementById('zakat-cash');
-    const zGold = document.getElementById('zakat-gold');
-    const zInvest = document.getElementById('zakat-invest');
-    if (zCash && zGold && zInvest) {
-        zCash.value = deenData.zakatInputs.cash;
-        zGold.value = deenData.zakatInputs.gold;
-        zInvest.value = deenData.zakatInputs.invest;
-        calculateZakat();
-    }
+    renderDeenZakatSummary();
 }
 
 function updateQada(prayer, amount) { deenData.qada[prayer] += amount; if(deenData.qada[prayer] < 0) deenData.qada[prayer] = 0; saveData(); renderDeen(); }
@@ -3377,7 +3383,7 @@ function completeJuz(index) {
 }
 function editJuz(index) { const q = deenData.quran[index]; const newIntention = prompt(`Edit your intention for Juz ${q.juz}:`, q.intention); if (newIntention !== null) { deenData.quran[index].intention = newIntention.trim(); saveData(); renderDeen(); } }
 function deleteJuz(index) { deenData.quran.splice(index, 1); saveData(); renderDeen(); }
-function calculateZakat() { const cash = parseFloat(document.getElementById('zakat-cash').value) || 0; const gold = parseFloat(document.getElementById('zakat-gold').value) || 0; const invest = parseFloat(document.getElementById('zakat-invest').value) || 0; deenData.zakatInputs = { cash, gold, invest }; saveDataLocallyOnly(); const zakatDue = (cash + gold + invest) * 0.025; document.getElementById('zakat-due').innerText = zakatDue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function calculateZakat() { renderZakat(); }
 
 // ==========================================
 // BUDGET & EXPENSES LOGIC
@@ -3398,10 +3404,10 @@ function addExpense() {
     const dateInput = document.getElementById('expense-date').value;
     if (!desc || isNaN(amount) || amount <= 0) return alert("Please enter a valid description and amount.");
     
-    const expenseDate = dateInput ? new Date(dateInput).getTime() : Date.now();
+    const expenseDate = dateInput ? (dateInput === toDateKey(Date.now()) ? Date.now() : keyToMs(dateInput)) : Date.now();
     const category = document.getElementById('expense-category')?.value || 'other';
     const expenseId = Date.now().toString();
-    budgetData.expenses.push({ id: expenseId, desc, amount, category, date: expenseDate });
+    budgetData.expenses.push({ id: expenseId, desc, amount, category, date: expenseDate, accountId: chosenAccount('expense-account'), hijri: hijriOfMs(expenseDate) });
     
     let newLog = { id: (Date.now() + 1).toString(), expenseId, taskId: 'exp-' + expenseId, category: 'budget', timestamp: Date.now(), title: "Expense: " + desc, actionType: 'expense', amount: amount };
     activityHistory.push(newLog); syncToGoogleSheets(newLog);
@@ -3421,71 +3427,1165 @@ function deleteExpense(id) {
     });
 }
 
-async function pickContact() {
-    if (!('contacts' in navigator && 'ContactsManager' in window)) {
-        alert("Contact picker is only supported on mobile browsers. Please type the name manually.");
-        return;
-    }
-    try {
-        const props = ['name'];
-        const contacts = await navigator.contacts.select(props, { multiple: false });
-        if (contacts.length > 0 && contacts[0].name.length > 0) {
-            document.getElementById('debt-desc').value = contacts[0].name[0];
+// ==========================================
+// PEOPLE — lend / borrow ledger, contacts
+// ==========================================
+// A person is { id, name, phone }. Each debt row keeps `desc` (the name, so older
+// code, the reminder server and the Sheet keep working) plus `personId`.
+let expenseMonthOffset = 0;
+let peopleFilter = 'open';
+let contactBook = null;          // parsed .vcf contacts, kept on this device only
+const openPeople = new Set();    // expanded person cards
+
+function normName(s) { return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
+function normPhone(s) { const d = String(s || '').replace(/[^\d+]/g, ''); return d; }
+function phoneDigits(s) { let d = String(s || '').replace(/\D/g, ''); if (d.length === 10) d = '91' + d; return d; }
+function inr(n) { return '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN'); }
+
+function ensurePeople() {
+    if (!Array.isArray(budgetData.people)) budgetData.people = [];
+    // Link every debt to a person (older rows only have a name in `desc`).
+    let changed = false;
+    for (const d of budgetData.debts || []) {
+        let p = d.personId && budgetData.people.find(x => x.id === d.personId);
+        if (!p) {
+            p = budgetData.people.find(x => normName(x.name) === normName(d.desc));
+            if (!p && normName(d.desc)) { p = { id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: String(d.desc).trim(), phone: '' }; budgetData.people.push(p); }
+            if (p && d.personId !== p.id) { d.personId = p.id; changed = true; }
         }
-    } catch (ex) { console.error("Contact selection failed:", ex); }
+    }
+    return changed;
+}
+function findOrCreatePerson(name, phone) {
+    ensurePeople();
+    const nm = String(name || '').trim();
+    let p = budgetData.people.find(x => normName(x.name) === normName(nm));
+    if (!p && phone) p = budgetData.people.find(x => x.phone && phoneDigits(x.phone) === phoneDigits(phone));
+    if (!p) { p = { id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: nm, phone: phone || '' }; budgetData.people.push(p); }
+    else if (phone && !p.phone) p.phone = phone;
+    return p;
+}
+
+function personLedger() {
+    ensurePeople();
+    const map = new Map();
+    for (const p of budgetData.people) map.set(p.id, { p, rows: [], owesMe: 0, iOwe: 0, last: 0 });
+    for (const d of budgetData.debts || []) {
+        const g = map.get(d.personId); if (!g) continue;
+        const pending = Math.max(0, (Number(d.amount) || 0) - (Number(d.repaid) || 0));
+        g.rows.push(d);
+        if (d.type === 'lent') g.owesMe += pending; else g.iOwe += pending;
+        g.last = Math.max(g.last, Number(d.date) || 0);
+    }
+    return [...map.values()].filter(g => g.rows.length);
+}
+function debtTotals() {
+    let lent = 0, borrowed = 0;
+    for (const d of budgetData.debts || []) {
+        const pending = Math.max(0, (Number(d.amount) || 0) - (Number(d.repaid) || 0));
+        if (d.type === 'lent') lent += pending; else borrowed += pending;
+    }
+    return { lent, borrowed };
+}
+
+// ---------- Add entry modal ----------
+function setDebtType(t) {
+    document.getElementById('debt-type').value = t;
+    document.querySelectorAll('#debt-type-seg button').forEach(b => b.classList.toggle('active', b.dataset.v === t));
+}
+function fillPeopleDatalist() {
+    const dl = document.getElementById('people-datalist'); if (!dl) return;
+    ensurePeople();
+    dl.innerHTML = budgetData.people.map(p => `<option value="${escapeHTML(p.name)}"></option>`).join('');
+}
+function openDebtModal(name, type) {
+    fillPeopleDatalist();
+    setDebtType(type || document.getElementById('debt-type').value || 'lent');
+    ['debt-amount', 'debt-note', 'debt-due', 'debt-date'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const p = name ? budgetData.people.find(x => normName(x.name) === normName(name)) : null;
+    document.getElementById('debt-desc').value = p ? p.name : (name || '');
+    document.getElementById('debt-phone').value = p ? (p.phone || '') : '';
+    document.getElementById('debt-date').value = toDateKey(Date.now());
+    hijriHint('debt-date', 'debt-hijri');
+    fillAccountSelect('debt-account', 'debt-acct-wrap');
+    openModal('debt-modal');
+    setTimeout(() => document.getElementById(name ? 'debt-amount' : 'debt-desc')?.focus(), 60);
+}
+function debtNameTyped() {
+    const name = document.getElementById('debt-desc').value;
+    const p = (budgetData.people || []).find(x => normName(x.name) === normName(name));
+    const ph = document.getElementById('debt-phone');
+    if (p && p.phone && !ph.value) ph.value = p.phone;
 }
 
 function addDebt() {
     const desc = document.getElementById('debt-desc').value.trim();
     const amount = parseFloat(document.getElementById('debt-amount').value);
-    const type = document.getElementById('debt-type').value;
+    const type = document.getElementById('debt-type').value === 'borrowed' ? 'borrowed' : 'lent';
     const dateInput = document.getElementById('debt-date').value;
-    if (!desc || isNaN(amount) || amount <= 0) return alert("Please enter a valid description and amount.");
-    
-    const debtDate = dateInput ? new Date(dateInput).getTime() : Date.now();
-    const dueInput = document.getElementById('debt-due');
-    budgetData.debts.push({ id: Date.now().toString(), desc, amount, type, date: debtDate, repaid: 0, due: (dueInput && dueInput.value) || '' });
-    if (dueInput) dueInput.value = '';
-    
-    let newLog = { id: Date.now().toString(), taskId: 'debt-'+Date.now(), category: 'budget', taskType: type, timestamp: Date.now(), title: desc, actionType: 'debt', amount: amount };
+    const phone = document.getElementById('debt-phone').value.trim();
+    const note = document.getElementById('debt-note').value.trim();
+    if (!desc) return alert("Enter the person's name, or tap Contacts to choose one.");
+    if (isNaN(amount) || amount <= 0) return alert("Enter an amount greater than 0.");
+
+    const p = findOrCreatePerson(desc, phone);
+    if (phone) p.phone = phone;
+    const debtDate = dateInput ? new Date(dateInput + 'T12:00:00').getTime() : Date.now();
+    const due = document.getElementById('debt-due').value || '';
+    const id = Date.now().toString();
+    budgetData.debts.push({ id, desc: p.name, personId: p.id, note, amount, type, date: debtDate, repaid: 0, due, accountId: chosenAccount('debt-account'), hijri: hijriOfMs(debtDate) });
+
+    const newLog = { id: id + 'l', taskId: 'debt-' + id, category: 'budget', taskType: type, timestamp: Date.now(), title: p.name + (note ? ` (${note})` : ''), actionType: 'debt', amount };
     activityHistory.push(newLog); syncToGoogleSheets(newLog);
-    
-    document.getElementById('debt-desc').value = ''; document.getElementById('debt-amount').value = ''; document.getElementById('debt-date').value = '';
+
     closeModal('debt-modal');
+    openPeople.add(p.id);
     saveData(); renderBudget();
+    showToast(type === 'lent' ? `Lent ${inr(amount)} to ${p.name}` : `Borrowed ${inr(amount)} from ${p.name}`, '🤝');
 }
 
+// Record money coming back (or going out) against one entry.
+function applyRepayment(debt, amt, when) {
+    const pending = Math.max(0, debt.amount - (debt.repaid || 0));
+    const use = Math.min(pending, amt);
+    if (use <= 0) return 0;
+    debt.repaid = (debt.repaid || 0) + use;
+    (debt.payments || (debt.payments = [])).push({ amount: use, date: when });
+    const log = { id: Date.now().toString() + Math.random().toString(36).slice(2, 5), taskId: debt.id, category: 'budget', timestamp: when, title: `Repaid Debt (${debt.desc})`, actionType: 'repayment', amount: use };
+    activityHistory.push(log); syncToGoogleSheets(log);
+    return use;
+}
 function repayDebt(id) {
     const debt = budgetData.debts.find(d => d.id === id); if (!debt) return;
-    let pending = debt.amount - (debt.repaid || 0);
-    if (pending <= 0) return alert("This is already fully settled!");
-
-    let input = prompt(`How much was returned? (Pending: ₹${pending}):`);
-    if (input === null || input.trim() === '') return; 
-    let repayAmount = parseFloat(input);
-    if (isNaN(repayAmount) || repayAmount <= 0) return alert("Invalid amount entered.");
-    if (repayAmount > pending) repayAmount = pending; 
-    
-    debt.repaid = (debt.repaid || 0) + repayAmount;
-    
-    let newLog = { id: Date.now().toString(), taskId: debt.id, category: 'budget', timestamp: Date.now(), title: `Repaid Debt (${debt.desc})`, actionType: 'repayment', amount: repayAmount };
-    activityHistory.push(newLog); syncToGoogleSheets(newLog);
-    
-    if (debt.amount - debt.repaid <= 0) {
-        if (confirm(`₹${repayAmount} logged. This debt is now fully settled! Do you want to remove it from the list entirely?`)) {
-            budgetData.debts = budgetData.debts.filter(d => d.id !== id);
-        }
-    } else {
-        alert(`₹${repayAmount} logged successfully. ₹${debt.amount - debt.repaid} still pending.`);
-    }
+    openPersonPay(debt.personId, debt.type, id);
+}
+function deleteDebt(id) {
+    if (!confirm("Delete this entry? Use this only for a mistake — to record money paid back, use Repay.")) return;
+    budgetData.debts = budgetData.debts.filter(d => d.id !== id);
     saveData(); renderBudget();
 }
 
-function deleteDebt(id) {
-    if (confirm("Delete this debt record?")) { budgetData.debts = budgetData.debts.filter(d => d.id !== id); saveData(); renderBudget(); }
+// ---------- Person payment (FIFO across open entries) ----------
+function openPersonPay(personId, dir, onlyId) {
+    const g = personLedger().find(x => x.p.id === personId); if (!g) return;
+    const rows = g.rows.filter(d => d.type === dir && (!onlyId || d.id === onlyId) && d.amount - (d.repaid || 0) > 0);
+    const pending = rows.reduce((s, d) => s + d.amount - (d.repaid || 0), 0);
+    if (pending <= 0) return showToast('Nothing pending', 'ℹ️');
+    document.getElementById('person-pay-key').value = personId + '|' + (onlyId || '');
+    document.getElementById('person-pay-dir').value = dir;
+    document.getElementById('person-pay-title').innerText = dir === 'lent' ? `${g.p.name} paid you back` : `You paid ${g.p.name}`;
+    document.getElementById('person-pay-sub').innerText = `${inr(pending)} pending${onlyId ? ' on this entry' : ''}.`;
+    document.getElementById('person-pay-amount').value = '';
+    document.getElementById('person-pay-amount').dataset.full = pending;
+    document.getElementById('person-pay-date').value = toDateKey(Date.now());
+    openModal('person-pay-modal');
+    setTimeout(() => document.getElementById('person-pay-amount')?.focus(), 60);
+}
+function fillPersonPayFull() { const el = document.getElementById('person-pay-amount'); el.value = el.dataset.full || ''; }
+function savePersonPay() {
+    const [personId, onlyId] = document.getElementById('person-pay-key').value.split('|');
+    const dir = document.getElementById('person-pay-dir').value;
+    let amt = parseFloat(document.getElementById('person-pay-amount').value);
+    if (isNaN(amt) || amt <= 0) return alert('Enter an amount greater than 0.');
+    const dv = document.getElementById('person-pay-date').value;
+    const when = dv ? new Date(dv + 'T12:00:00').getTime() : Date.now();
+    const rows = (budgetData.debts || []).filter(d => d.personId === personId && d.type === dir && (!onlyId || d.id === onlyId) && d.amount - (d.repaid || 0) > 0).sort((a, b) => a.date - b.date);
+    let used = 0;
+    for (const d of rows) { if (amt - used <= 0) break; used += applyRepayment(d, amt - used, when); }
+    closeModal('person-pay-modal');
+    saveData(); renderBudget();
+    const extra = amt - used;
+    showToast(`${inr(used)} recorded${extra > 0 ? ` (${inr(extra)} more than was pending, ignored)` : ''}`, '💰');
 }
 
+function openPersonEdit(personId) {
+    const p = (budgetData.people || []).find(x => x.id === personId); if (!p) return;
+    document.getElementById('person-edit-key').value = personId;
+    document.getElementById('person-edit-name').value = p.name;
+    document.getElementById('person-edit-phone').value = p.phone || '';
+    openModal('person-edit-modal');
+}
+function savePersonEdit() {
+    const p = (budgetData.people || []).find(x => x.id === document.getElementById('person-edit-key').value); if (!p) return;
+    const name = document.getElementById('person-edit-name').value.trim();
+    if (!name) return alert('Enter a name.');
+    const other = budgetData.people.find(x => x.id !== p.id && normName(x.name) === normName(name));
+    if (other) {
+        if (!confirm(`"${other.name}" already exists. Merge ${p.name}'s entries into ${other.name}?`)) return;
+        for (const d of budgetData.debts) if (d.personId === p.id) { d.personId = other.id; d.desc = other.name; }
+        if (!other.phone) other.phone = document.getElementById('person-edit-phone').value.trim() || p.phone || '';
+        budgetData.people = budgetData.people.filter(x => x.id !== p.id);
+    } else {
+        p.name = name; p.phone = document.getElementById('person-edit-phone').value.trim();
+        for (const d of budgetData.debts) if (d.personId === p.id) d.desc = name;
+    }
+    closeModal('person-edit-modal'); saveData(); renderBudget();
+}
+
+function remindPerson(personId) {
+    const g = personLedger().find(x => x.p.id === personId); if (!g || !g.p.phone) return;
+    const msg = g.owesMe > 0
+        ? `Assalamu alaikum ${g.p.name}, a gentle reminder about the ${inr(g.owesMe)} pending between us. No rush — just let me know when it suits you. JazakAllah khair.`
+        : `Assalamu alaikum ${g.p.name}, just checking in.`;
+    window.open(`https://wa.me/${phoneDigits(g.p.phone)}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+// ---------- Render People ----------
+function setPeopleFilter(f) {
+    peopleFilter = f;
+    document.querySelectorAll('#people-filter-pills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.pf === f));
+    renderPeople();
+}
+function togglePerson(id) { if (openPeople.has(id)) openPeople.delete(id); else openPeople.add(id); renderPeople(); }
+
+function renderPeople() {
+    const el = document.getElementById('people-list');
+    const tot = debtTotals();
+    const setT = (id, v) => { const e = document.getElementById(id); if (e) e.innerText = Math.round(v).toLocaleString('en-IN'); };
+    setT('total-lent', tot.lent); setT('total-borrowed', tot.borrowed);
+    let groups = personLedger();
+    const openCount = groups.filter(g => g.owesMe > 0 || g.iOwe > 0).length;
+    const cnt = document.getElementById('bview-people-count'); if (cnt) cnt.innerText = openCount;
+    if (!el) return;
+    const q = normName(document.getElementById('people-search')?.value);
+    if (q) groups = groups.filter(g => normName(g.p.name).includes(q) || (g.p.phone && g.p.phone.includes(q)));
+    if (peopleFilter === 'open') groups = groups.filter(g => g.owesMe > 0 || g.iOwe > 0);
+    if (peopleFilter === 'owes') groups = groups.filter(g => g.owesMe > 0);
+    if (peopleFilter === 'iowe') groups = groups.filter(g => g.iOwe > 0);
+    groups.sort((a, b) => ((b.owesMe + b.iOwe) > 0) - ((a.owesMe + a.iOwe) > 0) || b.last - a.last);
+
+    if (!groups.length) {
+        el.innerHTML = `<div class="empty-state">${q ? 'No one matches that search.' : peopleFilter === 'open' ? 'Nothing pending with anyone. Tap Add to record money you lend or borrow.' : 'No one here yet.'}</div>`;
+        return;
+    }
+    const fmtD = t => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit' });
+    el.innerHTML = groups.map(g => {
+        const p = g.p; const isOpen = openPeople.has(p.id);
+        const net = g.owesMe - g.iOwe;
+        const status = g.owesMe > 0 && g.iOwe > 0
+            ? `<span class="pp-amt pos">owes you ${inr(g.owesMe)}</span><span class="pp-amt neg">you owe ${inr(g.iOwe)}</span>`
+            : g.owesMe > 0 ? `<span class="pp-amt pos">owes you ${inr(g.owesMe)}</span>`
+            : g.iOwe > 0 ? `<span class="pp-amt neg">you owe ${inr(g.iOwe)}</span>`
+            : `<span class="pp-amt settled">settled</span>`;
+        const initials = p.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+        const overdue = g.rows.some(d => { const st = Core.debtStatus(d, Core.ctxFromLocalDate(new Date())); return st.active && st.daysLeft < 0; });
+        const rows = [...g.rows].sort((a, b) => b.date - a.date).map(d => {
+            const pending = Math.max(0, d.amount - (d.repaid || 0));
+            const done = pending <= 0;
+            return `<div class="pp-row ${done ? 'done' : ''}">
+                <div class="pp-row-main">
+                    <div><span class="pp-kind ${d.type}">${d.type === 'lent' ? 'Lent' : 'Borrowed'}</span> ${inr(d.amount)}${d.note ? ` · ${escapeHTML(d.note)}` : ''}</div>
+                    <div class="muted" style="font-size:12px;">${fmtD(d.date)}${d.repaid ? ` · ${inr(d.repaid)} paid back` : ''}${done ? ' · settled' : ` · ${inr(pending)} pending`}</div>
+                    ${done ? '' : debtDueBadge(d)}
+                </div>
+                <div class="pp-row-act">
+                    ${done ? '' : `<button class="btn-icon" onclick="repayDebt('${d.id}')" title="Repay" aria-label="Record repayment">💰</button><button class="btn-icon" onclick="openDebtDue('${d.id}')" title="Due date" aria-label="Set due date">📅</button>`}
+                    <button class="btn-icon" onclick="deleteDebt('${d.id}')" title="Delete" aria-label="Delete entry">🗑️</button>
+                </div>
+            </div>`;
+        }).join('');
+        return `<div class="person-card ${isOpen ? 'open' : ''}">
+            <div class="pp-head" onclick="togglePerson('${p.id}')">
+                <div class="pp-avatar ${net > 0 ? 'pos' : net < 0 ? 'neg' : ''}">${escapeHTML(initials || '?')}</div>
+                <div class="pp-mid"><div class="pp-name">${escapeHTML(p.name)}${overdue ? ' <span class="badge debt-over">overdue</span>' : ''}</div><div class="pp-status">${status}</div></div>
+                <svg class="icon pp-chev"><use href="#i-chevron-down"/></svg>
+            </div>
+            ${isOpen ? `<div class="pp-body">
+                <div class="pp-actions">
+                    ${g.owesMe > 0 ? `<button class="btn-sm" onclick="openPersonPay('${p.id}','lent')">They paid back</button>` : ''}
+                    ${g.iOwe > 0 ? `<button class="btn-sm" onclick="openPersonPay('${p.id}','borrowed')">I paid back</button>` : ''}
+                    <button class="btn-sm btn-soft" onclick="openDebtModal(${escapeHTML(JSON.stringify(p.name))}, 'lent')">+ Lend</button>
+                    <button class="btn-sm btn-soft" onclick="openDebtModal(${escapeHTML(JSON.stringify(p.name))}, 'borrowed')">+ Borrow</button>
+                    ${p.phone ? `<button class="btn-sm btn-ghost" onclick="remindPerson('${p.id}')" title="WhatsApp"><svg class="icon icon-sm"><use href="#i-message"/></svg>WhatsApp</button><a class="btn-sm btn-ghost pp-link" href="tel:${escapeHTML(normPhone(p.phone))}"><svg class="icon icon-sm"><use href="#i-phone"/></svg>Call</a>` : ''}
+                    <button class="btn-sm btn-ghost" onclick="openPersonEdit('${p.id}')"><svg class="icon icon-sm"><use href="#i-pen"/></svg>Edit</button>
+                </div>
+                ${rows}
+            </div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+// ---------- Contacts ----------
+function contactPickerSupported() { return 'contacts' in navigator && 'ContactsManager' in window && typeof navigator.contacts.select === 'function'; }
+async function pickContact() {
+    if (contactPickerSupported()) {
+        try {
+            let props = ['name', 'tel'];
+            try { const avail = await navigator.contacts.getProperties(); props = props.filter(p => avail.includes(p)); } catch (e) { }
+            const res = await navigator.contacts.select(props, { multiple: false });
+            if (res && res.length) { chooseContact((res[0].name || [])[0] || '', (res[0].tel || [])[0] || ''); return; }
+            return; // user cancelled
+        } catch (ex) { console.warn('Contact picker failed, falling back:', ex); }
+    }
+    openContactChooser();
+}
+function openContactChooser() {
+    if (!contactBook) { try { contactBook = JSON.parse(localStorage.getItem('hisab_contact_book') || 'null'); } catch (e) { contactBook = null; } }
+    const s = document.getElementById('contact-search'); s.value = document.getElementById('debt-desc').value || '';
+    document.getElementById('contact-import-hint').innerText = contactBook && contactBook.length
+        ? `${contactBook.length} contacts imported on this device. Import again to refresh.`
+        : (contactPickerSupported() ? '' : "This browser can't open your phone's contacts directly, so import a contacts file once instead.");
+    renderContactChooser();
+    openModal('contact-modal');
+    setTimeout(() => s.focus(), 60);
+}
+function renderContactChooser() {
+    const box = document.getElementById('contact-results'); if (!box) return;
+    const q = normName(document.getElementById('contact-search').value);
+    const qd = q.replace(/\D/g, '');
+    ensurePeople();
+    const saved = budgetData.people.map(p => ({ name: p.name, phone: p.phone || '', saved: true }));
+    const savedNames = new Set(saved.map(c => normName(c.name)));
+    const book = (contactBook || []).filter(c => !savedNames.has(normName(c.name)));
+    const match = c => !q || normName(c.name).includes(q) || (qd.length >= 3 && String(c.phone).replace(/\D/g, '').includes(qd));
+    const a = saved.filter(match).slice(0, 30), b = book.filter(match).slice(0, 60);
+    const item = c => `<button class="contact-item" onclick='chooseContact(${escapeHTML(JSON.stringify(c.name))}, ${escapeHTML(JSON.stringify(c.phone))})'><span class="ci-name">${escapeHTML(c.name)}</span><span class="ci-phone">${escapeHTML(c.phone || '')}</span></button>`;
+    let html = '';
+    if (a.length) html += `<div class="ci-head">In Hisab</div>` + a.map(item).join('');
+    if (b.length) html += `<div class="ci-head">From your contacts file</div>` + b.map(item).join('');
+    if (q && !a.some(c => normName(c.name) === q)) html += `<button class="contact-item new" onclick='chooseContact(${escapeHTML(JSON.stringify(document.getElementById('contact-search').value.trim()))}, "")'><span class="ci-name">+ Use "${escapeHTML(document.getElementById('contact-search').value.trim())}"</span></button>`;
+    box.innerHTML = html || `<div class="muted" style="padding:14px 4px; font-size:13px;">No contacts yet. Type a name above, or import your contacts file below.</div>`;
+}
+function chooseContact(name, phone) {
+    document.getElementById('debt-desc').value = String(name || '').trim();
+    if (phone) document.getElementById('debt-phone').value = String(phone).trim();
+    else debtNameTyped();
+    closeModal('contact-modal');
+    setTimeout(() => document.getElementById('debt-amount')?.focus(), 60);
+}
+
+// Minimal vCard reader: handles folded lines, FN/N, TEL, and QUOTED-PRINTABLE UTF-8 names (Android exports).
+function decodeQP(s) {
+    const bytes = [];
+    s = s.replace(/=\r?\n/g, '');
+    for (let i = 0; i < s.length; i++) {
+        if (s[i] === '=' && /^[0-9A-F]{2}$/i.test(s.substr(i + 1, 2))) { bytes.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; }
+        else bytes.push(s.charCodeAt(i) & 0xff);
+    }
+    try { return new TextDecoder('utf-8').decode(new Uint8Array(bytes)); } catch (e) { return s; }
+}
+function parseVcf(text) {
+    const lines = text.replace(/\r\n/g, '\n').replace(/\n[ \t]/g, '').replace(/=\n/g, '=\n').split('\n');
+    // Join quoted-printable soft breaks ("=" at line end)
+    const joined = [];
+    for (const ln of lines) { if (joined.length && /ENCODING=QUOTED-PRINTABLE/i.test(joined[joined.length - 1]) && /=$/.test(joined[joined.length - 1])) joined[joined.length - 1] = joined[joined.length - 1].slice(0, -1) + ln; else joined.push(ln); }
+    const out = []; let cur = null;
+    const val = ln => { const i = ln.indexOf(':'); const head = ln.slice(0, i); let v = ln.slice(i + 1); if (/QUOTED-PRINTABLE/i.test(head)) v = decodeQP(v); return v.replace(/\\,/g, ',').replace(/\\;/g, ';').trim(); };
+    for (const ln of joined) {
+        if (/^BEGIN:VCARD/i.test(ln)) cur = { name: '', n: '', phones: [] };
+        else if (/^END:VCARD/i.test(ln)) { if (cur) { const name = cur.name || cur.n; if (name && cur.phones.length) for (const ph of cur.phones.slice(0, 2)) out.push({ name, phone: ph }); else if (name) out.push({ name, phone: '' }); } cur = null; }
+        else if (cur && /^(item\d+\.)?FN[;:]/i.test(ln)) cur.name = val(ln);
+        else if (cur && /^(item\d+\.)?N[;:]/i.test(ln)) { const parts = val(ln).split(';'); cur.n = [parts[1], parts[2], parts[0]].filter(Boolean).join(' ').trim(); }
+        else if (cur && /^(item\d+\.)?TEL[;:]/i.test(ln)) { const ph = val(ln).replace(/^tel:/i, ''); if (ph && !cur.phones.includes(ph)) cur.phones.push(ph); }
+    }
+    const seen = new Set();
+    return out.filter(c => { const k = normName(c.name) + '|' + c.phone.replace(/\D/g, '').slice(-10); if (seen.has(k)) return false; seen.add(k); return true; })
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+function importVcf(event) {
+    const file = event.target.files && event.target.files[0]; if (!file) return;
+    const r = new FileReader();
+    r.onload = e => {
+        const list = parseVcf(String(e.target.result || ''));
+        event.target.value = '';
+        if (!list.length) { document.getElementById('contact-import-hint').innerText = "Couldn't find any contacts in that file. Make sure it's a .vcf (vCard) export."; return; }
+        contactBook = list;
+        try { localStorage.setItem('hisab_contact_book', JSON.stringify(list)); } catch (err) { /* too big for storage: keep for this session */ }
+        document.getElementById('contact-import-hint').innerText = `${list.length} contacts imported on this device.`;
+        renderContactChooser();
+    };
+    r.readAsText(file);
+}
+
+// ---------- Sub-tabs, snapshot and upcoming ----------
+function setBudgetView(v) {
+    if (!['overview', 'expenses', 'people', 'zakat'].includes(v)) v = 'overview';
+    localStorage.setItem('hisab_budget_view', v);
+    document.querySelectorAll('#budget-view-pills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.bview === v));
+    document.querySelectorAll('.budget-view').forEach(s => s.classList.toggle('active', s.dataset.bview === v));
+    if (v === 'overview' && typeof expenseCategoryChart !== 'undefined' && expenseCategoryChart) { try { expenseCategoryChart.resize(); } catch (e) { } }
+    if (v === 'zakat' && budgetViewInit) renderZakat();
+}
+function shiftExpenseMonth(d) { expenseMonthOffset = Math.min(0, expenseMonthOffset + d); renderBudget(); }
+function openZakatInBudget() { switchTab('budget'); setBudgetView('zakat'); }
+
+function renderBudgetSnapshot() {
+    const el = document.getElementById('budget-snapshot'); if (!el) return;
+    const t = debtTotals();
+    const z = zakatCalc();
+    const tile = (label, value, color, view, sub) => `<button class="snap-tile" onclick="setBudgetView('${view}')"><div class="l">${label}</div><div class="v" style="color:${color}">${value}</div>${sub ? `<div class="s">${sub}</div>` : ''}</button>`;
+    el.innerHTML = [
+        tile('Owed to you', inr(t.lent), 'var(--green)', 'people'),
+        tile('You owe', inr(t.borrowed), 'var(--rose)', 'people'),
+        tile('Wealth', z.hasAssets ? inr(z.net) : '—', 'var(--indigo)', 'zakat', z.hasAssets ? (z.aboveNisab === false ? 'below nisab' : 'above nisab') : 'set up zakat'),
+        tile('Zakat due', z.hasAssets ? inr(Math.max(0, z.outstanding)) : '—', 'var(--brand)', 'zakat', z.hasAssets ? (z.next ? 'next ' + z.next.hijri.replace(/ \d{4}$/, '') : (z.outstanding < 0 ? 'paid ahead' : '')) : ''),
+    ].join('');
+}
+function renderBudgetUpcoming() {
+    const el = document.getElementById('budget-upcoming'); if (!el) return;
+    const ctx = Core.ctxFromLocalDate(new Date());
+    const items = [];
+    for (const d of budgetData.debts || []) {
+        const st = Core.debtStatus(d, ctx);
+        if (st.active && st.daysLeft <= 7) items.push({ days: st.daysLeft, html: `<b>${escapeHTML(d.desc)}</b> — ${d.type === 'lent' ? 'owes you' : 'you owe'} ${inr(st.pending)} · ${Core.dueLabel(st.daysLeft)}`, view: 'people' });
+    }
+    for (const b of budgetData.bills || []) {
+        try { const bs = Core.billStatus(b, ctx); if (bs.inWindow) items.push({ days: bs.daysLeft, html: `<b>${escapeHTML(b.name)}</b> — ${inr(b.amount)} · ${Core.dueLabel(bs.daysLeft)}`, view: 'expenses' }); } catch (e) { }
+    }
+    for (const r of expectedIncomes()) items.push({ days: -0.5, html: `<b>${escapeHTML(r.name)}</b> — expected ₹${Number(r.amount).toLocaleString('en-IN')} <button class="btn-sm" onclick="event.stopPropagation(); openIncomeModal({ recId: '${r.id}' })" style="margin:0 0 0 6px; padding:4px 10px; min-height:0;">Log</button>`, view: 'expenses' });
+    const ze = zakatEngine();
+    if (ze && ze.outstanding > 0.5) items.push({ days: -1, html: `<b>Zakat due</b> — ₹${Math.round(ze.outstanding).toLocaleString('en-IN')}`, view: 'zakat' });
+    else if (ze && ze.upcoming[0] && Core.daysBetweenKeys(toDateKey(Date.now()), ze.upcoming[0].key) <= 30) items.push({ days: Core.daysBetweenKeys(toDateKey(Date.now()), ze.upcoming[0].key), html: `<b>Zakat</b> — about ₹${Math.round(ze.upcoming[0].zakat).toLocaleString('en-IN')} on ${ze.upcoming[0].hijri}`, view: 'zakat' });
+    items.sort((a, b) => a.days - b.days);
+    el.innerHTML = items.length ? `<div class="card"><div class="card-head"><h3>Coming up</h3></div>${items.slice(0, 6).map(i => `<div class="up-row" onclick="setBudgetView('${i.view}')">${i.html}</div>`).join('')}</div>` : '';
+}
+
+// ==========================================
+// HIJRI HELPERS (UI) — every money entry is stamped with its Hijri date
+// ==========================================
+function hijriAdj() { return Number((budgetData.zakat || {}).hijriAdj) || 0; }
+function hijriOfMs(ms) { return Core.hijriKey(toDateKey(ms), hijriAdj()); }
+function hijriText(ms) { return Core.hijriLabel(toDateKey(ms), hijriAdj(), true); }
+// Small line under a date input showing its Hijri date.
+function hijriHint(inputId, hintId) {
+    const v = document.getElementById(inputId)?.value || toDateKey(Date.now());
+    const el = document.getElementById(hintId); if (el) el.innerText = Core.hijriLabel(v, hijriAdj());
+}
+// Date picker with Gregorian and Hijri fields kept in sync. Either can be typed.
+function hijriPickerHTML(prefix, key, label) {
+    key = key || toDateKey(Date.now());
+    const h = Core.hijriParts(key, hijriAdj());
+    const yNow = Core.hijriParts(toDateKey(Date.now()), hijriAdj()).y;
+    const days = Array.from({ length: 30 }, (_, i) => `<option value="${i + 1}" ${h.d === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('');
+    const months = Core.HIJRI_MONTHS.map((m, i) => `<option value="${i + 1}" ${h.m === i + 1 ? 'selected' : ''}>${m}</option>`).join('');
+    const years = Array.from({ length: 8 }, (_, i) => yNow - 6 + i).map(y => `<option value="${y}" ${h.y === y ? 'selected' : ''}>${y}</option>`).join('');
+    return `<label class="field-label" for="${prefix}-g">${label || 'Date'}</label>
+        <div class="hijri-picker">
+            <input type="date" id="${prefix}-g" value="${key}" onchange="hpFromGreg('${prefix}')">
+            <div class="hp-h"><span class="hp-l">Hijri</span><select id="${prefix}-hd" onchange="hpFromHijri('${prefix}')" aria-label="Hijri day">${days}</select><select id="${prefix}-hm" onchange="hpFromHijri('${prefix}')" aria-label="Hijri month">${months}</select><select id="${prefix}-hy" onchange="hpFromHijri('${prefix}')" aria-label="Hijri year">${years}</select></div>
+        </div>`;
+}
+function hpFromGreg(prefix) {
+    const k = document.getElementById(prefix + '-g').value; if (!k) return;
+    const h = Core.hijriParts(k, hijriAdj());
+    document.getElementById(prefix + '-hd').value = h.d; document.getElementById(prefix + '-hm').value = h.m;
+    const ys = document.getElementById(prefix + '-hy');
+    if (![...ys.options].some(o => Number(o.value) === h.y)) ys.insertAdjacentHTML('beforeend', `<option value="${h.y}">${h.y}</option>`);
+    ys.value = h.y;
+}
+function hpFromHijri(prefix) {
+    const k = Core.gregFromHijri(Number(document.getElementById(prefix + '-hy').value), Number(document.getElementById(prefix + '-hm').value), Number(document.getElementById(prefix + '-hd').value), hijriAdj());
+    document.getElementById(prefix + '-g').value = k;
+    hpFromGreg(prefix);   // snaps a 30th that doesn't exist
+}
+function hpValue(prefix) { return document.getElementById(prefix + '-g')?.value || toDateKey(Date.now()); }
+function keyToMs(k) { return new Date(k + 'T12:00:00').getTime(); }
+
+// ==========================================
+// ACCOUNTS (cash in hand, bank accounts) — used by income, expenses, debts, zakat
+// ==========================================
+function zAccounts() { return ((budgetData.zakat || {}).accounts || []); }
+function defaultAccountId() { const z = budgetData.zakat || {}; const a = zAccounts(); return (a.find(x => x.id === z.defaultAccount) || a[0] || {}).id || ''; }
+function fillAccountSelect(selectId, wrapId, chosen) {
+    const sel = document.getElementById(selectId), wrap = document.getElementById(wrapId);
+    const accts = zAccounts();
+    if (wrap) wrap.style.display = accts.length > 1 ? '' : 'none';
+    if (!sel) return;
+    sel.innerHTML = accts.map(a => `<option value="${a.id}">${escapeHTML(a.name)}</option>`).join('');
+    sel.value = chosen || defaultAccountId();
+}
+function chosenAccount(selectId) { return document.getElementById(selectId)?.value || defaultAccountId() || ''; }
+
+// ==========================================
+// INCOME
+// ==========================================
+const INCOME_SOURCES = { salary: '💼 Salary', business: '🏪 Business', freelance: '🧑‍💻 Freelance / side work', rent: '🏠 Rent received', profit: '📈 Profit / dividend', gift: '🎁 Gift', other: '💰 Other' };
+let txFilter = 'all';
+
+function openExpenseModal() {
+    document.getElementById('expense-date').value = toDateKey(Date.now());
+    hijriHint('expense-date', 'expense-hijri');
+    fillAccountSelect('expense-account', 'expense-acct-wrap');
+    openModal('expense-modal');
+}
+function openIncomeModal(opts = {}) {
+    if (!Array.isArray(budgetData.income)) budgetData.income = [];
+    const src = document.getElementById('income-source');
+    src.innerHTML = Object.entries(INCOME_SOURCES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+    const r = opts.recId ? (budgetData.incomeRecurring || []).find(x => x.id === opts.recId) : null;
+    document.getElementById('income-rec-id').value = r ? r.id : '';
+    document.getElementById('income-amount').value = r ? r.amount : '';
+    src.value = r ? r.source : 'salary';
+    document.getElementById('income-desc').value = r ? r.name : '';
+    document.getElementById('income-date-picker').innerHTML = hijriPickerHTML('inc', toDateKey(Date.now()), 'Date received');
+    fillAccountSelect('income-account', 'income-acct-wrap', r && r.accountId);
+    document.getElementById('income-repeat').checked = !!opts.recurring;
+    document.getElementById('income-repeat-row').style.display = r ? 'none' : '';
+    document.getElementById('income-modal-title').innerText = r ? `Log ${r.name}` : (opts.recurring ? 'Add monthly income' : 'Add income');
+    openModal('income-modal');
+    setTimeout(() => document.getElementById('income-amount')?.focus(), 60);
+}
+function saveIncome() {
+    if (!Array.isArray(budgetData.income)) budgetData.income = [];
+    const amount = parseFloat(document.getElementById('income-amount').value);
+    if (!(amount > 0)) return alert('Enter an amount greater than 0.');
+    const source = document.getElementById('income-source').value || 'other';
+    const desc = document.getElementById('income-desc').value.trim() || INCOME_SOURCES[source].replace(/^\S+\s/, '');
+    const key = hpValue('inc');
+    const date = keyToMs(key);
+    const accountId = chosenAccount('income-account');
+    const id = 'in' + Date.now().toString(36);
+    const recId = document.getElementById('income-rec-id').value;
+    const rec = { id, desc, source, amount, date, hijri: Core.hijriKey(key, hijriAdj()), accountId };
+    if (recId) rec.recurringId = recId;
+    budgetData.income.push(rec);
+    if (recId) { const r = (budgetData.incomeRecurring || []).find(x => x.id === recId); if (r) { (r.received || (r.received = {}))[key.slice(0, 7)] = id; r.amount = amount; } }
+    if (!recId && document.getElementById('income-repeat').checked) {
+        if (!Array.isArray(budgetData.incomeRecurring)) budgetData.incomeRecurring = [];
+        budgetData.incomeRecurring.push({ id: 'ir' + Date.now().toString(36), name: desc, source, amount, day: Number(key.slice(8)), accountId, received: { [key.slice(0, 7)]: id } });
+    }
+    const log = { id: id + 'l', taskId: 'income-' + id, category: 'budget', timestamp: date, title: 'Income: ' + desc, actionType: 'income', amount };
+    activityHistory.push(log); syncToGoogleSheets(log);
+    closeModal('income-modal'); saveData(); renderBudget();
+    showToast(`₹${amount.toLocaleString('en-IN')} income logged`, '💰');
+}
+function deleteIncome(id) {
+    showConfirmSheet('Delete this income entry?', { title: 'Delete income', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => {
+        if (!ok) return;
+        budgetData.income = (budgetData.income || []).filter(i => i.id !== id);
+        for (const r of budgetData.incomeRecurring || []) for (const [m, v] of Object.entries(r.received || {})) if (v === id) delete r.received[m];
+        activityHistory = activityHistory.filter(h => h.id !== id + 'l');
+        saveData(); renderBudget();
+    });
+}
+function deleteRecurringIncome(id) {
+    showConfirmSheet('Stop expecting this income every month? Entries already logged stay.', { title: 'Remove monthly income', icon: '🗑️', okText: 'Remove', danger: true }).then(ok => {
+        if (!ok) return;
+        budgetData.incomeRecurring = (budgetData.incomeRecurring || []).filter(r => r.id !== id);
+        saveData(); renderBudget();
+    });
+}
+// Monthly incomes whose day has come this month but aren't logged yet.
+function expectedIncomes() {
+    const today = toDateKey(Date.now()); const ym = today.slice(0, 7); const day = Number(today.slice(8));
+    return (budgetData.incomeRecurring || []).filter(r => !(r.received || {})[ym] && day >= Math.min(Number(r.day) || 1, 28));
+}
+
+function setTxFilter(f) {
+    txFilter = f;
+    document.querySelectorAll('#tx-filter-pills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.tf === f));
+    renderTransactions();
+}
+function renderTransactions() {
+    const list = document.getElementById('expense-list-container'); if (!list) return;
+    const now = new Date();
+    const sel = new Date(now.getFullYear(), now.getMonth() + expenseMonthOffset, 1);
+    const ym = `${sel.getFullYear()}-${String(sel.getMonth() + 1).padStart(2, '0')}`;
+    const lbl = document.getElementById('expense-month-label');
+    if (lbl) lbl.innerText = sel.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const q = (document.getElementById('expense-search')?.value || '').trim().toLowerCase();
+    const inYm = ms => toDateKey(ms).slice(0, 7) === ym;
+    const rows = [];
+    for (const e of budgetData.expenses || []) if (inYm(e.date)) rows.push({ t: 'out', id: e.id, desc: e.desc, sub: BILL_CATS[e.category || 'other'] || 'Other', amount: Number(e.amount) || 0, date: e.date, bill: !!e.billId });
+    for (const i of budgetData.income || []) if (inYm(i.date)) rows.push({ t: 'in', id: i.id, desc: i.desc, sub: INCOME_SOURCES[i.source || 'other'] || 'Income', amount: Number(i.amount) || 0, date: i.date });
+    const mm = Core.monthMoney(budgetData, ym, toDateKey);
+    const sumEl = document.getElementById('tx-sum');
+    if (sumEl) sumEl.innerHTML = `<div><span class="l">In</span><span class="v pos">₹${mm.income.toLocaleString('en-IN')}</span></div><div><span class="l">Out</span><span class="v neg">₹${mm.spent.toLocaleString('en-IN')}</span></div><div><span class="l">Saved</span><span class="v ${mm.saved < 0 ? 'neg' : ''}">₹${mm.saved.toLocaleString('en-IN')}</span></div>`;
+    const tot = document.getElementById('expense-month-total');
+    if (tot) tot.innerText = mm.rate != null ? `${mm.rate}% of income saved` : '';
+    const shown = rows.filter(r => (txFilter === 'all' || r.t === txFilter) && (!q || String(r.desc || '').toLowerCase().includes(q) || String(r.sub).toLowerCase().includes(q))).sort((a, b) => b.date - a.date);
+    if (!shown.length) { list.innerHTML = `<p style="color:var(--muted); text-align:center;">${q ? 'Nothing matches your search.' : 'Nothing logged for this month.'}</p>`; }
+    else list.innerHTML = shown.map(r => `<div class="tx-row ${r.t}">
+        <div class="tx-main"><div class="tx-desc">${escapeHTML(r.desc)}</div><div class="tx-sub">${new Date(r.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} · ${escapeHTML(hijriText(r.date))} · ${escapeHTML(r.sub)}${r.bill ? ' · recurring bill' : ''}</div></div>
+        <div class="tx-amt">${r.t === 'in' ? '+' : '−'}₹${r.amount.toLocaleString('en-IN')}</div>
+        <button class="btn-icon" onclick="${r.t === 'in' ? 'deleteIncome' : 'deleteExpense'}('${r.id}')" aria-label="Delete">🗑️</button>
+    </div>`).join('');
+    const ri = document.getElementById('recurring-income-list');
+    if (ri) {
+        const recs = budgetData.incomeRecurring || [];
+        const cur = toDateKey(Date.now()).slice(0, 7);
+        ri.innerHTML = recs.length ? recs.map(r => `<div class="bill-row"><div style="flex:1; min-width:0;"><div style="font-weight:650;">${escapeHTML(r.name)}</div><div class="muted" style="font-size:12.5px;">₹${Number(r.amount).toLocaleString('en-IN')} · around day ${r.day} · ${(r.received || {})[cur] ? '<span style="color:var(--green)">received this month</span>' : 'not logged this month'}</div></div>${(r.received || {})[cur] ? '' : `<button class="btn-sm" onclick="openIncomeModal({ recId: '${r.id}' })" style="margin:0;">Log</button>`}<button class="btn-icon" onclick="deleteRecurringIncome('${r.id}')" aria-label="Remove">🗑️</button></div>`).join('')
+            : '<div class="muted" style="font-size:13px; padding:10px 0;">Add your salary or any income that comes every month — Hisab will remind you to log it.</div>';
+    }
+}
+function renderMonthMoneyLine() {
+    const el = document.getElementById('month-money-line'); if (!el) return;
+    const mm = Core.monthMoney(budgetData, toDateKey(Date.now()).slice(0, 7), toDateKey);
+    el.innerHTML = mm.income > 0
+        ? `<span>Income <b class="pos">₹${mm.income.toLocaleString('en-IN')}</b></span><span>Saved <b class="${mm.saved < 0 ? 'neg' : 'pos'}">₹${mm.saved.toLocaleString('en-IN')}</b>${mm.rate != null ? ` (${mm.rate}%)` : ''}</span>`
+        : `<span class="muted">Log your income to see what you really save. <a href="#" onclick="openIncomeModal(); return false;">Add income</a></span>`;
+}
+
+// ==========================================
+// MONTHLY REPORT — money, Deen and tasks for one month
+// ==========================================
+let reportMonthOffset = 0;
+function reportShift(d) { reportMonthOffset = Math.min(0, reportMonthOffset + d); renderMonthlyReport(); }
+function openMonthlyReport(offset) { reportMonthOffset = Math.min(0, Number(offset) || 0); renderMonthlyReport(); openModal('monthly-report-modal'); }
+function ymOffset(off) { const n = new Date(); const d = new Date(n.getFullYear(), n.getMonth() + off, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+function renderMonthlyReport() {
+    const ym = ymOffset(reportMonthOffset), prevYm = ymOffset(reportMonthOffset - 1);
+    const [y, m] = ym.split('-').map(Number);
+    const first = `${ym}-01`, last = toDateKey(new Date(y, m, 0).getTime() + 43200000);
+    const isCurrent = reportMonthOffset === 0;
+    const endKey = isCurrent ? toDateKey(Date.now()) : last;
+    document.getElementById('mr-title').innerText = new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const h1 = Core.hijriParts(first, hijriAdj()), h2 = Core.hijriParts(endKey, hijriAdj());
+    document.getElementById('mr-sub').innerText = `${Core.HIJRI_MONTHS[h1.m - 1]}${h1.m !== h2.m ? ' – ' + Core.HIJRI_MONTHS[h2.m - 1] : ''} ${h2.y}${isCurrent ? ' · so far' : ''}`;
+    document.getElementById('mr-next').disabled = isCurrent;
+
+    const mm = Core.monthMoney(budgetData, ym, toDateKey), pm = Core.monthMoney(budgetData, prevYm, toDateKey);
+    const r = n => '₹' + Math.round(n).toLocaleString('en-IN');
+    const delta = (a, b, lowerIsGood) => { if (!b) return ''; const pct = Math.round((a - b) / b * 100); if (!pct) return '<span class="mr-d">same as last month</span>'; const good = lowerIsGood ? pct < 0 : pct > 0; return `<span class="mr-d ${good ? 'pos' : 'neg'}">${pct > 0 ? '▲' : '▼'} ${Math.abs(pct)}% vs last month</span>`; };
+    const catRows = Object.entries(mm.byCat).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const maxCat = catRows.length ? catRows[0][1] : 1;
+    const srcRows = Object.entries(mm.bySrc).sort((a, b) => b[1] - a[1]);
+
+    // Deen
+    const dmap = dailyDeenMap();
+    let hizb = 0, swalath = 0, dhikr = 0, on = 0, late = 0, missed = 0, juz = 0, tasksDone = 0;
+    const activeDays = new Set();
+    for (let k = first; k <= endKey; k = Core.addDaysKey(k, 1)) {
+        const d = dmap[k]; if (d) { hizb += d.hizb; swalath += d.swalath; dhikr += d.dhikr; }
+        const pr = (extraData.prayerLog || {})[k] || {};
+        for (const v of Object.values(pr)) { if (v === 'on') on++; else if (v === 'late') late++; else if (v === 'missed') missed++; }
+    }
+    for (const h of activityHistory) {
+        if (!h || toDateKey(h.timestamp).slice(0, 7) !== ym) continue;
+        if (/^completed juz/i.test(h.title || '')) juz++;
+        if (h.actionType === 'complete' && h.category !== 'deen' && h.category !== 'budget') { tasksDone++; activeDays.add(toDateKey(h.timestamp)); }
+    }
+    const prayed = on + late, logged = on + late + missed;
+
+    // Zakat position at month end
+    const ze = zakatEngine();
+    const pt = ze ? ze.series.filter(s => s.key <= endKey && s.key >= first) : [];
+    const endPt = pt[pt.length - 1];
+    const belowDays = pt.filter(s => !s.above).length;
+
+    document.getElementById('mr-body').innerHTML = `
+        <div class="mr-sec">Money</div>
+        <div class="mr-grid">
+            <div class="stat-box"><div class="l">Income</div><div class="v pos">${r(mm.income)}</div>${delta(mm.income, pm.income)}</div>
+            <div class="stat-box"><div class="l">Spent</div><div class="v neg">${r(mm.spent)}</div>${delta(mm.spent, pm.spent, true)}</div>
+            <div class="stat-box"><div class="l">Saved</div><div class="v ${mm.saved < 0 ? 'neg' : ''}">${r(mm.saved)}</div><span class="mr-d">${mm.rate != null ? mm.rate + '% of income' : 'log income to see your rate'}</span></div>
+        </div>
+        ${budgetData.limit ? `<div class="mr-line">${mm.spent > budgetData.limit ? `Over your ₹${Number(budgetData.limit).toLocaleString('en-IN')} limit by ${r(mm.spent - budgetData.limit)}.` : `${r(budgetData.limit - mm.spent)} under your ₹${Number(budgetData.limit).toLocaleString('en-IN')} limit.`}</div>` : ''}
+        ${catRows.length ? `<div class="mr-sub">Where it went</div>${catRows.map(([c, v]) => `<div class="mr-bar"><span class="n">${escapeHTML(BILL_CATS[c] || c)}</span><span class="b"><i style="width:${Math.max(3, v / maxCat * 100)}%"></i></span><span class="a">${r(v)}</span></div>`).join('')}` : ''}
+        ${mm.top.length ? `<div class="mr-sub">Biggest expenses</div>${mm.top.map(t => `<div class="mr-line">${escapeHTML(t.desc)} — <b>${r(t.amount)}</b></div>`).join('')}` : ''}
+        ${srcRows.length ? `<div class="mr-sub">Income by source</div>${srcRows.map(([k, v]) => `<div class="mr-line">${INCOME_SOURCES[k] || k} — <b>${r(v)}</b></div>`).join('')}` : ''}
+        ${(mm.lent || mm.borrowed || mm.gotBack || mm.paidBack) ? `<div class="mr-sub">Loans</div><div class="mr-line">${[mm.lent && `Lent ${r(mm.lent)}`, mm.gotBack && `got back ${r(mm.gotBack)}`, mm.borrowed && `borrowed ${r(mm.borrowed)}`, mm.paidBack && `paid back ${r(mm.paidBack)}`].filter(Boolean).join(' · ')}</div>` : ''}
+        ${ze ? `<div class="mr-sub">Zakat</div><div class="mr-line">${endPt ? `Wealth at ${isCurrent ? 'today' : 'month end'}: <b>${r(endPt.wealth)}</b>${endPt.nisab ? ` — nisab ${r(endPt.nisab)}` : ''}. ` : ''}${belowDays ? `<span class="neg">Below nisab on ${belowDays} day${belowDays > 1 ? 's' : ''}.</span> ` : (pt.length ? 'Above nisab every day. ' : '')}${mm.zakat ? `Paid ${r(mm.zakat)}.` : ''}</div>` : ''}
+
+        <div class="mr-sec">Deen</div>
+        <div class="mr-grid">
+            <div class="stat-box"><div class="l">Hizb</div><div class="v">${fmtNum1(hizb)}</div></div>
+            <div class="stat-box"><div class="l">Swalath</div><div class="v">${Math.round(swalath).toLocaleString('en-IN')}</div></div>
+            <div class="stat-box"><div class="l">Dhikr</div><div class="v">${Math.round(dhikr).toLocaleString('en-IN')}</div></div>
+        </div>
+        <div class="mr-line">${logged ? `Prayers logged: ${prayed} prayed (${on} on time, ${late} late), ${missed} missed — ${Math.round(prayed / logged * 100)}%.` : 'No prayers logged this month.'}${juz ? ` ${juz} Juz completed.` : ''}</div>
+
+        <div class="mr-sec">Tasks</div>
+        <div class="mr-line">${tasksDone ? `${tasksDone} completions across ${activeDays.size} day${activeDays.size === 1 ? '' : 's'}.` : 'No tasks completed this month.'}</div>`;
+}
+
+// ==========================================
+// ZAKAT — Shafi'i hawl on the Hijri calendar
+// Every amount gets its own Hijri year from the day it came in (or the date you
+// say you've held it since). Wealth is checked against 595 g of silver at each
+// day's price; a day below nisab restarts every year. Logic lives in lib/core.js.
+// ==========================================
+const ZAKAT_CATS = {
+    gold:       { label: 'Gold',                         icon: '🟡', ph: 'Jewellery, coins', metal: true },
+    silver:     { label: 'Silver',                       icon: '⚪', ph: 'Silver items', metal: true },
+    stock_in:   { label: 'Indian stocks',                icon: '📈', ph: 'Zerodha, Groww' },
+    stock_us:   { label: 'US stocks',                    icon: '🇺🇸', ph: 'Vested, INDmoney', usd: true },
+    mf:         { label: 'Mutual funds / ETFs',          icon: '📊', ph: 'SIP, index fund' },
+    crypto:     { label: 'Crypto',                       icon: '🪙', ph: 'Bitcoin, USDT' },
+    realestate: { label: 'Property held for sale',       icon: '🏠', ph: 'Plot bought to resell', hint: 'Only property bought to resell counts. Your home and rented-out property are not zakatable; saved rent counts as money.' },
+    trade:      { label: 'Business stock / trade goods', icon: '📦', ph: 'Shop inventory', hint: "Count trade goods at today's selling value. Profit keeps the year of the money you started with." },
+    receivable: { label: 'Money owed to you (other)',    icon: '🤝', ph: 'Not already in People', hint: 'Loans in People are counted automatically — only add others here.' },
+    other:      { label: 'Other',                        icon: '💼', ph: 'PF, chit fund, deposit' },
+};
+let zakatEngineCache = null, zakatEngineSig = '';
+let priceFetchRunning = false;
+
+function zakatData() {
+    let z = budgetData.zakat;
+    const today = toDateKey(Date.now());
+    if (!z || typeof z !== 'object') z = budgetData.zakat = {};
+    if (z.version !== 2) {
+        // Migrate the earlier calculators.
+        const old = z, inputs = deenData.zakatInputs || {};
+        const nz = { version: 2, accounts: [], openings: [], adjust: [], assets: [], payments: Array.isArray(old.payments) ? old.payments : [], prices: {}, overrides: {}, premiumPct: 10, hijriAdj: 0, nisabGrams: 595 };
+        const acct = (name, type) => { const a = { id: 'ac' + Math.random().toString(36).slice(2, 8), name, type }; nz.accounts.push(a); return a; };
+        for (const a of old.assets || []) {
+            if (a.cat === 'liability') continue;
+            if (a.cat === 'cash' || a.cat === 'bank') {
+                const ac = acct(a.name || (a.cat === 'cash' ? 'Cash in hand' : 'Bank'), a.cat);
+                const amt = a.cur === 'USD' ? (Number(a.amount) || 0) * (Number((old.rates || {}).usd) || 0) : Number(a.amount) || 0;
+                if (amt > 0) nz.openings.push({ id: 'op' + Math.random().toString(36).slice(2, 8), accountId: ac.id, amount: amt, heldSince: today });
+            } else nz.assets.push({ ...a, heldSince: today });
+        }
+        if (!old.assets && (Number(inputs.cash) > 0 || Number(inputs.gold) > 0 || Number(inputs.invest) > 0)) {
+            if (Number(inputs.cash) > 0) { const ac = acct('Cash', 'cash'); nz.openings.push({ id: 'op1', accountId: ac.id, amount: Number(inputs.cash), heldSince: today }); }
+            if (Number(inputs.gold) > 0) nz.assets.push({ id: 'zg', cat: 'gold', name: 'Gold', mode: 'value', amount: Number(inputs.gold), cur: 'INR', heldSince: today });
+            if (Number(inputs.invest) > 0) nz.assets.push({ id: 'zi', cat: 'other', name: 'Investments', mode: 'value', amount: Number(inputs.invest), cur: 'INR', heldSince: today });
+        }
+        if (old.rates && (old.rates.silver || old.rates.gold)) nz.overrides[today] = { ...(old.rates.silver ? { s: Number(old.rates.silver) } : {}), ...(old.rates.gold ? { g: Number(old.rates.gold) } : {}) };
+        if (nz.accounts.length || nz.assets.length) nz.startKey = today;
+        if (nz.accounts.length) nz.defaultAccount = nz.accounts[0].id;
+        z = budgetData.zakat = nz;
+    }
+    for (const k of ['accounts', 'openings', 'adjust', 'assets', 'payments']) if (!Array.isArray(z[k])) z[k] = [];
+    if (!z.prices) z.prices = {}; if (!z.overrides) z.overrides = {};
+    if (z.premiumPct == null) z.premiumPct = 10;
+    if (!z.nisabGrams) z.nisabGrams = 595;
+    return z;
+}
+
+function zakatEngine() {
+    const z = zakatData();
+    if (!z.startKey) return null;
+    const today = toDateKey(Date.now());
+    const sig = today + '|' + JSON.stringify([z.openings, z.adjust, z.assets, z.payments, z.premiumPct, z.hijriAdj, z.overrides, Object.keys(z.prices).length, (budgetData.income || []).length, (budgetData.expenses || []).length, budgetData.debts]) + (budgetData.income || []).reduce((s, i) => s + i.amount, 0) + (budgetData.expenses || []).reduce((s, e) => s + e.amount, 0);
+    if (sig === zakatEngineSig && zakatEngineCache) return zakatEngineCache;
+    zakatEngineSig = sig;
+    zakatEngineCache = Core.hawlEngine(Core.zakatInputsFromBudget(budgetData, toDateKey), today);
+    return zakatEngineCache;
+}
+// Older name used by the Overview tiles.
+function zakatCalc() {
+    const e = zakatEngine();
+    if (!e) return { hasAssets: false };
+    return { hasAssets: true, net: e.wealth, due: e.totalDue, paid: e.paid, aboveNisab: e.above, outstanding: e.outstanding, next: e.upcoming[0] };
+}
+
+// ---------- Daily silver & gold prices ----------
+// Free daily feed (international spot in ₹), one small file per day with silver, gold and USD.
+async function fetchPriceDay(key) {
+    const urls = key === 'latest'
+        ? ['https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/xag.min.json', 'https://latest.currency-api.pages.dev/v1/currencies/xag.min.json']
+        : [`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${key}/v1/currencies/xag.min.json`, `https://${key}.currency-api.pages.dev/v1/currencies/xag.min.json`];
+    for (const u of urls) {
+        try {
+            const r = await fetch(u); if (!r.ok) continue;
+            const j = await r.json(); const x = j && j.xag; if (!x || !x.inr) continue;
+            const oz = 31.1034768;
+            return { date: j.date, s: Math.round(x.inr / oz * 100) / 100, g: x.xau ? Math.round(x.inr / x.xau / oz * 100) / 100 : 0, u: x.usd ? Math.round(x.inr / x.usd * 100) / 100 : 0 };
+        } catch (e) { /* try the mirror */ }
+    }
+    return null;
+}
+async function ensurePrices(force) {
+    const z = zakatData();
+    if (!z.startKey || priceFetchRunning) return;
+    const last = Number(localStorage.getItem('hisab_price_fetch')) || 0;
+    if (!force && Date.now() - last < 6 * 3600000) return;
+    const today = toDateKey(Date.now());
+    let from = z.startKey;
+    for (const a of z.assets) if (a.heldSince && a.heldSince < from) from = a.heldSince;
+    for (const o of z.openings) if (o.heldSince && o.heldSince < from) from = o.heldSince;
+    const floor = Core.addDaysKey(today, -400); if (from < floor) from = floor;
+    const need = [];
+    for (let k = from; k < today; k = Core.addDaysKey(k, 1)) if (!z.prices[k]) need.push(k);
+    priceFetchRunning = true;
+    localStorage.setItem('hisab_price_fetch', String(Date.now()));
+    const status = document.getElementById('zakat-price-status');
+    let done = 0, got = 0;
+    try {
+        const latest = await fetchPriceDay('latest');
+        if (latest && latest.date) { z.prices[latest.date] = { s: latest.s, g: latest.g, u: latest.u }; got++; }
+        const queue = need.slice();
+        const worker = async () => {
+            while (queue.length) {
+                const k = queue.shift();
+                const p = await fetchPriceDay(k);
+                if (p) { z.prices[k] = { s: p.s, g: p.g, u: p.u }; got++; }
+                done++;
+                if (status && done % 10 === 0) status.innerText = `Loading daily silver prices… ${done}/${need.length}`;
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(6, need.length || 1) }, worker));
+    } finally { priceFetchRunning = false; }
+    if (status) status.innerText = '';
+    if (got) { saveData(); renderBudget(); }
+    else if (!Object.keys(z.prices).length) showToast("Couldn't load silver prices — check your connection or enter today's rate", '⚠️');
+}
+
+// ---------- Rendering ----------
+function inrD(n) { return '₹' + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
+function hl(key, short) { return Core.hijriLabel(key, hijriAdj(), short); }
+function gl(key) { return new Date(key + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); }
+
+function accountBalances() {
+    const z = zakatData(); const start = z.startKey; const def = defaultAccountId();
+    const bal = {}; for (const a of z.accounts) bal[a.id] = 0;
+    if (!start) return bal;
+    const addTo = (id, v) => { const k = bal[id] != null ? id : def; if (k) bal[k] = (bal[k] || 0) + v; };
+    for (const o of z.openings) addTo(o.accountId, Number(o.amount) || 0);
+    for (const c of z.adjust) if (c.key >= start) addTo(c.accountId, Number(c.amount) || 0);
+    for (const i of budgetData.income || []) if (toDateKey(i.date) >= start) addTo(i.accountId, Number(i.amount) || 0);
+    for (const e of budgetData.expenses || []) if (toDateKey(e.date) >= start) addTo(e.accountId, -(Number(e.amount) || 0));
+    for (const p of z.payments) if (toDateKey(p.date) >= start) addTo(p.accountId, -(Number(p.amount) || 0));
+    for (const d of budgetData.debts || []) {
+        const sign = d.type === 'lent' ? -1 : 1;
+        if (toDateKey(d.date) >= start) addTo(d.accountId, sign * (Number(d.amount) || 0));
+        for (const p of d.payments || []) if (toDateKey(p.date) >= start) addTo(d.accountId, -sign * (Number(p.amount) || 0));
+    }
+    return bal;
+}
+
+function renderZakat() {
+    const z = zakatData();
+    const host = document.getElementById('zakat-main'); if (!host) { renderDeenZakatSummary(); return; }
+    if (!z.startKey) {
+        host.innerHTML = `<div class="card zk-setup">
+            <h3 style="margin:0 0 6px;">Start your zakat year</h3>
+            <p class="muted" style="font-size:13.5px; margin:0 0 12px;">Add the money you have now — cash in hand and each bank account — and since when you've held it. From then on Hisab dates every income, expense and loan by the Hijri calendar, checks your wealth against 595 g of silver every day, and tells you the zakat due when each amount completes a Hijri year (Shafi'i).</p>
+            <button onclick="openAccountModal()">Add cash or bank account</button>
+        </div>`;
+        renderDeenZakatSummary();
+        return;
+    }
+    ensurePrices();
+    const e = zakatEngine();
+    const bal = accountBalances();
+    const adj = hijriAdj();
+    const today = toDateKey(Date.now());
+    const nextUp = e.upcoming[0];
+    const margin = e.nisab != null ? e.wealth - e.nisab : null;
+    const hero = `<div class="card zk-hero">
+        <div class="zk-today">Today · ${hl(today)}</div>
+        ${e.outstanding > 0.5
+            ? `<div class="zk-due due"><div><div class="l">Zakat due now</div><div class="big-figure">${inrD(e.outstanding)}</div></div><button onclick="openZakatPay()">Record payment</button></div>`
+            : `<div class="zk-due"><div><div class="l">${e.outstanding < -0.5 ? `Paid ${inrD(-e.outstanding)} in advance` : 'Nothing due right now'}</div><div style="font-weight:650; margin-top:2px;">${nextUp ? `Next: ${nextUp.hijri} (${gl(nextUp.key)}) — about ${inrD(Math.round(nextUp.zakat))}${e.outstanding < -0.5 ? ` · ${inrD(Math.max(0, nextUp.zakat + e.outstanding))} left after your advance` : ''}` : 'No amount is on its way to a full year yet.'}</div></div>${e.above ? `<button class="btn-secondary" onclick="openZakatPay('advance')">Pay in advance</button>` : ''}</div>`}
+        ${e.outstanding > 0.5 && nextUp ? `<div class="zk-note">After that: ${nextUp.hijri} (${gl(nextUp.key)}) — about ${inrD(Math.round(nextUp.zakat))}.</div>` : ''}
+        <div class="zk-grid">
+            <div><div class="l">Your wealth</div><div class="v">${inrD(Math.round(e.wealth))}</div></div>
+            <div><div class="l">Nisab (595 g silver)</div><div class="v">${e.nisab != null ? inrD(e.nisab) : '—'}</div></div>
+            <div><div class="l">Status</div><div class="v ${e.above ? 'pos' : 'neg'}">${e.nisab == null ? 'no price' : e.above ? 'Above' : 'Below'}</div></div>
+        </div>
+        ${e.nisab != null ? `<div class="zk-note">Silver today ₹${(Math.round(e.silverToday * 100) / 100).toLocaleString('en-IN')}/g${z.overrides[today] && z.overrides[today].s ? ' (your rate)' : ` (international + ${z.premiumPct}%)`}. ${margin >= 0 ? `You're ${inrD(Math.round(margin))} above nisab.` : `You need ${inrD(Math.round(-margin))} more to reach nisab.`}</div>` : '<div class="zk-note warn">Silver prices are still loading. Without them every day is treated as above nisab.</div>'}
+        ${e.minMargin && e.minMargin.margin >= 0 && e.series.length > 30 ? `<div class="zk-note">Lowest point since ${gl(e.fromKey)}: ${inrD(Math.round(e.minMargin.margin))} above nisab on ${hl(e.minMargin.key)}.</div>` : ''}
+        ${e.breaks.length ? `<div class="zk-note warn">Dropped below nisab on ${e.breaks.slice(-3).map(b => hl(b.key)).join(', ')} — every zakat year restarted the next day you were back above it.</div>` : ''}
+        <div class="zk-price-status muted" id="zakat-price-status"></div>
+    </div>`;
+
+    const chart = `<div class="card"><div class="card-head"><h3>Wealth vs nisab</h3><span class="muted" style="font-size:12px;">since ${hl(e.fromKey, true)}</span></div><div style="height:190px;"><canvas id="zakatWealthChart"></canvas></div></div>`;
+
+    const dueRows = [...e.dues].reverse().slice(0, 12).map(d => `<div class="zk-pay"><div><b>${inrD(d.zakat)}</b> on ${inrD(d.base)} · ${escapeHTML(d.label)}<div class="muted" style="font-size:12px;">Year completed ${d.hijri} (${gl(d.key)})</div></div></div>`).join('');
+    const paidRows = [...z.payments].sort((a, b) => b.date - a.date).slice(0, 12).map(p => `<div class="zk-pay"><div><b>${inrD(p.amount)}</b>${p.kind === 'advance' ? ' <span class="badge">advance</span>' : ''}${p.to ? ' · ' + escapeHTML(p.to) : ''}<div class="muted" style="font-size:12px;">${p.kind === 'advance' && p.forKey ? `for ${hl(p.forKey, true)} · ` : ''}${hijriText(p.date)} · ${new Date(p.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</div></div><button class="btn-icon" onclick="deleteZakatPay('${p.id}')" aria-label="Delete payment">🗑️</button></div>`).join('');
+    const dueCard = `<div class="card"><div class="card-head"><h3>Zakat due and paid</h3><button class="btn-sm btn-soft" onclick="openZakatPay()"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Payment</button></div>
+        <div class="zk-sumline"><span>Due so far <b>${inrD(e.totalDue)}</b></span><span>Paid <b>${inrD(e.paid)}</b></span><span>Left <b>${inrD(Math.max(0, e.outstanding))}</b></span></div>
+        ${e.onReceivable > 0.5 ? `<div class="zk-note">About ${inrD(e.onReceivable)} of this is on money people owe you. In the Shafi'i school you may wait until you receive it, then pay for every year it was owed.</div>` : ''}
+        ${dueRows ? `<div class="zk-sub">When each amount completed its year</div>${dueRows}` : '<div class="muted" style="font-size:13px; margin-top:8px;">No amount has completed a Hijri year since you started tracking.</div>'}
+        ${paidRows ? `<div class="zk-sub">Payments</div>${paidRows}` : ''}
+    </div>`;
+
+    const upCard = `<div class="card"><div class="card-head"><h3>Coming up</h3></div>${e.upcoming.length ? e.upcoming.slice(0, 6).map(u => `<div class="zk-pay"><div><b>${u.hijri}</b> <span class="muted">(${gl(u.key)})</span><div class="muted" style="font-size:12px;">${u.parts.slice(0, 3).map(p => `${escapeHTML(p.label)} ${inrD(p.amount)}`).join(' · ')}${u.parts.length > 3 ? ` +${u.parts.length - 3} more` : ''}</div></div><div class="zk-amt">≈ ${inrD(Math.round(u.zakat))}</div></div>`).join('') + '<div class="field-hint">Estimates use today\'s amounts. They\'re only due if your wealth stays above nisab every day until then.</div>' : '<div class="muted" style="font-size:13px;">Nothing yet.</div>'}</div>`;
+
+    const acctCard = `<div class="card"><div class="card-head"><h3>Cash and bank</h3><button class="btn-sm" onclick="openAccountModal()"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Account</button></div>
+        ${z.accounts.map(a => `<div class="zk-acct"><div class="n"><b>${escapeHTML(a.name)}</b>${a.id === defaultAccountId() && z.accounts.length > 1 ? ' <span class="badge">default</span>' : ''}<div class="muted" style="font-size:12px;">${a.type === 'cash' ? 'Cash' : 'Bank'}</div></div><div class="a">${inrD(Math.round(bal[a.id] || 0))}</div><button class="btn-sm btn-soft" onclick="openCorrection('${a.id}')" style="margin:0;">Update</button><button class="btn-icon" onclick="openAccountModal('${a.id}')" aria-label="Edit account">✏️</button></div>`).join('')}
+        <div class="field-hint">Balances follow the income, expenses and loans you log here. When your real balance is different, tap Update — Hisab records the difference.</div></div>`;
+
+    const assetRows = z.assets.map(a => {
+        const c = ZAKAT_CATS[a.cat] || ZAKAT_CATS.other;
+        const P = Core.makePriceLookup(z.prices, z.overrides, z.premiumPct);
+        const v = a.mode === 'grams' ? (a.cat === 'gold' ? (Number(a.grams) || 0) * ((Number(a.karat) || 24) / 24) * P.gold(today) : (Number(a.grams) || 0) * P.silver(today)) : (a.cur === 'USD' ? (Number(a.amount) || 0) * P.usd(today) : Number(a.amount) || 0);
+        const detail = a.mode === 'grams' ? `${a.grams} g${a.cat === 'gold' ? ' · ' + (a.karat || 24) + 'K' : ''}` : a.cur === 'USD' ? `$${(Number(a.amount) || 0).toLocaleString()}` : '';
+        return `<button class="zk-item" onclick="openAssetModal('${a.id}')"><span class="n">${c.icon} ${escapeHTML(a.name || c.label)}<span class="d">${detail ? detail + ' · ' : ''}held since ${hl(a.heldSince, true)}</span></span><span class="a">${v ? inrD(Math.round(v)) : 'needs price'}</span></button>`;
+    }).join('');
+    const assetCard = `<div class="card"><div class="card-head"><h3>Gold, silver and investments</h3><button class="btn-sm" onclick="openAssetModal()"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Add</button></div>
+        ${assetRows || '<div class="muted" style="font-size:13px;">Add gold and silver by weight (valued at each day\'s price), shares, mutual funds, crypto and trade goods — each with the Hijri date you got it.</div>'}</div>`;
+
+    const lent = (budgetData.debts || []).filter(d => d.type === 'lent').reduce((s, d) => s + Math.max(0, d.amount - (d.repaid || 0)), 0);
+    const borrowed = (budgetData.debts || []).filter(d => d.type === 'borrowed').reduce((s, d) => s + Math.max(0, d.amount - (d.repaid || 0)), 0);
+    const loansCard = `<div class="card"><div class="card-head"><h3>Loans (Shafi'i)</h3></div>
+        <div class="zk-pay"><div>Owed to you <div class="muted" style="font-size:12px;">Counts as your wealth; it keeps the year of the money you lent.</div></div><div class="zk-amt pos">${inrD(lent)}</div></div>
+        <div class="zk-pay"><div>You owe <div class="muted" style="font-size:12px;">Not subtracted. Borrowed money still in your hands counts as your wealth.</div></div><div class="zk-amt neg">${inrD(borrowed)}</div></div></div>`;
+
+    const settings = `<div class="card"><div class="card-head"><h3>Calendar and silver price</h3></div>
+        <div class="zk-set-grid">
+            <div><label class="field-label" for="zs-adj">Hijri date</label><select id="zs-adj" onchange="setZakatSetting('hijriAdj', Number(this.value))">${[-2, -1, 0, 1, 2].map(v => `<option value="${v}" ${adj === v ? 'selected' : ''}>${v === 0 ? 'Umm al-Qura (standard)' : (v > 0 ? '+' : '') + v + ' day' + (Math.abs(v) > 1 ? 's' : '')}</option>`).join('')}</select><div class="field-hint">Today: ${hl(today)}</div></div>
+            <div><label class="field-label" for="zs-prem">Indian premium %</label><input type="number" id="zs-prem" inputmode="decimal" value="${z.premiumPct}" onchange="setZakatSetting('premiumPct', Math.max(0, parseFloat(this.value) || 0))"></div>
+            <div><label class="field-label" for="zs-today">Today's silver ₹/g</label><input type="number" id="zs-today" inputmode="decimal" placeholder="${e.silverToday ? Math.round(e.silverToday * 100) / 100 : ''}" value="${(z.overrides[today] || {}).s || ''}" onchange="setTodaySilver(this.value)"></div>
+        </div>
+        <div class="field-hint">Silver is fetched every day (international price in ₹) and the premium is added to match Indian rates. Type today's local rate to use it instead. If your masjid's Hijri date is a day different from Umm al-Qura, adjust it here — every zakat date moves with it.</div>
+        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;"><button class="btn-sm btn-secondary" onclick="ensurePrices(true)" style="margin:0;">Refresh prices</button><button class="btn-sm btn-ghost" onclick="resetZakatStart()" style="margin:0;">Change start date</button></div>
+        <div class="field-hint">Tracking since ${hl(z.startKey)} (${gl(z.startKey)}). Nisab: 595 g silver.</div></div>`;
+
+    host.innerHTML = hero + chart + dueCard + upCard + acctCard + assetCard + loansCard + settings;
+    drawZakatChart(e);
+    renderDeenZakatSummary();
+}
+
+let zakatWealthChart = null;
+function drawZakatChart(e) {
+    const cv = document.getElementById('zakatWealthChart'); if (!cv || typeof Chart === 'undefined') return;
+    const s = e.series.slice(-400);
+    const step = Math.max(1, Math.ceil(s.length / 120));
+    const pts = s.filter((_, i) => i % step === 0 || i === s.length - 1);
+    if (zakatWealthChart) zakatWealthChart.destroy();
+    zakatWealthChart = new Chart(cv.getContext('2d'), {
+        type: 'line',
+        data: { labels: pts.map(p => hl(p.key, true)), datasets: [
+            { label: 'Wealth', data: pts.map(p => p.wealth), borderColor: cssVar('--brand'), backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: .2 },
+            { label: 'Nisab', data: pts.map(p => p.nisab), borderColor: cssVar('--amber'), borderDash: [5, 4], backgroundColor: 'transparent', borderWidth: 1.5, pointRadius: 0 },
+        ] },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { labels: { color: cssVar('--muted'), boxWidth: 12, font: { size: 11 } } }, tooltip: { callbacks: { label: c => `${c.dataset.label}: ₹${Math.round(c.parsed.y).toLocaleString('en-IN')}` } } },
+            scales: { x: { ticks: { color: cssVar('--muted'), maxTicksLimit: 5, font: { size: 10 } }, grid: { display: false } }, y: { ticks: { color: cssVar('--muted'), font: { size: 10 }, callback: v => '₹' + (v >= 100000 ? (v / 100000).toFixed(1) + 'L' : Math.round(v / 1000) + 'k') }, grid: { color: cssVar('--border') } } } }
+    });
+}
+
+function renderDeenZakatSummary() {
+    const el = document.getElementById('deen-zakat-summary'); if (!el) return;
+    const e = zakatEngine();
+    if (!e) { el.innerHTML = `<div class="muted" style="font-size:13px;">Track your zakat year on the Hijri calendar: add your cash and bank balances, and Hisab checks them against 595 g of silver every day.</div>`; return; }
+    const n = e.upcoming[0];
+    el.innerHTML = `<div class="grid-3"><div class="stat-box"><div class="l">Due now</div><div class="v" style="font-size:16px; color:var(--brand)">${inrD(Math.max(0, Math.round(e.outstanding)))}</div></div><div class="stat-box"><div class="l">Wealth</div><div class="v" style="font-size:16px;">${inrD(Math.round(e.wealth))}</div></div><div class="stat-box"><div class="l">Nisab</div><div class="v" style="font-size:16px; color:${e.above ? 'var(--green)' : 'var(--rose)'}">${e.nisab != null ? (e.above ? 'Above' : 'Below') : '—'}</div></div></div>${n ? `<div class="muted" style="font-size:12.5px; margin-top:8px;">Next zakat: ${n.hijri} — about ${inrD(n.zakat)}</div>` : ''}`;
+}
+
+// ---------- Settings ----------
+function setZakatSetting(k, v) { zakatData()[k] = v; saveData(); renderBudget(); }
+function setTodaySilver(v) {
+    const z = zakatData(); const t = toDateKey(Date.now()); const n = parseFloat(v);
+    if (n > 0) z.overrides[t] = { ...(z.overrides[t] || {}), s: n }; else if (z.overrides[t]) delete z.overrides[t].s;
+    saveData(); renderBudget();
+}
+function resetZakatStart() {
+    const z = zakatData();
+    const v = prompt(`Tracking starts on ${z.startKey}. Enter a new start date (YYYY-MM-DD). Income, expenses and loans from that day on will count.`, z.startKey);
+    if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+    z.startKey = v; localStorage.removeItem('hisab_price_fetch'); saveData(); renderBudget();
+}
+
+// ---------- Accounts and opening balances ----------
+function openAccountModal(id) {
+    const z = zakatData();
+    const a = id ? z.accounts.find(x => x.id === id) : null;
+    const opens = a ? z.openings.filter(o => o.accountId === a.id) : [];
+    document.getElementById('acct-id').value = a ? a.id : '';
+    document.getElementById('acct-name').value = a ? a.name : '';
+    document.getElementById('acct-type').value = a ? a.type : 'bank';
+    document.getElementById('acct-modal-title').innerText = a ? 'Edit account' : 'Add cash or bank account';
+    document.getElementById('acct-default').checked = a ? a.id === defaultAccountId() : !z.accounts.length;
+    document.getElementById('acct-open-wrap').style.display = a ? 'none' : '';
+    document.getElementById('acct-amount').value = '';
+    document.getElementById('acct-held').innerHTML = hijriPickerHTML('ach', toDateKey(Date.now()), 'Held since (when this money came to you)');
+    document.getElementById('acct-opens').innerHTML = a && opens.length ? `<div class="zk-sub">Starting amounts</div>` + opens.map(o => `<div class="zk-pay"><div>${inrD(o.amount)}<div class="muted" style="font-size:12px;">held since ${hl(o.heldSince)}</div></div><button class="btn-icon" onclick="deleteOpening('${o.id}')" aria-label="Delete">🗑️</button></div>`).join('') + `<button class="btn-sm btn-soft" onclick="addOpeningPart('${a.id}')" style="margin-top:6px;">+ Add an amount held since a different date</button>` : '';
+    document.getElementById('acct-delete').style.display = a ? '' : 'none';
+    openModal('acct-modal');
+}
+function saveAccount() {
+    const z = zakatData();
+    const id = document.getElementById('acct-id').value;
+    const name = document.getElementById('acct-name').value.trim();
+    const type = document.getElementById('acct-type').value;
+    if (!name) return alert('Give the account a name, e.g. "SBI savings" or "Cash in hand".');
+    let a = id && z.accounts.find(x => x.id === id);
+    if (a) { a.name = name; a.type = type; }
+    else {
+        const amount = parseFloat(document.getElementById('acct-amount').value) || 0;
+        const held = hpValue('ach');
+        a = { id: 'ac' + Date.now().toString(36), name, type };
+        z.accounts.push(a);
+        if (!z.startKey) z.startKey = toDateKey(Date.now());
+        if (amount > 0) z.openings.push({ id: 'op' + Date.now().toString(36), accountId: a.id, amount, heldSince: held, hijri: Core.hijriKey(held, hijriAdj()) });
+    }
+    if (document.getElementById('acct-default').checked || z.accounts.length === 1) z.defaultAccount = a.id;
+    closeModal('acct-modal'); saveData(); renderBudget();
+}
+function addOpeningPart(accountId) {
+    closeModal('acct-modal');
+    document.getElementById('corr-acct').value = accountId;
+    document.getElementById('corr-mode').value = 'part';
+    document.getElementById('corr-title').innerText = 'Add an amount you already had';
+    document.getElementById('corr-sub').innerText = 'For money in this account that came to you on a different date — it gets its own Hijri year.';
+    document.getElementById('corr-label').innerText = 'Amount (₹)';
+    document.getElementById('corr-amount').value = '';
+    document.getElementById('corr-held').innerHTML = hijriPickerHTML('corh', toDateKey(Date.now()), 'Held since');
+    document.getElementById('corr-held').style.display = '';
+    openModal('corr-modal');
+}
+function deleteOpening(id) {
+    if (!confirm('Delete this starting amount?')) return;
+    const z = zakatData(); z.openings = z.openings.filter(o => o.id !== id);
+    closeModal('acct-modal'); saveData(); renderBudget();
+}
+function deleteAccount() {
+    const z = zakatData(); const id = document.getElementById('acct-id').value;
+    if (!confirm('Delete this account and its starting balance? Income and expenses logged to it move to your default account.')) return;
+    z.accounts = z.accounts.filter(a => a.id !== id);
+    z.openings = z.openings.filter(o => o.accountId !== id);
+    z.adjust = z.adjust.filter(c => c.accountId !== id);
+    if (z.defaultAccount === id) z.defaultAccount = (z.accounts[0] || {}).id;
+    if (!z.accounts.length && !z.assets.length) delete z.startKey;
+    closeModal('acct-modal'); saveData(); renderBudget();
+}
+// "Update balance": record the difference between the real balance and Hisab's.
+function openCorrection(accountId) {
+    const a = zakatData().accounts.find(x => x.id === accountId); if (!a) return;
+    document.getElementById('corr-acct').value = accountId;
+    document.getElementById('corr-mode').value = 'fix';
+    document.getElementById('corr-title').innerText = `Update ${a.name}`;
+    document.getElementById('corr-sub').innerText = `Hisab shows ${inrD(Math.round(accountBalances()[accountId] || 0))}. Enter what's actually there now.`;
+    document.getElementById('corr-label').innerText = 'Actual balance (₹)';
+    document.getElementById('corr-amount').value = '';
+    document.getElementById('corr-held').innerHTML = hijriPickerHTML('corh', toDateKey(Date.now()), 'If it is more: held since');
+    document.getElementById('corr-held').style.display = 'none';
+    openModal('corr-modal');
+}
+function corrTyped() {
+    if (document.getElementById('corr-mode').value !== 'fix') return;
+    const id = document.getElementById('corr-acct').value;
+    const v = parseFloat(document.getElementById('corr-amount').value);
+    document.getElementById('corr-held').style.display = v > (accountBalances()[id] || 0) ? '' : 'none';
+}
+function saveCorrection() {
+    const z = zakatData();
+    const id = document.getElementById('corr-acct').value;
+    const v = parseFloat(document.getElementById('corr-amount').value);
+    if (isNaN(v) || v < 0) return alert('Enter an amount.');
+    const today = toDateKey(Date.now());
+    if (document.getElementById('corr-mode').value === 'part') {
+        if (!(v > 0)) return alert('Enter an amount greater than 0.');
+        const held = hpValue('corh');
+        z.openings.push({ id: 'op' + Date.now().toString(36), accountId: id, amount: v, heldSince: held, hijri: Core.hijriKey(held, hijriAdj()) });
+    } else {
+        const diff = Math.round((v - (accountBalances()[id] || 0)) * 100) / 100;
+        if (Math.abs(diff) < 0.5) { closeModal('corr-modal'); return showToast('Already matches', '✅'); }
+        const held = diff > 0 ? hpValue('corh') : today;
+        z.adjust.push({ id: 'aj' + Date.now().toString(36), accountId: id, key: today, amount: diff, heldSince: held, hijri: Core.hijriKey(today, hijriAdj()) });
+        showToast(`${diff > 0 ? 'Added' : 'Removed'} ${inrD(Math.abs(diff))} to match`, '🏦');
+    }
+    closeModal('corr-modal'); saveData(); renderBudget();
+}
+
+// ---------- Assets ----------
+function openAssetModal(id) {
+    const z = zakatData();
+    const a = id ? z.assets.find(x => x.id === id) : null;
+    const sel = document.getElementById('asset-cat');
+    sel.innerHTML = Object.entries(ZAKAT_CATS).map(([k, c]) => `<option value="${k}">${c.icon} ${c.label}</option>`).join('');
+    sel.value = a ? a.cat : 'gold';
+    document.getElementById('asset-id').value = a ? a.id : '';
+    document.getElementById('asset-name').value = a ? (a.name || '') : '';
+    document.getElementById('asset-modal-title').innerText = a ? 'Edit' : 'Add gold, silver or investment';
+    document.getElementById('asset-delete-btn').style.display = a ? '' : 'none';
+    document.getElementById('asset-held').innerHTML = hijriPickerHTML('ash', a ? a.heldSince : toDateKey(Date.now()), 'Held since (Hijri date you got it)');
+    assetCatChanged(a);
+    openModal('asset-modal');
+}
+function assetCatChanged(a) {
+    if (!a || a.target) a = null;
+    const cat = document.getElementById('asset-cat').value;
+    const c = ZAKAT_CATS[cat] || ZAKAT_CATS.other;
+    document.getElementById('asset-name').placeholder = c.ph || 'Name';
+    document.getElementById('asset-hint').innerText = c.hint || '';
+    const f = document.getElementById('asset-fields');
+    if (c.metal) {
+        const mode = a ? (a.mode || 'value') : 'grams';
+        f.innerHTML = `<div class="seg-toggle" id="asset-mode-seg"><button type="button" data-v="grams" class="${mode === 'grams' ? 'active' : ''}" onclick="setAssetMode('grams')">By weight</button><button type="button" data-v="value" class="${mode === 'value' ? 'active' : ''}" onclick="setAssetMode('value')">By value (₹)</button></div>
+            <input type="hidden" id="asset-mode" value="${mode}">
+            <div id="asset-grams-row" class="field-row" style="${mode === 'grams' ? '' : 'display:none;'}">
+                <div><label class="field-label" for="asset-grams">Weight (g)</label><input type="number" id="asset-grams" inputmode="decimal" value="${a && a.grams ? a.grams : ''}"></div>
+                ${cat === 'gold' ? `<div><label class="field-label" for="asset-karat">Purity</label><select id="asset-karat">${[24, 22, 21, 18, 14].map(k => `<option value="${k}" ${Number(a && a.karat || 22) === k ? 'selected' : ''}>${k}K</option>`).join('')}</select></div>` : ''}
+            </div>
+            <div id="asset-value-row" style="${mode === 'value' ? '' : 'display:none;'}"><label class="field-label" for="asset-amount">Value (₹)</label><input type="number" id="asset-amount" inputmode="decimal" value="${a && a.mode !== 'grams' ? (a.amount || '') : ''}"></div>
+            <div class="field-hint">By weight, it's valued at each day's ${cat} price.</div>`;
+    } else {
+        const cur = a ? (a.cur || 'INR') : (c.usd ? 'USD' : 'INR');
+        f.innerHTML = `<div class="field-row">
+            <div style="flex:2;"><label class="field-label" for="asset-amount">Current value</label><input type="number" id="asset-amount" inputmode="decimal" value="${a ? (a.amount || '') : ''}"></div>
+            <div><label class="field-label" for="asset-cur">Currency</label><select id="asset-cur"><option value="INR" ${cur === 'INR' ? 'selected' : ''}>₹ INR</option><option value="USD" ${cur === 'USD' ? 'selected' : ''}>$ USD</option></select></div>
+        </div><div class="field-hint">Update the value whenever it changes; zakat uses the value on the day it falls due.</div>`;
+    }
+}
+function setAssetMode(m) {
+    document.getElementById('asset-mode').value = m;
+    document.querySelectorAll('#asset-mode-seg button').forEach(b => b.classList.toggle('active', b.dataset.v === m));
+    document.getElementById('asset-grams-row').style.display = m === 'grams' ? '' : 'none';
+    document.getElementById('asset-value-row').style.display = m === 'value' ? '' : 'none';
+}
+function saveAsset() {
+    const z = zakatData();
+    const id = document.getElementById('asset-id').value;
+    const cat = document.getElementById('asset-cat').value;
+    const c = ZAKAT_CATS[cat] || ZAKAT_CATS.other;
+    const name = document.getElementById('asset-name').value.trim() || c.label;
+    const held = hpValue('ash');
+    const rec = { id: id || 'z' + Date.now().toString(36), cat, name, heldSince: held, hijri: Core.hijriKey(held, hijriAdj()), updatedAt: Date.now() };
+    if (c.metal && document.getElementById('asset-mode').value === 'grams') {
+        rec.mode = 'grams'; rec.grams = parseFloat(document.getElementById('asset-grams').value) || 0;
+        if (cat === 'gold') rec.karat = parseInt(document.getElementById('asset-karat').value, 10) || 22;
+        if (!(rec.grams > 0)) return alert('Enter the weight in grams.');
+    } else {
+        rec.mode = 'value'; rec.amount = parseFloat(document.getElementById('asset-amount').value) || 0;
+        rec.cur = c.metal ? 'INR' : (document.getElementById('asset-cur')?.value || 'INR');
+        if (!(rec.amount > 0)) return alert('Enter an amount greater than 0.');
+    }
+    const i = z.assets.findIndex(x => x.id === rec.id);
+    if (i >= 0) z.assets[i] = rec; else z.assets.push(rec);
+    if (!z.startKey) z.startKey = toDateKey(Date.now());
+    closeModal('asset-modal'); saveData(); renderBudget();
+}
+function deleteAsset() {
+    const z = zakatData(); const id = document.getElementById('asset-id').value;
+    if (!confirm('Delete this item? If you sold it, log the money you received as income instead.')) return;
+    z.assets = z.assets.filter(x => x.id !== id);
+    closeModal('asset-modal'); saveData(); renderBudget();
+}
+
+// ---------- Payments ----------
+function openZakatPay(mode) {
+    const e = zakatEngine();
+    const due = e ? Math.max(0, e.outstanding) : 0;
+    const next = e && e.upcoming[0];
+    const forSel = document.getElementById('zpay-for');
+    forSel.innerHTML = (due > 0.5 ? `<option value="due">Zakat already due (${inrD(Math.round(due))})</option>` : '')
+        + (next ? `<option value="advance">In advance — for ${next.hijri} (about ${inrD(Math.max(0, next.zakat + Math.min(0, e.outstanding)))})</option>` : '')
+        + `<option value="other">Other / not sure</option>`;
+    forSel.value = mode === 'advance' && next ? 'advance' : (due > 0.5 ? 'due' : (next ? 'advance' : 'other'));
+    zpayForChanged();
+    document.getElementById('zpay-amount').value = forSel.value === 'due' ? Math.round(due) : (forSel.value === 'advance' && next ? Math.round(Math.max(0, next.zakat + Math.min(0, e.outstanding))) : '');
+    document.getElementById('zpay-to').value = '';
+    document.getElementById('zpay-date').value = toDateKey(Date.now());
+    hijriHint('zpay-date', 'zpay-hijri');
+    fillAccountSelect('zpay-account', 'zpay-acct-wrap');
+    openModal('zakat-pay-modal');
+}
+function saveZakatPay() {
+    const amt = parseFloat(document.getElementById('zpay-amount').value);
+    if (!(amt > 0)) return alert('Enter an amount greater than 0.');
+    const dv = document.getElementById('zpay-date').value;
+    const date = dv ? keyToMs(dv) : Date.now();
+    const to = document.getElementById('zpay-to').value.trim();
+    const kind = document.getElementById('zpay-for').value;
+    const e = zakatEngine(); const next = e && e.upcoming[0];
+    const p = { id: 'zp' + Date.now().toString(36), amount: amt, date, to, kind, accountId: chosenAccount('zpay-account'), hijri: hijriOfMs(date) };
+    if (kind === 'advance' && next) p.forKey = next.key;
+    zakatData().payments.push(p);
+    const log = { id: p.id, taskId: 'zakat', category: 'budget', timestamp: date, title: 'Zakat paid' + (to ? ` (${to})` : ''), actionType: 'zakat_paid', amount: amt };
+    activityHistory.push(log); syncToGoogleSheets(log);
+    closeModal('zakat-pay-modal'); saveData(); renderBudget();
+    showToast(`Zakat ${inrD(amt)} recorded${kind === 'advance' ? ' in advance' : ''}`, '🕌');
+}
+function deleteZakatPay(id) {
+    if (!confirm('Delete this payment?')) return;
+    const z = zakatData(); z.payments = z.payments.filter(p => p.id !== id);
+    activityHistory = activityHistory.filter(h => h.id !== id);
+    saveData(); renderBudget();
+}
+
+function zpayForChanged() {
+    const v = document.getElementById('zpay-for').value;
+    document.getElementById('zpay-adv-hint').style.display = v === 'advance' ? '' : 'none';
+}
+
+let budgetViewInit = false;
 function renderBudget() {
+    if (!budgetViewInit) { budgetViewInit = true; setBudgetView(localStorage.getItem('hisab_budget_view') || 'overview'); }
     const now = new Date(); const currentMonth = now.getMonth(); const currentYear = now.getFullYear();
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     
@@ -3495,33 +4595,8 @@ function renderBudget() {
     if (limitDisplayEl) limitDisplayEl.innerText = budgetData.limit.toLocaleString();
     
     let monthlyTotal = 0;
-    const listContainer = document.getElementById('expense-list-container');
-    if (listContainer) {
-        listContainer.innerHTML = '';
-        const sortedExpenses = [...budgetData.expenses].sort((a, b) => b.date - a.date);
-        let hasExpensesThisMonth = false;
-
-        sortedExpenses.forEach(exp => {
-            const expDate = new Date(exp.date);
-            if (expDate.getMonth() === currentMonth && expDate.getFullYear() === currentYear) {
-                monthlyTotal += exp.amount; hasExpensesThisMonth = true;
-                const div = document.createElement('div');
-                div.style = "background:var(--surface-2); padding:12px; border-radius:10px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; border-left:4px solid var(--danger);";
-                div.innerHTML = `
-                    <div>
-                        <div style="font-weight:bold;">${escapeHTML(exp.desc)}</div>
-                        <div style="font-size:0.8rem; color:var(--muted);">${expDate.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} · ${BILL_CATS[exp.category || 'other'] || 'Other'}${exp.billId ? ' · recurring bill' : ''}</div>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:12px;">
-                        <span style="color:var(--danger); font-weight:bold;">₹${exp.amount.toLocaleString()}</span>
-                        <button class="btn-icon" onclick="deleteExpense('${exp.id}')" style="min-width:36px; min-height:36px;">🗑️</button>
-                    </div>
-                `;
-                listContainer.appendChild(div);
-            }
-        });
-        if (!hasExpensesThisMonth) listContainer.innerHTML = '<p style="color:var(--muted); text-align:center;">No expenses logged for this month yet.</p>';
-    }
+    budgetData.expenses.forEach(exp => { const d = new Date(exp.date); if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) monthlyTotal += Number(exp.amount) || 0; });
+    renderTransactions();
 
     // Category Chart & Breakdown
     const catCanvas = document.getElementById('expenseCategoryChart');
@@ -3584,46 +4659,11 @@ function renderBudget() {
         }
     }
 
-    let totalBorrowed = 0; let totalLent = 0;
-    const borrowedContainer = document.getElementById('borrowed-list-container');
-    const lentContainer = document.getElementById('lent-list-container');
-    
-    if(borrowedContainer && lentContainer) {
-        borrowedContainer.innerHTML = ''; lentContainer.innerHTML = '';
-        const sortedDebts = [...(budgetData.debts || [])].sort((a, b) => b.date - a.date);
-        
-        sortedDebts.forEach(debt => {
-            const dDate = new Date(debt.date); const repaid = debt.repaid || 0; const pending = debt.amount - repaid;
-            if (pending <= 0 && repaid > 0 && debt.amount > 0) return; 
-            
-            const div = document.createElement('div');
-            div.style = "background:var(--surface-2); padding:10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;";
-            let progressHtml = repaid > 0 ? `<div style="font-size:0.75rem; color:var(--muted); margin-top:2px;">Original: ₹${debt.amount} | Paid: ₹${repaid}</div>` : '';
-
-            div.innerHTML = `
-                <div>
-                    <div style="font-weight:bold; font-size:0.85rem;">${escapeHTML(debt.desc)}</div>
-                    <div style="font-size:0.75rem; color:var(--muted);">${dDate.toLocaleDateString()}</div>
-                    ${debtDueBadge(debt)}
-                    ${progressHtml}
-                </div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <div style="text-align:right;">
-                        <span style="font-weight:bold; font-size:0.9rem; color:${debt.type === 'borrowed' ? 'var(--bad)' : 'var(--success)'};">₹${pending.toLocaleString()}</span>
-                    </div>
-                    <button class="btn-icon" onclick="openDebtDue('${debt.id}')" title="Set due date" aria-label="Set due date">📅</button>
-                    <button class="btn-icon" onclick="repayDebt('${debt.id}')" style="background:rgba(3, 218, 198, 0.15); color:var(--success);" title="Log Repayment">💰</button>
-                    <button class="btn-icon" onclick="deleteDebt('${debt.id}')" title="Delete Record">🗑️</button>
-                </div>
-            `;
-            if (debt.type === 'borrowed') { totalBorrowed += pending; borrowedContainer.appendChild(div); } 
-            else { totalLent += pending; lentContainer.appendChild(div); }
-        });
-        
-        if (borrowedContainer.innerHTML === '') borrowedContainer.innerHTML = '<div style="color:var(--muted); font-size:0.8rem; text-align:center;">None</div>';
-        if (lentContainer.innerHTML === '') lentContainer.innerHTML = '<div style="color:var(--muted); font-size:0.8rem; text-align:center;">None</div>';
-        document.getElementById('total-borrowed').innerText = totalBorrowed.toLocaleString(); document.getElementById('total-lent').innerText = totalLent.toLocaleString();
-    }
+    renderPeople();
+    renderMonthMoneyLine();
+    renderBudgetSnapshot();
+    renderBudgetUpcoming();
+    renderZakat();
 }
 
 // ==========================================
@@ -4832,6 +5872,7 @@ window.logSwalathDirect = logSwalathDirect; window.logHizbDirect = logHizbDirect
 Object.assign(window, { resetSwalathCounter, resetHizbCounter, resetDhikrProgress });
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
+Object.assign(window, { openDebtModal, setDebtType, debtNameTyped, openPersonPay, fillPersonPayFull, savePersonPay, openPersonEdit, savePersonEdit, remindPerson, setPeopleFilter, togglePerson, renderPeople, openContactChooser, renderContactChooser, chooseContact, importVcf, setBudgetView, shiftExpenseMonth, openZakatInBudget, openAssetModal, assetCatChanged, setAssetMode, saveAsset, deleteAsset, openZakatPay, saveZakatPay, deleteZakatPay, renderBudget, openExpenseModal, openIncomeModal, saveIncome, deleteIncome, deleteRecurringIncome, setTxFilter, renderTransactions, hijriHint, hpFromGreg, hpFromHijri, openAccountModal, saveAccount, addOpeningPart, deleteOpening, deleteAccount, openCorrection, corrTyped, saveCorrection, setZakatSetting, setTodaySilver, resetZakatStart, ensurePrices, zpayForChanged, openMonthlyReport, reportShift });
 window.addBacklogItem = addBacklogItem; window.editBacklogItem = editBacklogItem; window.cancelEditBacklogItem = cancelEditBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;
 window.showConfirmSheet = showConfirmSheet; window.closeConfirmSheet = closeConfirmSheet;
 window.toggleTaskTag = toggleTaskTag; window.resetTagSelector = resetTagSelector; window.renderTaskTags = renderTaskTags;
@@ -4998,6 +6039,9 @@ function handleNotifAction(msg) {
     else if (taskId && action === 'snooze60') snoozeTask(taskId, 60);
     else if (billId && action === 'billpaid') markBillPaid(billId);
     else if (msg.kind === 'report') openWeeklyReport(0);
+    else if (msg.kind === 'mreport') { switchTab('budget'); openMonthlyReport(-1); }
+    else if (msg.kind === 'zakat') { switchTab('budget'); setBudgetView('zakat'); }
+    else if (msg.kind === 'debt') { switchTab('budget'); setBudgetView('people'); }
     else if (taskId) { switchTab('tasks'); setTimeout(() => toggleTaskSlider(taskId), 200); }
 }
 if ('serviceWorker' in navigator) {
@@ -5894,6 +6938,24 @@ function runExtraReminders(ctx, nowMin, todayKey) {
         sendAppNotification('🕌 Zakat reminder', { body: z.daysLeft === 0 ? 'Your zakat anniversary is today.' : `Your zakat anniversary is in ${z.daysLeft} day${z.daysLeft === 1 ? '' : 's'}.`, tag: 'zakat', data: { kind: 'zakat' } });
         localStorage.setItem('hisab_zakat_notif_' + todayKey, '1');
     }
+    const zm = zakatReminderMessage(todayKey);
+    if (zm && !localStorage.getItem('hisab_zakat2_notif_' + todayKey)) {
+        sendAppNotification(zm.title, { body: zm.body, tag: 'zakat-hawl', data: { kind: 'zakat' } });
+        localStorage.setItem('hisab_zakat2_notif_' + todayKey, '1');
+    }
+    if (todayKey.slice(8) === '01' && !localStorage.getItem('hisab_month_notif_' + todayKey)) {
+        const mm = Core.monthMoney(budgetData, ymOffset(-1), toDateKey);
+        if (mm.income || mm.spent) sendAppNotification(`📊 Your ${new Date(Date.now() - 2 * 86400000).toLocaleDateString(undefined, { month: 'long' })} report`, { body: `In ₹${mm.income.toLocaleString('en-IN')} · Out ₹${mm.spent.toLocaleString('en-IN')} · Saved ₹${mm.saved.toLocaleString('en-IN')}`, tag: 'monthly-report', data: { kind: 'mreport' } });
+        localStorage.setItem('hisab_month_notif_' + todayKey, '1');
+    }
+}
+function zakatReminderMessage(todayKey) {
+    const e = zakatEngine(); if (!e) return null;
+    const dueToday = e.dues.filter(d => d.key === todayKey);
+    if (dueToday.length) { const amt = dueToday.reduce((s, d) => s + d.zakat, 0); return { title: '🕌 Zakat is due today', body: `₹${Math.round(amt).toLocaleString('en-IN')} — an amount completed its Hijri year today (${dueToday[0].hijri}).` }; }
+    const n = e.upcoming[0];
+    if (n && Core.daysBetweenKeys(todayKey, n.key) === 7) return { title: '🕌 Zakat in 7 days', body: `About ₹${Math.round(n.zakat).toLocaleString('en-IN')} on ${n.hijri}, if you stay above nisab.` };
+    return null;
 }
 
 // ---------- App lock (PIN) ----------
@@ -5983,7 +7045,7 @@ Object.assign(window, {
     setPrayerState, saveDeenGoals, toggleGoalEdit, setKhatmPlan, clearKhatmPlan, saveZakatDate, saveSavingsGoal, clearSavingsGoal,
     openDebtDue, saveDebtDue, snoozeBackupNudge, toggleRecurFields, compactDone, renderCompact, startSetPin, changePin, disableLock, forgotPin,
     renderDeenExtras, renderSavingsGoal, renderBackupNudge, updateBackupStatusLine, renderAppLockSettings,
-    addFocusMinutes, mergeExtra, getExtraData: () => extraData
+    addFocusMinutes, mergeExtra, getExtraData: () => extraData, getBudgetData: () => budgetData, zakatEngine, HisabCore: Core
 });
 initAppLock();
 
@@ -6218,11 +7280,13 @@ function applyRecovery() {
     // 4) Totals: recompute from the full history; only ever raise them
     const swRe = /swalath|salawat|salawaat|darood|durood/i;
     let sw = 0, hz = 0;
+    const rs = deenData.counterResets || {};
+    const swFrom = Number(rs.swalath) || 0, hzFrom = Number(rs.hizb) || 0;   // respect "start afresh"
     activityHistory.forEach(h => {
-        if (!h) return; const a = Number(h.amount) || 0;
-        if (h.actionType === 'deen_swalath') sw += a;
-        else if (h.actionType === 'deen_hizb') hz += a;
-        else if (h.actionType === 'complete') { if (swRe.test(h.title || '')) sw += a; if (/hizb/i.test(h.title || '')) hz += a; }
+        if (!h) return; const a = Number(h.amount) || 0; const t = Number(h.timestamp) || 0;
+        if (h.actionType === 'deen_swalath') { if (t >= swFrom) sw += a; }
+        else if (h.actionType === 'deen_hizb') { if (t >= hzFrom) hz += a; }
+        else if (h.actionType === 'complete') { if (swRe.test(h.title || '') && t >= swFrom) sw += a; if (/hizb/i.test(h.title || '') && t >= hzFrom) hz += a; }
     });
     if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
     if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };

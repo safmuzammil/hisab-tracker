@@ -102,6 +102,33 @@ export async function runReminders(db, messaging, now) {
                     outbox.push({ kind: 'zakat', title: '🕌 Zakat reminder', body: z.daysLeft === 0 ? 'Your zakat anniversary is today.' : `Your zakat anniversary is in ${z.daysLeft} day${z.daysLeft === 1 ? '' : 's'}.`, tag: 'zakat' });
                     sent.zakat = 1;
                 }
+                // Hijri-year zakat (Shafi'i, per amount) — on the day it falls due and 7 days before.
+                const tz = p.tz || 'Asia/Kolkata';
+                const keyOf = ms => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Number(ms) || 0));
+                try {
+                    const zi = u.budget && u.budget.zakat && u.budget.zakat.startKey ? Core.zakatInputsFromBudget(u.budget, keyOf) : null;
+                    const ze = zi && Core.hawlEngine(zi, ctx.todayKey);
+                    if (ze && !sent.zk2) {
+                        const today = ze.dues.filter(d => d.key === ctx.todayKey);
+                        const n = ze.upcoming[0];
+                        if (today.length) {
+                            const amt = today.reduce((s, d) => s + d.zakat, 0);
+                            outbox.push({ kind: 'zakat', title: '🕌 Zakat is due today', body: `₹${Math.round(amt).toLocaleString('en-IN')} — an amount completed its Hijri year today (${today[0].hijri}).`, tag: 'zakat-hawl' });
+                            sent.zk2 = 1;
+                        } else if (n && Core.daysBetweenKeys(ctx.todayKey, n.key) === 7) {
+                            outbox.push({ kind: 'zakat', title: '🕌 Zakat in 7 days', body: `About ₹${Math.round(n.zakat).toLocaleString('en-IN')} on ${n.hijri}, if you stay above nisab.`, tag: 'zakat-hawl' });
+                            sent.zk2 = 1;
+                        }
+                    }
+                } catch (e) { summary.errors.push(`${uid.slice(0, 6)}… zakat: ${e.message}`); }
+                // Monthly report — 1st of the month
+                if (ctx.todayKey.slice(8) === '01' && !sent.month) {
+                    const [yy, mo] = ctx.todayKey.split('-').map(Number);
+                    const prevYm = mo === 1 ? `${yy - 1}-12` : `${yy}-${String(mo - 1).padStart(2, '0')}`;
+                    const mm = Core.monthMoney(u.budget || {}, prevYm, keyOf);
+                    if (mm.income || mm.spent) outbox.push({ kind: 'mreport', title: `📊 Your ${new Date(Date.UTC(yy, mo - 2, 15)).toLocaleDateString('en-IN', { month: 'long' })} report`, body: `In ₹${mm.income.toLocaleString('en-IN')} · Out ₹${mm.spent.toLocaleString('en-IN')} · Saved ₹${mm.saved.toLocaleString('en-IN')}${mm.rate != null ? ` (${mm.rate}%)` : ''}`, tag: 'monthly-report' });
+                    sent.month = 1;
+                }
             }
 
             // 3) Evening summary

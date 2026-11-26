@@ -3715,29 +3715,32 @@ async function pickContact() {
         let res = null;
         try {
             // Call select() straight from the tap: awaiting anything first can use up the tap's permission on some phones.
-            res = await navigator.contacts.select(['name', 'tel'], { multiple: false });
+            res = await navigator.contacts.select(['name', 'tel'], { multiple: true }); // single-select mode returns nothing on some Samsung phones
         } catch (ex) {
             console.warn('Contact picker (name+tel) failed:', ex);
-            if (ex && ex.name === 'TypeError') { try { res = await navigator.contacts.select(['name'], { multiple: false }); } catch (e2) { console.warn(e2); res = null; } }
+            if (ex && ex.name === 'TypeError') { try { res = await navigator.contacts.select(['name'], { multiple: true }); } catch (e2) { console.warn(e2); res = null; } }
         }
         if (Array.isArray(res)) {
-            if (!res.length) { showToast("No contact came back. Tap the person, then tap Done at the top right.", '👆'); return; }
+            if (!res.length) { openContactChooser('empty'); return; }
             const c = res[0] || {};
             const name = firstStr(c.name), phone = firstStr(c.tel);
             if (name || phone) { chooseContact(name || phone, phone); return; }
-            showToast("Your phone didn't share that contact's details. Pick from the list or type it.", '⚠️');
-        } else if (res === null) {
-            showToast("Couldn't open your phone's contacts. Showing the list instead.", '📇');
+            openContactChooser('empty'); return;
         }
+        openContactChooser('failed'); return;
     }
     openContactChooser();
 }
-function openContactChooser() {
+function openContactChooser(reason) {
     if (!contactBook) { try { contactBook = JSON.parse(localStorage.getItem('hisab_contact_book') || 'null'); } catch (e) { contactBook = null; } }
     const s = document.getElementById('contact-search'); s.value = document.getElementById('debt-desc').value || '';
-    document.getElementById('contact-import-hint').innerText = contactBook && contactBook.length
-        ? `${contactBook.length} contacts imported on this device. Import again to refresh.`
-        : (contactPickerSupported() ? '' : "This browser can't open your phone's contacts directly, so import a contacts file once instead.");
+    const have = contactBook && contactBook.length;
+    document.getElementById('contact-import-hint').innerText = reason && !have
+        ? "Your phone's contact screen didn't send the contact back to Hisab. Import your contacts file once below, then search here any time."
+        : have
+            ? `${contactBook.length} contacts imported on this device. Import again to refresh.`
+            : (contactPickerSupported() ? '' : "This browser can't open your phone's contacts directly, so import a contacts file once instead.");
+    const howto = document.getElementById('contact-howto'); if (howto) howto.open = !!(reason && !have);
     renderContactChooser();
     openModal('contact-modal');
     setTimeout(() => s.focus(), 60);

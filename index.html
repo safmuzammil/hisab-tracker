@@ -968,8 +968,9 @@
             <button class="btn-secondary" onclick="document.getElementById('vcf-file').click()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-upload"/></svg>Import contacts file (.vcf)</button>
             <input type="file" id="vcf-file" accept=".vcf,text/vcard,text/x-vcard" style="display:none;" onchange="importVcf(event)">
             <div class="field-hint" id="contact-import-hint"></div>
-            <details class="howto"><summary>How do I get a contacts file?</summary>
-                <div><b>Android:</b> Contacts app → menu → Manage contacts → Export → save the .vcf file.<br>
+            <details class="howto" id="contact-howto"><summary>How do I get a contacts file?</summary>
+                <div><b>Samsung:</b> Contacts app → ☰ menu → Manage contacts → Import or export contacts → Export → Internal storage → Export. Then tap Import above and pick <i>Contacts.vcf</i> (usually in Documents or Internal storage).<br>
+                <b>Other Android:</b> Contacts app → menu → Manage contacts → Export → save the .vcf file.<br>
                 <b>iPhone:</b> Contacts app → Lists → long-press "All Contacts" → Export, then save to Files.<br>
                 <b>Google Contacts:</b> contacts.google.com → Export → vCard.<br>
                 The file stays on this device. Only the people you pick are saved to Hisab.</div>

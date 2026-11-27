@@ -439,6 +439,7 @@ function markDeleted(id) {
     localStorage.setItem('hisab_deleted_ids', JSON.stringify(deletedIds));
 }
 function isDeleted(id) { return id !== undefined && id !== null && !!deletedIds[String(id)]; }
+queueMicrotask(() => { try { resetSyncShadow(); } catch (e) { } });
 
 // Is a task scheduled for the given day? (custom-days tasks rest on other days)
 function isTaskActiveOn(task, dateObj = new Date()) {
@@ -617,10 +618,7 @@ function applyCloudPayload(parsed) {
     activityHistory = Array.from(historyMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     localStorage.setItem('hisab_history', JSON.stringify(activityHistory));
 
-    // 2. Smart Task Merge: Retain today's completions and lowest remaining targets
-    const cloudTasks = parsed.tasks || [];
-    const localTasks = tasks || [];
-    const taskMap = new Map();
+    // 2. Tasks, archived tasks and habits: per-item merge, newest change wins
 
     // Merge deletion tombstones first so deleted items are never resurrected.
     if (parsed.deletedIds && typeof parsed.deletedIds === 'object') {
@@ -630,42 +628,10 @@ function applyCloudPayload(parsed) {
     activityHistory = activityHistory.filter(h => !isDeleted(h.id));
     localStorage.setItem('hisab_history', JSON.stringify(activityHistory));
 
-    cloudTasks.forEach(ct => { if (ct && ct.id && !isDeleted(ct.id)) taskMap.set(ct.id, ct); });
-    localTasks.forEach(lt => {
-        if (!lt || !lt.id || isDeleted(lt.id)) return;
-        if (!taskMap.has(lt.id)) {
-            taskMap.set(lt.id, lt);
-        } else {
-            const ct = taskMap.get(lt.id);
-            const isLocalDoneToday = lt.lastCompletedDay === todayStr;
-            const isCloudDoneToday = ct.lastCompletedDay === todayStr;
-            const effectiveCompletedDay = isLocalDoneToday ? lt.lastCompletedDay : (isCloudDoneToday ? ct.lastCompletedDay : lt.lastCompletedDay || ct.lastCompletedDay);
-
-            let mergedTarget = ct.currentTarget;
-            if (isLocalDoneToday && !isCloudDoneToday) {
-                mergedTarget = lt.currentTarget;
-            } else if (typeof lt.currentTarget === 'number' && typeof ct.currentTarget === 'number') {
-                mergedTarget = Math.min(lt.currentTarget, ct.currentTarget);
-            }
-
-            taskMap.set(lt.id, {
-                ...ct,
-                ...lt,
-                lastCompletedDay: effectiveCompletedDay,
-                currentTarget: mergedTarget,
-                isCompleted: (mergedTarget <= 0) || lt.isCompleted || ct.isCompleted
-            });
-        }
-    });
-    tasks = Array.from(taskMap.values());
-    // A task archived on another device must not stay in the active list here.
-    const parsedArchivedIds = new Set((parsed.archivedTasks || []).map(t => t && t.id));
-    tasks = tasks.filter(t => !parsedArchivedIds.has(t.id));
+    mergeCloudCollections(parsed, true);
     localStorage.setItem('hisab_tasks', JSON.stringify(tasks));
 
     // 3. Habits, Charity & Storage Merge
-    badHabits = parsed.badHabits || badHabits;
-    goodHabits = parsed.goodHabits || goodHabits;
     bonusPoints = Math.max(bonusPoints || 0, parsed.bonusPoints || 0);
 
     if (parsed.charity) {
@@ -687,8 +653,6 @@ function applyCloudPayload(parsed) {
         localStorage.setItem('hisab_backlog', JSON.stringify(backlogData));
     }
 
-    archivedTasks = parsed.archivedTasks || archivedTasks;
-    
     // Journal safe union
     if (parsed.journal) {
         journalData = { ...(journalData || {}), ...parsed.journal };
@@ -726,6 +690,72 @@ function applyCloudPayload(parsed) {
         };
     }
     localStorage.setItem('hisab_deen', JSON.stringify(deenData));
+    resetSyncShadow();
+}
+
+// Merge the parts of a cloud copy that can be combined item by item, without
+// overwriting anything changed on this device. Used when a cloud update arrives and
+// right before this device writes, so one device can't wipe out the other's changes.
+function collectionsSignature(t, a, g, b) {
+    const sig = arr => (arr || []).filter(Boolean).map(x => String(x.id) + ':' + (Number(x.updatedAt) || 0)).sort().join(',');
+    return sig(t) + '|' + sig(a) + '|' + sig(g) + '|' + sig(b);
+}
+let cloudNeedsOurChanges = false;
+function mergeCloudCollections(parsed, includeTombstones) {
+    if (!parsed) return;
+    noteStamps(parsed.tasks, parsed.archivedTasks, parsed.goodHabits, parsed.badHabits);
+    if (includeTombstones !== false && parsed.deletedIds && typeof parsed.deletedIds === 'object') {
+        deletedIds = { ...parsed.deletedIds, ...deletedIds };
+    }
+    const m = Core.mergeTaskSets({ tasks, archived: archivedTasks }, { tasks: parsed.tasks || [], archived: parsed.archivedTasks || [] }, isDeleted);
+    tasks = m.tasks; archivedTasks = m.archived;
+    if (Array.isArray(parsed.goodHabits)) goodHabits = Core.mergeById(goodHabits, parsed.goodHabits, isDeleted);
+    if (Array.isArray(parsed.badHabits)) badHabits = Core.mergeById(badHabits, parsed.badHabits, isDeleted);
+    cloudNeedsOurChanges = collectionsSignature(tasks, archivedTasks, goodHabits, badHabits) !==
+        collectionsSignature((parsed.tasks || []).filter(t => t && !isDeleted(t.id)), (parsed.archivedTasks || []).filter(t => t && !isDeleted(t.id)),
+            Array.isArray(parsed.goodHabits) ? parsed.goodHabits.filter(h => h && !isDeleted(h.id)) : goodHabits,
+            Array.isArray(parsed.badHabits) ? parsed.badHabits.filter(h => h && !isDeleted(h.id)) : badHabits);
+    if (Array.isArray(parsed.history)) {
+        const hm = new Map();
+        parsed.history.forEach(h => { if (h && h.id) hm.set(h.id, h); });
+        (activityHistory || []).forEach(h => { if (h && h.id) hm.set(h.id, h); });
+        activityHistory = Array.from(hm.values()).filter(h => !isDeleted(h.id)).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    }
+}
+
+// ---- Per-item change stamps: anything that changed since the last save gets updatedAt ----
+const syncShadow = { tasks: new Map(), good: new Map(), bad: new Map() };
+function shadowKey(o, loc) { const { updatedAt, ...rest } = o || {}; return (loc || '') + JSON.stringify(rest); }
+function resetSyncShadow() {
+    syncShadow.tasks = new Map(); syncShadow.good = new Map(); syncShadow.bad = new Map();
+    (tasks || []).forEach(t => t && t.id != null && syncShadow.tasks.set(String(t.id), shadowKey(t, 'a')));
+    (archivedTasks || []).forEach(t => t && t.id != null && syncShadow.tasks.set(String(t.id), shadowKey(t, 'z')));
+    (goodHabits || []).forEach(h => h && h.id != null && syncShadow.good.set(String(h.id), shadowKey(h)));
+    (badHabits || []).forEach(h => h && h.id != null && syncShadow.bad.set(String(h.id), shadowKey(h)));
+}
+// Stamps come from a clock that never runs behind anything already seen, so an edit made
+// after seeing another device's edit always counts as newer, even if the phone's and PC's clocks differ.
+let maxSeenStamp = 0;
+function noteStamps(...lists) { for (const arr of lists) for (const it of arr || []) { const u = Number(it && it.updatedAt) || 0; if (u > maxSeenStamp) maxSeenStamp = u; } }
+function stampChanges() {
+    let now = Date.now();
+    noteStamps(tasks, archivedTasks, goodHabits, badHabits);
+    if (now <= maxSeenStamp) now = maxSeenStamp + 1;
+    const run = (map, arr, loc) => (arr || []).forEach(it => {
+        if (!it || it.id == null) return;
+        const id = String(it.id), k = shadowKey(it, loc);
+        if (map.get(id) !== k) { it.updatedAt = now; map.set(id, k); if (now > maxSeenStamp) maxSeenStamp = now; }
+    });
+    run(syncShadow.tasks, tasks, 'a'); run(syncShadow.tasks, archivedTasks, 'z');
+    run(syncShadow.good, goodHabits); run(syncShadow.bad, badHabits);
+}
+function newSyncRev() { return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
+let lastCloudRev = localStorage.getItem('hisab_cloud_rev') || '';
+function setLastCloudRev(r) { lastCloudRev = r || ''; try { localStorage.setItem('hisab_cloud_rev', lastCloudRev); } catch (e) { } }
+// Is this cloud copy something this device hasn't seen yet?
+function isNewCloudCopy(parsed) {
+    if (parsed && parsed.rev) return parsed.rev !== lastCloudRev;
+    return ((parsed && parsed.lastModified) || 0) > lastModifiedLocal;
 }
 
 function listenToFirebase() {
@@ -733,12 +763,14 @@ function listenToFirebase() {
     if (unsubscribeSnapshot) unsubscribeSnapshot();
     unsubscribeSnapshot = onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
         if (docSnap.exists()) {
+            if (docSnap.metadata && docSnap.metadata.hasPendingWrites) return; // our own write echoing back
             const parsed = docSnap.data();
             const cloudModified = parsed.lastModified || 0;
 
-            if (!hasInitialCloudSync || cloudModified > lastModifiedLocal) {
+            if (!hasInitialCloudSync || isNewCloudCopy(parsed)) {
                 applyCloudPayload(parsed);
-                lastModifiedLocal = cloudModified;
+                setLastCloudRev(parsed.rev);
+                lastModifiedLocal = Math.max(lastModifiedLocal, cloudModified);
                 localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString());
                 hasInitialCloudSync = true;
                 
@@ -748,6 +780,8 @@ function listenToFirebase() {
                     saveData();
                 } else {
                     saveDataLocallyOnly();
+                    // The cloud copy is missing changes made here (both devices saved at once): send them up.
+                    if (cloudNeedsOurChanges) { cloudNeedsOurChanges = false; syncDataToFirebase(); }
                 }
                 setSyncIndicator('synced', 'Synced');
                 render();
@@ -783,10 +817,12 @@ async function triggerCloudSyncNow(silent = false) {
         const snap = await getDoc(userRef);
         if (snap.exists()) {
             const cloudData = snap.data();
-            if ((cloudData.lastModified || 0) > lastModifiedLocal) {
+            if (isNewCloudCopy(cloudData)) {
                 applyCloudPayload(cloudData);
-                lastModifiedLocal = cloudData.lastModified;
+                setLastCloudRev(cloudData.rev);
+                lastModifiedLocal = Math.max(lastModifiedLocal, cloudData.lastModified || 0);
                 saveDataLocallyOnly();
+                if (cloudNeedsOurChanges) { cloudNeedsOurChanges = false; syncDataToFirebase(); }
                 render();
                 setSyncIndicator('synced', 'Synced');
                 if (typeof showToast === 'function') { if (!silent) showToast('Pulled latest cloud data!', '☁️'); }
@@ -1062,10 +1098,29 @@ function sanitizeForFirestore(val) {
     return clean;
 }
 
+let syncRunning = false, syncAgain = false;
 async function syncDataToFirebase() {
+    if (!currentUser) return;
+    if (syncRunning) { syncAgain = true; return; }
+    syncRunning = true;
+    try { do { syncAgain = false; await syncDataToFirebaseOnce(); } while (syncAgain); }
+    finally { syncRunning = false; }
+}
+async function syncDataToFirebaseOnce() {
     if (currentUser) {
         try {
             setSyncIndicator('synced', 'Saving…');
+            const userRef = doc(db, 'users', currentUser.uid);
+            // Read first: if the other device saved since we last looked, fold its tasks/habits in
+            // so this write doesn't erase them.
+            try {
+                const snap = await getDoc(userRef);
+                if (snap && snap.exists && snap.exists()) {
+                    const cd = snap.data();
+                    if (cd && isNewCloudCopy(cd)) { mergeCloudCollections(cd); resetSyncShadow(); saveDataLocallyOnly(); }
+                }
+            } catch (e) { /* offline: write what we have */ }
+            const rev = newSyncRev();
             const rawPayload = {
                 tasks,
                 history: activityHistory,
@@ -1082,10 +1137,12 @@ async function syncDataToFirebase() {
                 deletedIds,
                 extra: extraData,
                 settings: collectSettings(),
-                lastModified: lastModifiedLocal
+                lastModified: lastModifiedLocal,
+                rev
             };
             const cleanPayload = sanitizeForFirestore(rawPayload);
-            await setDoc(doc(db, 'users', currentUser.uid), cleanPayload);
+            setLastCloudRev(rev);
+            await setDoc(userRef, cleanPayload);
             lastCloudError = null;
             localStorage.removeItem('hisab_unsynced');
             setSyncIndicator('synced', 'Synced');
@@ -1096,7 +1153,7 @@ async function syncDataToFirebase() {
     }
 }
 
-function saveData() { if (currentUser) localStorage.setItem('hisab_unsynced', '1'); lastModifiedLocal = Date.now(); localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString()); saveDataLocallyOnly(); syncDataToFirebase(); }
+function saveData() { stampChanges(); if (currentUser) localStorage.setItem('hisab_unsynced', '1'); lastModifiedLocal = Date.now(); localStorage.setItem('hisab_last_modified', lastModifiedLocal.toString()); saveDataLocallyOnly(); syncDataToFirebase(); }
 
 // ==========================================
 // VISUAL EFFECTS ENGINE
@@ -2244,7 +2301,7 @@ function logGoodHabit(id, event, customDateKey = null) {
     saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
 
-function deleteGoodHabit(id) { showConfirmSheet("Delete this good habit tracker?", { title: 'Delete Habit', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => { if (ok) { goodHabits = goodHabits.filter(h => h.id !== id); saveData(); renderHabits(); } }); }
+function deleteGoodHabit(id) { showConfirmSheet("Delete this good habit tracker?", { title: 'Delete Habit', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => { if (ok) { markDeleted(id); goodHabits = goodHabits.filter(h => h.id !== id); saveData(); renderHabits(); } }); }
 
 
 // ==========================================
@@ -2443,7 +2500,7 @@ function logBadHabit(id, event, customDateKey = null) {
     saveData(); renderHabits(); if (document.getElementById('tab-dashboard').classList.contains('active')) updateDashboard();
 }
 
-function deleteBadHabit(id) { showConfirmSheet("Delete this bad habit tracker?", { title: 'Delete Vice', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => { if (ok) { badHabits = badHabits.filter(h => h.id !== id); saveData(); renderHabits(); } }); }
+function deleteBadHabit(id) { showConfirmSheet("Delete this bad habit tracker?", { title: 'Delete Vice', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => { if (ok) { markDeleted(id); badHabits = badHabits.filter(h => h.id !== id); saveData(); renderHabits(); } }); }
 
 function renderBadHabits() {
     const container = document.getElementById('bad-habit-list-container'); if (!container) return; container.innerHTML = '';
@@ -7074,7 +7131,7 @@ Object.assign(window, {
     setPrayerState, saveDeenGoals, toggleGoalEdit, setKhatmPlan, clearKhatmPlan, saveZakatDate, saveSavingsGoal, clearSavingsGoal,
     openDebtDue, saveDebtDue, snoozeBackupNudge, toggleRecurFields, compactDone, renderCompact, startSetPin, changePin, disableLock, forgotPin,
     renderDeenExtras, renderSavingsGoal, renderBackupNudge, updateBackupStatusLine, renderAppLockSettings,
-    addFocusMinutes, mergeExtra, getExtraData: () => extraData, getBudgetData: () => budgetData, zakatEngine, HisabCore: Core
+    addFocusMinutes, mergeExtra, getExtraData: () => extraData, getBudgetData: () => budgetData, getTasks: () => tasks, getArchivedTasks: () => archivedTasks, saveData, zakatEngine, HisabCore: Core
 });
 initAppLock();
 

@@ -1768,6 +1768,7 @@ function fulfillMissedTaskDay(taskId, dateKey, fromInspector = false) {
         refundedAmount += refundPenaltyFromLog(mLog);
         task.currentTarget += (mLog.amount || 1);
         syncToGoogleSheets({ actionType: 'undo', id: mLog.id });
+        markDeleted(mLog.id);
         activityHistory = activityHistory.filter(h => h.id !== mLog.id);
     });
 
@@ -1846,6 +1847,7 @@ function undoTaskDayLogs(taskId, dateKey) {
             }
         }
         syncToGoogleSheets({ actionType: 'undo', id: entry.id });
+        markDeleted(entry.id);
         activityHistory = activityHistory.filter(h => h.id !== entry.id);
     });
 
@@ -2708,6 +2710,7 @@ function undoHabitDayLog(habitId, kind, dateKey) {
     }
 
     syncToGoogleSheets({ actionType: 'undo', id: entry.id });
+    markDeleted(entry.id);
     activityHistory = activityHistory.filter(h => h.id !== entry.id);
 
     saveData();
@@ -4040,6 +4043,7 @@ function deleteIncome(id) {
         if (!ok) return;
         budgetData.income = (budgetData.income || []).filter(i => i.id !== id);
         for (const r of budgetData.incomeRecurring || []) for (const [m, v] of Object.entries(r.received || {})) if (v === id) delete r.received[m];
+        markDeleted(id + 'l');
         activityHistory = activityHistory.filter(h => h.id !== id + 'l');
         saveData(); renderBudget();
     });
@@ -4660,6 +4664,7 @@ function saveZakatPay() {
 function deleteZakatPay(id) {
     if (!confirm('Delete this payment?')) return;
     const z = zakatData(); z.payments = z.payments.filter(p => p.id !== id);
+    markDeleted(id);
     activityHistory = activityHistory.filter(h => h.id !== id);
     saveData(); renderBudget();
 }

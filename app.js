@@ -238,7 +238,7 @@ window.addEventListener('touchend', (e) => {
 // FIREBASE CLOUD SERVER INITIALIZATION
 // ==========================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getAuth, signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence, reauthenticateWithPopup } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 import * as Core from "./lib/core.js";
@@ -504,20 +504,48 @@ function syncToGoogleSheets(logEntry) {
     }).catch(err => console.error("Google Sheets sync failed:", err));
 }
 
+// Undo damage from older versions, where the Google-Sheet pull copied lend/borrow, zakat,
+// repayment and income entries into expenses (and a device overwrote the other's lend/borrow list).
+function runBudgetRepair() {
+    const r = Core.repairBudgetFromLogs(budgetData, activityHistory, isDeleted);
+    if (!r.removed.length && !r.debts && !r.income && !r.zakat) return false;
+    ensurePeople();
+    const bits = [];
+    if (r.debts) bits.push(`${r.debts} lend/borrow entr${r.debts === 1 ? 'y' : 'ies'}`);
+    if (r.zakat) bits.push(`${r.zakat} zakat payment${r.zakat === 1 ? '' : 's'}`);
+    if (r.income) bits.push(`${r.income} income entr${r.income === 1 ? 'y' : 'ies'}`);
+    setTimeout(() => showToast(`Fixed your budget: ${r.removed.length ? `${r.removed.length} wrong expense${r.removed.length === 1 ? '' : 's'} removed` : ''}${r.removed.length && bits.length ? ', ' : ''}${bits.length ? bits.join(', ') + ' restored' : ''}.`, '🛠️'), 900);
+    return true;
+}
+// Log types the app itself creates; only Email replies / 1-click links should come from the Sheet.
+const SHEET_PULL_TYPES = new Set(['complete', 'expense', 'good', 'bad', 'deen_swalath', 'deen_hizb', 'deen_qada']);
+
 // Automatically pulls any entries logged via Email Replies or 1-Click Email Links
 async function syncFromGoogleSheets() {
     if (!GOOGLE_SHEETS_URL) return;
+    if (currentUser && !hasInitialCloudSync) return; // wait until this device has the cloud history
     try {
         const lastSync = parseInt(localStorage.getItem('hisab_last_sheet_sync')) || (Date.now() - 3 * 86400000);
         const res = await fetch(`${GOOGLE_SHEETS_URL}?action=pull_email_logs&since=${lastSync}`);
         if (!res.ok) return;
-        const newLogs = await res.json();
+        let newLogs = await res.json();
         if (!Array.isArray(newLogs) || newLogs.length === 0) return;
+        // Entries made on the other device reach the Sheet too. Fetch the latest cloud copy first
+        // so they are recognised by id and not counted a second time.
+        if (currentUser) {
+            try {
+                const snap = await getDoc(doc(db, 'users', currentUser.uid));
+                if (snap && snap.exists && snap.exists()) { const cd = snap.data(); if (cd && isNewCloudCopy(cd)) { mergeCloudCollections(cd); resetSyncShadow(); saveDataLocallyOnly(); } }
+            } catch (e) { return; } // can't check: don't risk double counting
+        }
+        const knownIds = new Set();
+        for (const h of activityHistory) knownIds.add(String(h.id));
+        for (const e of budgetData.expenses || []) { knownIds.add(String(e.id)); knownIds.add(String(Number(e.id) + 1)); }
+        newLogs = newLogs.filter(l => l && l.id && SHEET_PULL_TYPES.has(l.actionType) && !knownIds.has(String(l.id)) && !isDeleted(l.id));
+        if (!newLogs.length) { localStorage.setItem('hisab_last_sheet_sync', Date.now().toString()); return; }
 
         let hasNew = false;
         newLogs.forEach(log => {
-            if (!log || !log.id) return;
-            if (activityHistory.some(h => String(h.id) === String(log.id))) return;
             hasNew = true;
 
             const logEntry = {
@@ -532,7 +560,7 @@ async function syncFromGoogleSheets() {
             activityHistory.push(logEntry);
 
             // 1. Process Expenses
-            if (log.actionType === 'expense' || log.category === 'budget') {
+            if (log.actionType === 'expense') {
                 const cleanDesc = (log.title || 'Expense').replace(/^Expense:\s*/i, '').trim();
                 budgetData.expenses.push({
                     id: String(log.id),
@@ -579,6 +607,7 @@ async function syncFromGoogleSheets() {
                 const taskTitle = (log.title || '').replace(/^Completed:\s*/i, '').trim().toLowerCase();
                 const matchedTask = tasks.find(t => (t.title || '').trim().toLowerCase() === taskTitle);
                 if (matchedTask) {
+                    logEntry.taskId = matchedTask.id; logEntry.taskType = matchedTask.type; logEntry.fulfilledDateKey = toDateKey(logEntry.timestamp);
                     matchedTask.lastCompletedDay = new Date(logEntry.timestamp).toDateString();
                     matchedTask.currentTarget = Math.max(0, (matchedTask.currentTarget || 0) - (Number(log.amount) || 1));
                     if (matchedTask.currentTarget <= 0) matchedTask.isCompleted = true;
@@ -610,12 +639,7 @@ function applyCloudPayload(parsed) {
     const todayStr = new Date().toDateString();
 
     // 1. Smart Bidirectional History Merge (Never drop any finished log from either phone or desktop)
-    const cloudHistory = parsed.history || [];
-    const localHistory = activityHistory || [];
-    const historyMap = new Map();
-    cloudHistory.forEach(h => { if (h && h.id) historyMap.set(h.id, h); });
-    localHistory.forEach(h => { if (h && h.id) historyMap.set(h.id, h); });
-    activityHistory = Array.from(historyMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    activityHistory = Core.mergeHistory(activityHistory || [], parsed.history || []);
     localStorage.setItem('hisab_history', JSON.stringify(activityHistory));
 
     // 2. Tasks, archived tasks and habits: per-item merge, newest change wins
@@ -641,7 +665,6 @@ function applyCloudPayload(parsed) {
             surplus: typeof parsed.charity.surplus === 'number' ? parsed.charity.surplus : (charityData.surplus || 0)
         };
     }
-    budgetData = parsed.budget || budgetData;
     if (!budgetData.debts) budgetData.debts = [];
 
     // Backlog safe merge
@@ -700,6 +723,22 @@ function collectionsSignature(t, a, g, b) {
     const sig = arr => (arr || []).filter(Boolean).map(x => String(x.id) + ':' + (Number(x.updatedAt) || 0)).sort().join(',');
     return sig(t) + '|' + sig(a) + '|' + sig(g) + '|' + sig(b);
 }
+function budgetSignature(b) {
+    if (!b || typeof b !== 'object') return '';
+    const parts = [];
+    const walk = (o, path) => {
+        if (!o || typeof o !== 'object') return;
+        parts.push(path + '#' + Object.entries(o._stamps || {}).sort().map(([k, v]) => k + '=' + v).join(','));
+        for (const k of Object.keys(o).sort()) {
+            const pth = path ? path + '.' + k : k;
+            if (Core.BUDGET_ID_LISTS.has(pth) && Array.isArray(o[k])) parts.push(pth + ':' + o[k].filter(Boolean).map(x => x.id + '@' + (Number(x.updatedAt) || 0)).sort().join(','));
+            else if (pth === 'zakat') walk(o[k], pth);
+        }
+    };
+    walk(b, '');
+    return parts.join('|');
+}
+function historySignature(h) { return (h || []).filter(Boolean).map(x => x.id + '@' + (Number(x.updatedAt) || 0)).sort().join(','); }
 let cloudNeedsOurChanges = false;
 function mergeCloudCollections(parsed, includeTombstones) {
     if (!parsed) return;
@@ -711,23 +750,27 @@ function mergeCloudCollections(parsed, includeTombstones) {
     tasks = m.tasks; archivedTasks = m.archived;
     if (Array.isArray(parsed.goodHabits)) goodHabits = Core.mergeById(goodHabits, parsed.goodHabits, isDeleted);
     if (Array.isArray(parsed.badHabits)) badHabits = Core.mergeById(badHabits, parsed.badHabits, isDeleted);
-    cloudNeedsOurChanges = collectionsSignature(tasks, archivedTasks, goodHabits, badHabits) !==
+    cloudNeedsOurChanges = budgetSignature(budgetData) !== budgetSignature(parsed.budget || {}) ||
+        historySignature(activityHistory) !== historySignature((parsed.history || []).filter(h => h && !isDeleted(h.id))) ||
+        collectionsSignature(tasks, archivedTasks, goodHabits, badHabits) !==
         collectionsSignature((parsed.tasks || []).filter(t => t && !isDeleted(t.id)), (parsed.archivedTasks || []).filter(t => t && !isDeleted(t.id)),
             Array.isArray(parsed.goodHabits) ? parsed.goodHabits.filter(h => h && !isDeleted(h.id)) : goodHabits,
             Array.isArray(parsed.badHabits) ? parsed.badHabits.filter(h => h && !isDeleted(h.id)) : badHabits);
-    if (Array.isArray(parsed.history)) {
-        const hm = new Map();
-        parsed.history.forEach(h => { if (h && h.id) hm.set(h.id, h); });
-        (activityHistory || []).forEach(h => { if (h && h.id) hm.set(h.id, h); });
-        activityHistory = Array.from(hm.values()).filter(h => !isDeleted(h.id)).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    if (Array.isArray(parsed.history)) activityHistory = Core.mergeHistory(activityHistory || [], parsed.history, isDeleted);
+    if (parsed.budget && typeof parsed.budget === 'object') {
+        if (Core.maxStampInTree(parsed.budget) > maxSeenStamp) maxSeenStamp = Core.maxStampInTree(parsed.budget);
+        budgetData = Core.mergeTree(budgetData || {}, parsed.budget, isDeleted);
+        if (!Array.isArray(budgetData.expenses)) budgetData.expenses = [];
+        if (!Array.isArray(budgetData.debts)) budgetData.debts = [];
     }
 }
 
 // ---- Per-item change stamps: anything that changed since the last save gets updatedAt ----
-const syncShadow = { tasks: new Map(), good: new Map(), bad: new Map() };
+const syncShadow = { tasks: new Map(), good: new Map(), bad: new Map(), budget: new Map() };
 function shadowKey(o, loc) { const { updatedAt, ...rest } = o || {}; return (loc || '') + JSON.stringify(rest); }
 function resetSyncShadow() {
-    syncShadow.tasks = new Map(); syncShadow.good = new Map(); syncShadow.bad = new Map();
+    syncShadow.tasks = new Map(); syncShadow.good = new Map(); syncShadow.bad = new Map(); syncShadow.budget = new Map();
+    Core.stampTree(budgetData, syncShadow.budget, 0, true);
     (tasks || []).forEach(t => t && t.id != null && syncShadow.tasks.set(String(t.id), shadowKey(t, 'a')));
     (archivedTasks || []).forEach(t => t && t.id != null && syncShadow.tasks.set(String(t.id), shadowKey(t, 'z')));
     (goodHabits || []).forEach(h => h && h.id != null && syncShadow.good.set(String(h.id), shadowKey(h)));
@@ -740,6 +783,7 @@ function noteStamps(...lists) { for (const arr of lists) for (const it of arr ||
 function stampChanges() {
     let now = Date.now();
     noteStamps(tasks, archivedTasks, goodHabits, badHabits);
+    maxSeenStamp = Math.max(maxSeenStamp, Core.maxStampInTree(budgetData));
     if (now <= maxSeenStamp) now = maxSeenStamp + 1;
     const run = (map, arr, loc) => (arr || []).forEach(it => {
         if (!it || it.id == null) return;
@@ -748,7 +792,11 @@ function stampChanges() {
     });
     run(syncShadow.tasks, tasks, 'a'); run(syncShadow.tasks, archivedTasks, 'z');
     run(syncShadow.good, goodHabits); run(syncShadow.bad, badHabits);
+    // Budget: changed items/fields get stamped; removed items get a tombstone so the other device drops them too.
+    if (Core.stampTree(budgetData, syncShadow.budget, now, false, '', (path, id) => markDeleted(Core.tombKey(path, id))) && now > maxSeenStamp) maxSeenStamp = now;
 }
+// A stamp for a hand-edited record (history logs): always later than anything seen.
+function freshStamp() { const n = Math.max(Date.now(), maxSeenStamp + 1); maxSeenStamp = n; return n; }
 function newSyncRev() { return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
 let lastCloudRev = localStorage.getItem('hisab_cloud_rev') || '';
 function setLastCloudRev(r) { lastCloudRev = r || ''; try { localStorage.setItem('hisab_cloud_rev', lastCloudRev); } catch (e) { } }
@@ -776,6 +824,7 @@ function listenToFirebase() {
                 
                 let legacyChanged = migrateLegacyTasks();
                 let autoChanged = processAutomaticPenalties();
+                if (runBudgetRepair()) legacyChanged = true;
                 if (legacyChanged || autoChanged) {
                     saveData();
                 } else {
@@ -789,8 +838,10 @@ function listenToFirebase() {
             }
 
             hasInitialCloudSync = true;
+ 
             let legacyChanged = migrateLegacyTasks();
             let autoChanged = processAutomaticPenalties(); 
+            if (runBudgetRepair()) legacyChanged = true;
             
             if (legacyChanged || autoChanged) { saveData(); }
             else { saveDataLocallyOnly(); }
@@ -821,7 +872,7 @@ async function triggerCloudSyncNow(silent = false) {
                 applyCloudPayload(cloudData);
                 setLastCloudRev(cloudData.rev);
                 lastModifiedLocal = Math.max(lastModifiedLocal, cloudData.lastModified || 0);
-                saveDataLocallyOnly();
+                if (runBudgetRepair()) saveData(); else saveDataLocallyOnly();
                 if (cloudNeedsOurChanges) { cloudNeedsOurChanges = false; syncDataToFirebase(); }
                 render();
                 setSyncIndicator('synced', 'Synced');
@@ -2843,6 +2894,17 @@ function undoAction(historyId) {
             budgetData.expenses = budgetData.expenses.filter(e => e.id !== expId);
             (budgetData.bills || []).forEach(b => { for (const k of Object.keys(b.paid || {})) if (b.paid[k] === expId) delete b.paid[k]; });
         }
+        if (entry.actionType === 'debt') removeDebt(String(entry.id).replace(/l$/, ''));
+        if (entry.actionType === 'income') removeIncome(String(entry.id).replace(/l$/, ''));
+        if (entry.actionType === 'zakat_paid') { const z = zakatData(); z.payments = z.payments.filter(p => String(p.id) !== String(entry.id)); }
+        if (entry.actionType === 'repayment') {
+            const d = (budgetData.debts || []).find(x => String(x.id) === String(entry.taskId));
+            if (d) {
+                const i = (d.payments || []).findIndex(pay => pay.logId === entry.id || (Number(pay.amount) === Number(entry.amount) && Number(pay.date) === Number(entry.timestamp)));
+                if (i >= 0) d.payments.splice(i, 1);
+                d.repaid = Math.max(0, (d.repaid || 0) - (Number(entry.amount) || 0));
+            }
+        }
         if (entry.actionType === 'complete' || entry.actionType === 'missed') {
             const task = tasks.find(t => t.id === entry.taskId);
             
@@ -2936,12 +2998,95 @@ function openHistory(filter = 'all') {
             <div class="t">${escapeHTML(item.title)}</div>
             <div class="d">${date}${item.amount && item.amount !== 1 ? ` · ${fmtNum(item.amount)}` : ''}</div>
             ${details.length ? `<div class="x" style="display:flex; gap:10px; flex-wrap:wrap;">${details.join('')}</div>` : ''}
-            <div class="a">${fulfill}<button class="btn-sm btn-secondary" onclick="undoAction('${item.id}')">${svgIcon('history', 'icon icon-sm')}Undo</button></div>
+            <div class="a">${fulfill}<button class="btn-sm btn-secondary" onclick="openLogEdit('${item.id}')">${svgIcon('pen', 'icon icon-sm')}Edit</button><button class="btn-sm btn-secondary" onclick="undoAction('${item.id}')">${svgIcon('history', 'icon icon-sm')}Undo</button></div>
         </div>`;
     }).join('');
     list.innerHTML = html + (sorted.length > MAX ? `<div class="muted" style="text-align:center; font-size:12.5px; padding:10px;">Showing latest ${MAX} of ${sorted.length}. Export a backup for the full log.</div>` : '');
 }
 function closeHistory() { document.getElementById('history-modal').style.display = 'none'; }
+
+// ---------- Edit any logged entry ----------
+let logEditFromHistory = false;
+function openLogEdit(id) {
+    const h = activityHistory.find(x => String(x.id) === String(id)); if (!h) return;
+    logEditFromHistory = document.getElementById('history-modal').style.display === 'block';
+    // Money entries open their own editor so the record and its log stay in step.
+    const base = String(h.id).replace(/l$/, '');
+    const go = fn => { closeHistory(); fn(); };
+    if (h.actionType === 'expense' && (budgetData.expenses || []).some(e => String(e.id) === String(h.expenseId || h.id))) return go(() => openExpenseModal(h.expenseId || h.id));
+    if (h.actionType === 'debt' && (budgetData.debts || []).some(d => String(d.id) === base)) return go(() => openDebtModal(null, null, base));
+    if (h.actionType === 'income' && (budgetData.income || []).some(i => String(i.id) === base)) return go(() => openIncomeModal({ editId: base }));
+    if (h.actionType === 'zakat_paid' && zakatData().payments.some(p => String(p.id) === String(h.id))) return go(() => openZakatPay(null, h.id));
+    if (h.actionType === 'repayment') {
+        const d = (budgetData.debts || []).find(x => String(x.id) === String(h.taskId));
+        const i = d ? (d.payments || []).findIndex(pay => pay.logId === h.id || (Number(pay.amount) === Number(h.amount) && Number(pay.date) === Number(h.timestamp))) : -1;
+        if (i >= 0) return go(() => openRepayEdit(d.id, i));
+    }
+    const noAmount = ['missed', 'add_backlog'].includes(h.actionType);
+    document.getElementById('log-edit-id').value = h.id;
+    document.getElementById('log-edit-title').innerText = h.title || 'Entry';
+    document.getElementById('log-edit-amount-wrap').style.display = noAmount ? 'none' : '';
+    document.getElementById('log-edit-amount').value = h.amount ?? 1;
+    document.getElementById('log-edit-amount-label').innerText = h.actionType === 'complete' ? 'Amount done' : (String(h.actionType).startsWith('deen_') ? 'Count' : 'Amount');
+    const d = new Date(Number(h.timestamp) || Date.now());
+    document.getElementById('log-edit-date').value = toDateKey(d.getTime());
+    document.getElementById('log-edit-time').value = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    document.getElementById('log-edit-note').value = h.note || '';
+    hijriHint('log-edit-date', 'log-edit-hijri');
+    document.getElementById('log-edit-hint').innerText = h.actionType === 'complete' && h.taskId && tasks.some(t => t.id === h.taskId)
+        ? 'Changing the amount also updates the task\'s remaining target.' : '';
+    closeHistory();
+    openModal('log-edit-modal');
+}
+function saveLogEdit() {
+    const h = activityHistory.find(x => String(x.id) === String(document.getElementById('log-edit-id').value)); if (!h) return closeModal('log-edit-modal');
+    const noAmount = ['missed', 'add_backlog'].includes(h.actionType);
+    const old = Number(h.amount) || 0;
+    const amt = noAmount ? old : parseFloat(document.getElementById('log-edit-amount').value);
+    if (!noAmount && !(amt > 0)) return alert('Enter an amount greater than 0.');
+    const dk = document.getElementById('log-edit-date').value, tm = document.getElementById('log-edit-time').value || '12:00';
+    const ts = dk ? new Date(`${dk}T${tm}:00`).getTime() : h.timestamp;
+    const delta = amt - old;
+    if (delta) {
+        if (h.actionType === 'complete') {
+            const task = tasks.find(t => t.id === h.taskId);
+            if (task) { task.currentTarget = Math.max(0, (task.currentTarget || 0) - delta); task.isCompleted = task.currentTarget <= 0; applyDeenAutomation(task.title, delta); }
+            else if (String(h.taskId || '').startsWith('dhikr-')) {
+                const dk2 = deenData.dhikr && deenData.dhikr[parseInt(String(h.taskId).replace('dhikr-', ''))];
+                if (dk2) { dk2.current = Math.max(0, (dk2.current || 0) + delta); dk2.completed = dk2.current >= dk2.target; }
+            }
+        } else if (h.actionType === 'deen_swalath') {
+            if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
+            deenData.swalathStats.total = Math.max(0, (deenData.swalathStats.total || 0) + delta);
+        } else if (h.actionType === 'deen_hizb') {
+            if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
+            const q = deenData.quranStats; q.totalHizb = Math.max(0, (q.totalHizb || 0) + delta); q.totalJuz = Math.floor(q.totalHizb / 2); q.totalKhatm = Math.floor(q.totalHizb / 60);
+        } else if (h.actionType === 'deen_qada') {
+            const prayer = String(h.title || '').replace(/^Qada:\s*/i, '').trim();
+            if (deenData.qada && deenData.qada[prayer] !== undefined) deenData.qada[prayer] = Math.max(0, deenData.qada[prayer] + delta);
+        } else if (h.actionType === 'bad' || h.actionType === 'good') {
+            const habit = (h.actionType === 'bad' ? badHabits : goodHabits).find(x => x.id === h.taskId);
+            if (habit) habit.annualCount = Math.max(0, (habit.annualCount || 0) + delta);
+        }
+    }
+    h.amount = amt;
+    if (ts && ts !== h.timestamp) {
+        h.timestamp = ts;
+        if (h.fulfilledDateKey) h.fulfilledDateKey = toDateKey(ts);
+        if (h.missedDateKey) h.missedDateKey = toDateKey(ts);
+    }
+    const note = document.getElementById('log-edit-note').value.trim();
+    if (note) h.note = note; else delete h.note;
+    h.updatedAt = freshStamp();
+    closeModal('log-edit-modal'); saveData(); render();
+    showToast('Entry updated', '✏️');
+    if (logEditFromHistory) openHistory(currentHistoryFilter);
+}
+function undoFromLogEdit() {
+    const id = document.getElementById('log-edit-id').value;
+    closeModal('log-edit-modal');
+    undoAction(id);
+}
 
 // ==========================================
 // DASHBOARD & DUAL CHARTS
@@ -3356,7 +3501,9 @@ if (cachedPrayer && cachedPrayer.date === toDateKey(Date.now())) {
     prayerTimesData = cachedPrayer.timings;
 }
 
+let deenViewInit = false;
 function renderDeen() {
+    if (!deenViewInit) { deenViewInit = true; setDeenView(localStorage.getItem('hisab_deen_view') || 'today'); }
     if (prayerTimesData) renderPrayerTimes(); 
     if (!deenData.quranStats) deenData.quranStats = { totalHizb: 0, totalJuz: 0, totalKhatm: 0 };
     if (!deenData.swalathStats) deenData.swalathStats = { total: 0 };
@@ -3414,13 +3561,42 @@ function renderDeen() {
         const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr'];
         let totalQada = prayers.reduce((acc, p) => acc + deenData.qada[p], 0);
         if (totalQada === 0 && !showAllQada) { qadaContainer.innerHTML = `<div style="text-align:center; color:var(--muted); font-size:0.9rem; margin-bottom:10px;">🎉 All missed prayers are caught up!</div>`; }
-        prayers.forEach(p => { const count = deenData.qada[p]; if (!showAllQada && count === 0) return; const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div style="font-weight:bold;">${p}</div><div class="qada-controls"><span style="font-family:monospace; font-size:1.2rem; min-width:30px; text-align:center; color:${count > 0 ? 'var(--danger)' : 'var(--success)'}">${count}</span><button class="qada-btn minus" onclick="updateQada('${p}', -1)" title="Prayed Qada">✔️</button><button class="qada-btn" onclick="updateQada('${p}', 1)" title="Missed Prayer">➕</button></div>`; qadaContainer.appendChild(div); }); 
-        const toggleBtn = document.createElement('button'); toggleBtn.style = "background:transparent; border:1px solid var(--deen); color:var(--deen); padding:8px; margin-top:10px; width:100%; border-radius:8px;"; toggleBtn.innerText = showAllQada ? "⬆️ Hide Caught Up Prayers" : "⬇️ Reveal All Prayers"; toggleBtn.onclick = function() { showAllQada = !showAllQada; renderDeen(); }; qadaContainer.appendChild(toggleBtn);
+        prayers.forEach(p => { const count = deenData.qada[p]; if (!showAllQada && count === 0) return; const div = document.createElement('div'); div.className = 'qada-row'; div.innerHTML = `<div><div style="font-weight:700;">${p}</div><div class="muted" style="font-size:12px;">${count > 0 ? count + ' still to make up' : 'all made up'}</div></div><div class="qada-controls"><span class="qada-n ${count > 0 ? 'owed' : ''}">${count}</span><button class="btn-sm btn-soft" onclick="updateQada('${p}', -1)" ${count > 0 ? '' : 'disabled'} title="I prayed one qada">Prayed 1</button><button class="btn-sm btn-ghost" onclick="updateQada('${p}', 1)" title="Add a missed prayer">+ Missed</button></div>`; qadaContainer.appendChild(div); }); 
+        const toggleBtn = document.createElement('button'); toggleBtn.className = 'btn-secondary'; toggleBtn.style.marginTop = '10px'; toggleBtn.innerText = showAllQada ? "Hide prayers with nothing owed" : "Show all prayers (to add missed ones)"; toggleBtn.onclick = function() { showAllQada = !showAllQada; renderDeen(); }; qadaContainer.appendChild(toggleBtn);
+        const qc = document.getElementById('dview-qada-count'); if (qc) qc.innerText = totalQada ? totalQada : '';
     }
 
     renderDeenZakatSummary();
 }
 
+// ---------- Deen sub-tabs ----------
+function setDeenView(v) {
+    if (!['today', 'quran', 'dhikr', 'qada', 'zakat'].includes(v)) v = 'today';
+    localStorage.setItem('hisab_deen_view', v);
+    document.querySelectorAll('#deen-view-pills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.dview === v));
+    document.querySelectorAll('.deen-view').forEach(x => x.classList.toggle('active', x.dataset.dview === v));
+}
+function quickDeen(kind, amount) {
+    const id = kind === 'hizb' ? 'hizb-input-amount' : 'swalath-input-amount';
+    const el = document.getElementById(id); if (!el) return;
+    const keep = el.value; el.value = amount;
+    if (kind === 'hizb') logHizbDirect(); else logSwalathDirect();
+    el.value = keep || (kind === 'hizb' ? '1' : '100');
+    showToast(kind === 'hizb' ? `${amount === 2 ? '1 juz' : amount + ' hizb'} logged` : `${amount} swalath logged`, kind === 'hizb' ? '📖' : '📿');
+}
+function renderDeenToday(todayKey, map, goals) {
+    const el = document.getElementById('deen-today-strip'); if (!el) return;
+    const td = map[todayKey] || { hizb: 0, swalath: 0, dhikr: 0 };
+    const rec = (extraData.prayerLog || {})[todayKey] || {};
+    const names = prayerNames();
+    const prayed = names.filter(p => rec[p] === 'on' || rec[p] === 'late').length;
+    const qada = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha', 'Witr'].reduce((a, p) => a + ((deenData.qada || {})[p] || 0), 0);
+    const tile = (label, val, sub, view) => `<button class="dt-tile" onclick="${view ? `setDeenView('${view}')` : `document.getElementById('prayer-tracker-card')?.scrollIntoView({behavior:'smooth'})`}"><span class="dt-l">${label}</span><span class="dt-v">${val}</span><span class="dt-s">${sub}</span></button>`;
+    el.innerHTML = tile('Prayers', `${prayed}/${names.length}`, 'prayed today', '')
+        + tile('Quran', fmtNum(td.hizb || 0), goals.hizb ? `of ${fmtNum(goals.hizb)} hizb` : 'hizb today', 'quran')
+        + tile('Swalath', (td.swalath || 0).toLocaleString(), goals.swalath ? `of ${Number(goals.swalath).toLocaleString()}` : 'today', 'dhikr')
+        + tile('Qada', qada, qada ? 'to make up' : 'all caught up', 'qada');
+}
 function updateQada(prayer, amount) { deenData.qada[prayer] += amount; if(deenData.qada[prayer] < 0) deenData.qada[prayer] = 0; saveData(); renderDeen(); }
 function addDhikr() { const name = document.getElementById('dhikr-name').value.trim(); const target = parseInt(document.getElementById('dhikr-target').value); const intention = document.getElementById('dhikr-intention').value.trim(); const deadline = document.getElementById('dhikr-deadline').value; const startEl = document.getElementById('dhikr-start'); const start = Math.max(0, parseInt(startEl && startEl.value) || 0); if (!name || !target || target <= 0) return alert("Please provide a valid Dhikr name and target number."); deenData.dhikr.push({ name, target, current: Math.min(start, target), intention, deadline, completed: start >= target }); if (startEl) startEl.value = ''; document.getElementById('dhikr-name').value = ''; document.getElementById('dhikr-target').value = ''; document.getElementById('dhikr-intention').value = ''; document.getElementById('dhikr-deadline').value = ''; saveData(); renderDeen(); }
 function logDhikr(index) { 
@@ -3454,6 +3630,7 @@ function setBudgetLimit() {
     if (!isNaN(newLimit) && newLimit >= 0) {
         budgetData.limit = newLimit;
         document.getElementById('budget-set-limit').value = '';
+        const f = document.getElementById('budget-limit-form'); if (f) f.dataset.open = '';
         saveData(); renderBudget();
     } else { alert("Please enter a valid amount."); }
 }
@@ -3464,8 +3641,19 @@ function addExpense() {
     const dateInput = document.getElementById('expense-date').value;
     if (!desc || isNaN(amount) || amount <= 0) return alert("Please enter a valid description and amount.");
     
-    const expenseDate = dateInput ? (dateInput === toDateKey(Date.now()) ? Date.now() : keyToMs(dateInput)) : Date.now();
     const category = document.getElementById('expense-category')?.value || 'other';
+    const editId = document.getElementById('expense-edit-id').value;
+    const ex = editId ? (budgetData.expenses || []).find(x => String(x.id) === String(editId)) : null;
+    if (ex) {
+        if (dateInput && dateInput !== toDateKey(ex.date)) ex.date = keyToMs(dateInput);
+        Object.assign(ex, { desc, amount, category, accountId: chosenAccount('expense-account'), hijri: hijriOfMs(ex.date) });
+        for (const h of activityHistory) if (String(h.expenseId) === String(ex.id)) { h.title = (ex.billId ? 'Bill paid: ' : 'Expense: ') + desc; h.amount = amount; h.updatedAt = freshStamp(); }
+        document.getElementById('expense-edit-id').value = '';
+        closeModal('expense-modal'); saveData(); renderBudget();
+        showToast('Expense updated', '✏️');
+        return;
+    }
+    const expenseDate = dateInput ? (dateInput === toDateKey(Date.now()) ? Date.now() : keyToMs(dateInput)) : Date.now();
     const expenseId = Date.now().toString();
     budgetData.expenses.push({ id: expenseId, desc, amount, category, date: expenseDate, accountId: chosenAccount('expense-account'), hijri: hijriOfMs(expenseDate) });
     
@@ -3479,10 +3667,17 @@ function addExpense() {
     setTimeout(() => checkCategoryWarning(category), 1200);
 }
 
+function removeExpense(id) {
+    budgetData.expenses = (budgetData.expenses || []).filter(e => String(e.id) !== String(id));
+    (budgetData.bills || []).forEach(b => { for (const k of Object.keys(b.paid || {})) if (String(b.paid[k]) === String(id)) delete b.paid[k]; });
+    activityHistory.filter(h => String(h.expenseId) === String(id)).forEach(h => markDeleted(h.id));
+    activityHistory = activityHistory.filter(h => String(h.expenseId) !== String(id));
+}
 function deleteExpense(id) {
     showConfirmSheet("Delete this expense?", { title: 'Delete expense', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => {
         if (!ok) return;
-        budgetData.expenses = budgetData.expenses.filter(e => e.id !== id);
+        removeExpense(id);
+        closeModal('expense-modal');
         saveData(); renderBudget();
     });
 }
@@ -3494,7 +3689,6 @@ function deleteExpense(id) {
 // code, the reminder server and the Sheet keep working) plus `personId`.
 let expenseMonthOffset = 0;
 let peopleFilter = 'open';
-let contactBook = null;          // parsed .vcf contacts, kept on this device only
 const openPeople = new Set();    // expanded person cards
 
 function normName(s) { return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
@@ -3558,17 +3752,26 @@ function fillPeopleDatalist() {
     ensurePeople();
     dl.innerHTML = budgetData.people.map(p => `<option value="${escapeHTML(p.name)}"></option>`).join('');
 }
-function openDebtModal(name, type) {
+function openDebtModal(name, type, editId) {
     pickedContact = null;
     fillPeopleDatalist();
-    setDebtType(type || document.getElementById('debt-type').value || 'lent');
+    const ed = editId ? (budgetData.debts || []).find(d => String(d.id) === String(editId)) : null;
+    document.getElementById('debt-edit-id').value = ed ? ed.id : '';
+    document.getElementById('debt-modal-title').innerText = ed ? 'Edit lend / borrow' : 'Lend or borrow';
+    document.getElementById('debt-delete-btn').style.display = ed ? '' : 'none';
+    const hint = document.getElementById('debt-edit-hint');
+    hint.style.display = ed && ed.repaid ? '' : 'none';
+    hint.innerText = ed && ed.repaid ? `${inr(ed.repaid)} has already been paid back on this entry. Edit repayments from the person's card.` : '';
+    setDebtType(ed ? ed.type : (type || document.getElementById('debt-type').value || 'lent'));
     ['debt-amount', 'debt-note', 'debt-due', 'debt-date'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-    const p = name ? budgetData.people.find(x => normName(x.name) === normName(name)) : null;
+    if (ed) name = ed.desc;
+    const p = ed ? budgetData.people.find(x => x.id === ed.personId) || budgetData.people.find(x => normName(x.name) === normName(name)) : name ? budgetData.people.find(x => normName(x.name) === normName(name)) : null;
     document.getElementById('debt-desc').value = p ? p.name : (name || '');
     document.getElementById('debt-phone').value = p ? (p.phone || '') : '';
-    document.getElementById('debt-date').value = toDateKey(Date.now());
+    document.getElementById('debt-date').value = toDateKey(ed ? ed.date : Date.now());
+    if (ed) { document.getElementById('debt-amount').value = ed.amount; document.getElementById('debt-note').value = ed.note || ''; document.getElementById('debt-due').value = ed.due || ''; }
     hijriHint('debt-date', 'debt-hijri');
-    fillAccountSelect('debt-account', 'debt-acct-wrap');
+    fillAccountSelect('debt-account', 'debt-acct-wrap', ed && ed.accountId);
     openModal('debt-modal');
     setTimeout(() => document.getElementById(name ? 'debt-amount' : 'debt-desc')?.focus(), 60);
 }
@@ -3591,8 +3794,21 @@ function addDebt() {
 
     const p = findOrCreatePerson(desc, phone);
     if (phone) p.phone = phone;
-    const debtDate = dateInput ? new Date(dateInput + 'T12:00:00').getTime() : Date.now();
     const due = document.getElementById('debt-due').value || '';
+    const editId = document.getElementById('debt-edit-id').value;
+    const ed = editId ? (budgetData.debts || []).find(d => String(d.id) === String(editId)) : null;
+    if (ed) {
+        if (amount < (ed.repaid || 0)) return alert(`${inr(ed.repaid)} has already been paid back on this entry, so the amount can't be less than that.`);
+        if (dateInput && dateInput !== toDateKey(ed.date)) ed.date = new Date(dateInput + 'T12:00:00').getTime();
+        Object.assign(ed, { desc: p.name, personId: p.id, note, amount, type, due, accountId: chosenAccount('debt-account'), hijri: hijriOfMs(ed.date) });
+        const lg = activityHistory.find(h => String(h.id) === String(ed.id) + 'l');
+        if (lg) { lg.title = p.name + (note ? ` (${note})` : ''); lg.amount = amount; lg.taskType = type; lg.updatedAt = freshStamp(); }
+        document.getElementById('debt-edit-id').value = '';
+        closeModal('debt-modal'); openPeople.add(p.id); saveData(); renderBudget();
+        showToast('Entry updated', '✏️');
+        return;
+    }
+    const debtDate = dateInput ? new Date(dateInput + 'T12:00:00').getTime() : Date.now();
     const id = Date.now().toString();
     budgetData.debts.push({ id, desc: p.name, personId: p.id, note, amount, type, date: debtDate, repaid: 0, due, accountId: chosenAccount('debt-account'), hijri: hijriOfMs(debtDate) });
 
@@ -3611,8 +3827,8 @@ function applyRepayment(debt, amt, when) {
     const use = Math.min(pending, amt);
     if (use <= 0) return 0;
     debt.repaid = (debt.repaid || 0) + use;
-    (debt.payments || (debt.payments = [])).push({ amount: use, date: when });
     const log = { id: Date.now().toString() + Math.random().toString(36).slice(2, 5), taskId: debt.id, category: 'budget', timestamp: when, title: `Repaid Debt (${debt.desc})`, actionType: 'repayment', amount: use };
+    (debt.payments || (debt.payments = [])).push({ amount: use, date: when, logId: log.id });
     activityHistory.push(log); syncToGoogleSheets(log);
     return use;
 }
@@ -3620,10 +3836,56 @@ function repayDebt(id) {
     const debt = budgetData.debts.find(d => d.id === id); if (!debt) return;
     openPersonPay(debt.personId, debt.type, id);
 }
+function removeDebt(id) {
+    budgetData.debts = (budgetData.debts || []).filter(d => String(d.id) !== String(id));
+    const dead = activityHistory.filter(h => String(h.id) === String(id) + 'l' || (h.actionType === 'repayment' && String(h.taskId) === String(id)));
+    dead.forEach(h => markDeleted(h.id));
+    const ids = new Set(dead.map(h => h.id));
+    activityHistory = activityHistory.filter(h => !ids.has(h.id));
+}
 function deleteDebt(id) {
-    if (!confirm("Delete this entry? Use this only for a mistake — to record money paid back, use Repay.")) return;
-    budgetData.debts = budgetData.debts.filter(d => d.id !== id);
-    saveData(); renderBudget();
+    showConfirmSheet("Delete this entry and its repayments? Use this only for a mistake — to record money paid back, use the person's \"paid back\" button.", { title: 'Delete entry', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => {
+        if (!ok) return;
+        removeDebt(id);
+        closeModal('debt-modal');
+        saveData(); renderBudget();
+    });
+}
+// ---------- Edit a single repayment ----------
+function repaymentLog(d, pay) {
+    return activityHistory.find(h => h.actionType === 'repayment' && ((pay.logId && h.id === pay.logId) || (String(h.taskId) === String(d.id) && Number(h.amount) === Number(pay.amount) && Number(h.timestamp) === Number(pay.date))));
+}
+function openRepayEdit(debtId, idx) {
+    const d = (budgetData.debts || []).find(x => String(x.id) === String(debtId)); if (!d || !d.payments || !d.payments[idx]) return;
+    const pay = d.payments[idx];
+    document.getElementById('repay-edit-key').value = d.id + '|' + idx;
+    document.getElementById('repay-edit-title').innerText = d.type === 'lent' ? `${d.desc} paid you back` : `You paid ${d.desc} back`;
+    document.getElementById('repay-edit-amount').value = pay.amount;
+    document.getElementById('repay-edit-date').value = toDateKey(pay.date);
+    openModal('repay-edit-modal');
+}
+function saveRepayEdit(del) {
+    const [debtId, idxS] = document.getElementById('repay-edit-key').value.split('|');
+    const d = (budgetData.debts || []).find(x => String(x.id) === String(debtId)); const idx = Number(idxS);
+    if (!d || !d.payments || !d.payments[idx]) return closeModal('repay-edit-modal');
+    const pay = d.payments[idx], lg = repaymentLog(d, pay), old = Number(pay.amount) || 0;
+    if (del) {
+        d.payments.splice(idx, 1);
+        d.repaid = Math.max(0, (d.repaid || 0) - old);
+        if (lg) { markDeleted(lg.id); activityHistory = activityHistory.filter(h => h.id !== lg.id); }
+    } else {
+        const amt = parseFloat(document.getElementById('repay-edit-amount').value);
+        if (!(amt > 0)) return alert('Enter an amount greater than 0.');
+        const max = d.amount - ((d.repaid || 0) - old);
+        if (amt > max + 0.001) return alert(`Only ${inr(max)} was pending on this entry.`);
+        const dv = document.getElementById('repay-edit-date').value;
+        if (dv && dv !== toDateKey(pay.date)) pay.date = new Date(dv + 'T12:00:00').getTime();
+        pay.amount = amt;
+        d.repaid = Math.max(0, (d.repaid || 0) - old + amt);
+        if (lg) { lg.amount = amt; lg.timestamp = pay.date; lg.updatedAt = freshStamp(); pay.logId = lg.id; }
+    }
+    closeModal('repay-edit-modal'); saveData(); renderBudget();
+    showToast(del ? 'Repayment removed' : 'Repayment updated', '✏️');
 }
 
 // ---------- Person payment (FIFO across open entries) ----------
@@ -3738,10 +4000,11 @@ function renderPeople() {
                     <div><span class="pp-kind ${d.type}">${d.type === 'lent' ? 'Lent' : 'Borrowed'}</span> ${inr(d.amount)}${d.note ? ` · ${escapeHTML(d.note)}` : ''}</div>
                     <div class="muted" style="font-size:12px;">${fmtD(d.date)}${d.repaid ? ` · ${inr(d.repaid)} paid back` : ''}${done ? ' · settled' : ` · ${inr(pending)} pending`}</div>
                     ${done ? '' : debtDueBadge(d)}
+                    ${(d.payments || []).map((pay, idx) => `<div class="pp-pay">↩ ${inr(pay.amount)} ${d.type === 'lent' ? 'received' : 'paid'} · ${fmtD(pay.date)}<button class="btn-icon" onclick="openRepayEdit('${d.id}', ${idx})" title="Edit repayment" aria-label="Edit repayment">✏️</button></div>`).join('')}
                 </div>
                 <div class="pp-row-act">
-                    ${done ? '' : `<button class="btn-icon" onclick="repayDebt('${d.id}')" title="Repay" aria-label="Record repayment">💰</button><button class="btn-icon" onclick="openDebtDue('${d.id}')" title="Due date" aria-label="Set due date">📅</button>`}
-                    <button class="btn-icon" onclick="deleteDebt('${d.id}')" title="Delete" aria-label="Delete entry">🗑️</button>
+                    ${done ? '' : `<button class="btn-icon" onclick="repayDebt('${d.id}')" title="Record repayment" aria-label="Record repayment">💰</button><button class="btn-icon" onclick="openDebtDue('${d.id}')" title="Due date" aria-label="Set due date">📅</button>`}
+                    <button class="btn-icon" onclick="openDebtModal(null, null, '${d.id}')" title="Edit" aria-label="Edit entry">✏️</button>
                 </div>
             </div>`;
         }).join('');
@@ -3770,57 +4033,137 @@ function renderPeople() {
 function contactPickerSupported() { return 'contacts' in navigator && 'ContactsManager' in window && typeof navigator.contacts.select === 'function'; }
 let pickedContact = null; // last contact chosen for the open debt form; re-applied if a sync re-render touches the form
 function firstStr(v) { if (Array.isArray(v)) { for (const x of v) { const t = String(x ?? '').trim(); if (t) return t; } return ''; } return String(v ?? '').trim(); }
+// Contacts button: on phones that support it, open the phone's contact list straight away;
+// otherwise (PC, iPhone, Samsung Internet) show the chooser with Google contacts.
 async function pickContact() {
-    if (contactPickerSupported()) {
-        let res = null;
-        try {
-            // Call select() straight from the tap: awaiting anything first can use up the tap's permission on some phones.
-            res = await navigator.contacts.select(['name', 'tel'], { multiple: true }); // single-select mode returns nothing on some Samsung phones
-        } catch (ex) {
-            console.warn('Contact picker (name+tel) failed:', ex);
-            if (ex && ex.name === 'TypeError') { try { res = await navigator.contacts.select(['name'], { multiple: true }); } catch (e2) { console.warn(e2); res = null; } }
-        }
-        if (Array.isArray(res)) {
-            if (!res.length) { openContactChooser('empty'); return; }
-            const c = res[0] || {};
-            const name = firstStr(c.name), phone = firstStr(c.tel);
-            if (name || phone) { chooseContact(name || phone, phone); return; }
-            openContactChooser('empty'); return;
-        }
-        openContactChooser('failed'); return;
+    if (contactPickerSupported()) { const ok = await pickPhoneContact(true); if (ok) return; }
+    openContactChooser(contactPickerSupported() ? 'empty' : '');
+}
+async function pickPhoneContact(silentFail) {
+    if (!contactPickerSupported()) { showToast("This browser can't open your phone's contacts. Use Google contacts.", '📇'); return false; }
+    let res = null;
+    try {
+        // Call select() straight from the tap: awaiting anything first can use up the tap's permission on some phones.
+        res = await navigator.contacts.select(['name', 'tel'], { multiple: true }); // single-select returns nothing on some Samsung phones
+    } catch (ex) {
+        console.warn('Contact picker (name+tel) failed:', ex);
+        if (ex && ex.name === 'TypeError') { try { res = await navigator.contacts.select(['name'], { multiple: true }); } catch (e2) { res = null; } }
     }
-    openContactChooser();
+    if (Array.isArray(res) && res.length) {
+        const c = res[0] || {};
+        const name = firstStr(c.name), phone = firstStr(c.tel);
+        if (name || phone) { chooseContact(name || phone, phone); return true; }
+    }
+    if (!silentFail) setContactHint("Your phone's contact screen didn't send the contact back. Use Google contacts instead — phone contacts saved to your Google account show up there.");
+    return false;
+}
+
+// ---------- Google contacts (People API, read-only) ----------
+// Uses the same Google account you sign in with. Contacts are kept on this device only.
+const GOOGLE_CONTACTS_SCOPE = 'https://www.googleapis.com/auth/contacts.readonly';
+const PEOPLE_API_ENABLE_URL = `https://console.cloud.google.com/apis/library/people.googleapis.com?project=${firebaseConfig.projectId}`;
+let googleContacts = null;
+try { localStorage.removeItem('hisab_contact_book'); } catch (e) { } // old .vcf import, no longer used
+function loadCachedGoogleContacts() {
+    if (googleContacts) return googleContacts;
+    try { const c = JSON.parse(localStorage.getItem('hisab_google_contacts') || 'null'); if (c && Array.isArray(c.list)) googleContacts = c; } catch (e) { }
+    return googleContacts;
+}
+function setContactHint(html) { const el = document.getElementById('contact-import-hint'); if (el) el.innerHTML = html || ''; }
+function updateGoogleButton(busy) {
+    const lbl = document.getElementById('contact-google-label'); if (!lbl) return;
+    const c = loadCachedGoogleContacts();
+    lbl.innerText = busy ? 'Loading…' : c ? `Refresh Google (${c.list.length})` : 'Google contacts';
+    const btn = document.getElementById('contact-google-btn'); if (btn) btn.disabled = !!busy;
+}
+async function googleContactsToken() {
+    try {
+        const t = JSON.parse(sessionStorage.getItem('hisab_gc_token') || 'null');
+        if (t && t.exp > Date.now() + 60000) return t.token;
+    } catch (e) { }
+    const prov = new GoogleAuthProvider();
+    prov.addScope(GOOGLE_CONTACTS_SCOPE);
+    const result = currentUser
+        ? await reauthenticateWithPopup(currentUser, (prov.setCustomParameters({ login_hint: currentUser.email || '' }), prov))
+        : await signInWithPopup(auth, (prov.setCustomParameters({ prompt: 'select_account' }), prov));
+    const cred = GoogleAuthProvider.credentialFromResult(result);
+    const token = cred && cred.accessToken;
+    if (!token) throw new Error('Google did not return access to contacts.');
+    try { sessionStorage.setItem('hisab_gc_token', JSON.stringify({ token, exp: Date.now() + 50 * 60000 })); } catch (e) { }
+    return token;
+}
+async function fetchGoogleContacts(token) {
+    const out = []; let pageToken = '', guard = 0;
+    do {
+        const url = `https://people.googleapis.com/v1/people/me/connections?personFields=names,phoneNumbers&pageSize=1000&sortOrder=FIRST_NAME_ASCENDING${pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''}`;
+        const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+        if (!r.ok) {
+            let msg = ''; try { msg = (await r.json()).error.message || ''; } catch (e) { }
+            const err = new Error(msg || ('HTTP ' + r.status)); err.status = r.status; throw err;
+        }
+        const j = await r.json();
+        for (const p of j.connections || []) {
+            const name = ((p.names || [])[0] || {}).displayName || '';
+            const phones = (p.phoneNumbers || []).map(x => x.value).filter(Boolean);
+            if (!name && !phones.length) continue;
+            if (phones.length) phones.slice(0, 3).forEach(ph => out.push({ name: name || ph, phone: ph }));
+            else out.push({ name, phone: '' });
+        }
+        pageToken = j.nextPageToken || '';
+    } while (pageToken && ++guard < 20);
+    return out;
+}
+async function loadGoogleContacts(interactive) {
+    updateGoogleButton(true);
+    setContactHint('Connecting to your Google contacts…');
+    try {
+        const token = await googleContactsToken();
+        const list = await fetchGoogleContacts(token);
+        googleContacts = { at: Date.now(), list };
+        try { localStorage.setItem('hisab_google_contacts', JSON.stringify(googleContacts)); } catch (e) { }
+        setContactHint(list.length ? `${list.length} Google contacts on this device. Search above.` : 'Your Google account has no saved contacts yet.');
+        renderContactChooser();
+    } catch (e) {
+        console.warn('Google contacts failed:', e);
+        sessionStorage.removeItem('hisab_gc_token');
+        const m = String(e && e.message || '');
+        if (e && e.code && /popup-closed|cancelled-popup/.test(e.code)) setContactHint('Google sign-in was closed. Tap Google contacts to try again.');
+        else if (e && e.code === 'auth/popup-blocked') setContactHint('Your browser blocked the Google window. Allow pop-ups for this site, then tap Google contacts again.');
+        else if (e && e.code === 'auth/user-mismatch') setContactHint('Choose the same Google account you use for Hisab.');
+        else if (e && e.status === 403 && /People API|has not been used|disabled/i.test(m)) setContactHint(`Google contacts aren't switched on for Hisab yet. <a href="${PEOPLE_API_ENABLE_URL}" target="_blank" rel="noopener">Enable the People API</a> (one click, while signed in as the app's owner), wait a minute, then try again.`);
+        else if (e && (e.status === 401 || e.status === 403)) setContactHint('Google didn\'t allow access to contacts. Tap Google contacts and tick "See and download your contacts".');
+        else setContactHint("Couldn't load Google contacts: " + escapeHTML(m || 'check your connection'));
+    } finally { updateGoogleButton(false); }
 }
 function openContactChooser(reason) {
-    if (!contactBook) { try { contactBook = JSON.parse(localStorage.getItem('hisab_contact_book') || 'null'); } catch (e) { contactBook = null; } }
+    loadCachedGoogleContacts();
     const s = document.getElementById('contact-search'); s.value = document.getElementById('debt-desc').value || '';
-    const have = contactBook && contactBook.length;
-    document.getElementById('contact-import-hint').innerText = reason && !have
-        ? "Your phone's contact screen didn't send the contact back to Hisab. Import your contacts file once below, then search here any time."
-        : have
-            ? `${contactBook.length} contacts imported on this device. Import again to refresh.`
-            : (contactPickerSupported() ? '' : "This browser can't open your phone's contacts directly, so import a contacts file once instead.");
-    const howto = document.getElementById('contact-howto'); if (howto) howto.open = !!(reason && !have);
+    const pb = document.getElementById('contact-phone-btn'); if (pb) pb.style.display = contactPickerSupported() ? '' : 'none';
+    const srcBox = document.querySelector('.contact-sources'); if (srcBox) srcBox.style.gridTemplateColumns = contactPickerSupported() ? '1fr 1fr' : '1fr';
+    setContactHint(reason === 'empty'
+        ? (googleContacts ? "Your phone's contact screen didn't send the contact back, so pick from your Google contacts below." : "Your phone's contact screen didn't send the contact back. Tap <b>Google contacts</b> — phone contacts saved to your Google account show up there.")
+        : googleContacts ? `${googleContacts.list.length} Google contacts on this device.` : 'Tap <b>Google contacts</b> to search the contacts saved in your Google (Gmail) account.');
+    updateGoogleButton(false);
     renderContactChooser();
     openModal('contact-modal');
     setTimeout(() => s.focus(), 60);
 }
 function renderContactChooser() {
     const box = document.getElementById('contact-results'); if (!box) return;
-    const q = normName(document.getElementById('contact-search').value);
-    const qd = q.replace(/\D/g, '');
+    const raw = document.getElementById('contact-search').value.trim();
+    const q = normName(raw), qd = q.replace(/\D/g, '');
     ensurePeople();
-    const saved = budgetData.people.map(p => ({ name: p.name, phone: p.phone || '', saved: true }));
+    const saved = budgetData.people.map(p => ({ name: p.name, phone: p.phone || '' }));
     const savedNames = new Set(saved.map(c => normName(c.name)));
-    const book = (contactBook || []).filter(c => !savedNames.has(normName(c.name)));
+    const book = ((loadCachedGoogleContacts() || {}).list || []).filter(c => !savedNames.has(normName(c.name)));
     const match = c => !q || normName(c.name).includes(q) || (qd.length >= 3 && String(c.phone).replace(/\D/g, '').includes(qd));
-    const a = saved.filter(match).slice(0, 30), b = book.filter(match).slice(0, 60);
+    const a = saved.filter(match).slice(0, 30), b = book.filter(match).slice(0, 80);
     const item = c => `<button class="contact-item" onclick='chooseContact(${escapeHTML(JSON.stringify(c.name))}, ${escapeHTML(JSON.stringify(c.phone))})'><span class="ci-name">${escapeHTML(c.name)}</span><span class="ci-phone">${escapeHTML(c.phone || '')}</span></button>`;
     let html = '';
-    if (a.length) html += `<div class="ci-head">In Hisab</div>` + a.map(item).join('');
-    if (b.length) html += `<div class="ci-head">From your contacts file</div>` + b.map(item).join('');
-    if (q && !a.some(c => normName(c.name) === q)) html += `<button class="contact-item new" onclick='chooseContact(${escapeHTML(JSON.stringify(document.getElementById('contact-search').value.trim()))}, "")'><span class="ci-name">+ Use "${escapeHTML(document.getElementById('contact-search').value.trim())}"</span></button>`;
-    box.innerHTML = html || `<div class="muted" style="padding:14px 4px; font-size:13px;">No contacts yet. Type a name above, or import your contacts file below.</div>`;
+    if (a.length) html += `<div class="ci-head">Already in Hisab</div>` + a.map(item).join('');
+    if (b.length) html += `<div class="ci-head">Google contacts</div>` + b.map(item).join('');
+    if (raw && !a.some(c => normName(c.name) === q)) html += `<button class="contact-item new" onclick='chooseContact(${escapeHTML(JSON.stringify(raw))}, "")'><span class="ci-name">+ Use "${escapeHTML(raw)}"</span></button>`;
+    box.innerHTML = html || `<div class="muted" style="padding:14px 4px; font-size:13px;">${q ? 'No matches.' : 'No contacts yet. Type a name above.'}</div>`;
 }
 function chooseContact(name, phone) {
     name = String(name || '').trim(); phone = String(phone || '').trim();
@@ -3842,49 +4185,6 @@ function reapplyPickedContact() {
     if (!phEl.value.trim() && pickedContact.phone) phEl.value = pickedContact.phone;
 }
 ['focus', 'visibilitychange'].forEach(ev => window.addEventListener(ev, () => { reapplyPickedContact(); setTimeout(reapplyPickedContact, 800); setTimeout(reapplyPickedContact, 2500); }));
-
-// Minimal vCard reader: handles folded lines, FN/N, TEL, and QUOTED-PRINTABLE UTF-8 names (Android exports).
-function decodeQP(s) {
-    const bytes = [];
-    s = s.replace(/=\r?\n/g, '');
-    for (let i = 0; i < s.length; i++) {
-        if (s[i] === '=' && /^[0-9A-F]{2}$/i.test(s.substr(i + 1, 2))) { bytes.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; }
-        else bytes.push(s.charCodeAt(i) & 0xff);
-    }
-    try { return new TextDecoder('utf-8').decode(new Uint8Array(bytes)); } catch (e) { return s; }
-}
-function parseVcf(text) {
-    const lines = text.replace(/\r\n/g, '\n').replace(/\n[ \t]/g, '').replace(/=\n/g, '=\n').split('\n');
-    // Join quoted-printable soft breaks ("=" at line end)
-    const joined = [];
-    for (const ln of lines) { if (joined.length && /ENCODING=QUOTED-PRINTABLE/i.test(joined[joined.length - 1]) && /=$/.test(joined[joined.length - 1])) joined[joined.length - 1] = joined[joined.length - 1].slice(0, -1) + ln; else joined.push(ln); }
-    const out = []; let cur = null;
-    const val = ln => { const i = ln.indexOf(':'); const head = ln.slice(0, i); let v = ln.slice(i + 1); if (/QUOTED-PRINTABLE/i.test(head)) v = decodeQP(v); return v.replace(/\\,/g, ',').replace(/\\;/g, ';').trim(); };
-    for (const ln of joined) {
-        if (/^BEGIN:VCARD/i.test(ln)) cur = { name: '', n: '', phones: [] };
-        else if (/^END:VCARD/i.test(ln)) { if (cur) { const name = cur.name || cur.n; if (name && cur.phones.length) for (const ph of cur.phones.slice(0, 2)) out.push({ name, phone: ph }); else if (name) out.push({ name, phone: '' }); } cur = null; }
-        else if (cur && /^(item\d+\.)?FN[;:]/i.test(ln)) cur.name = val(ln);
-        else if (cur && /^(item\d+\.)?N[;:]/i.test(ln)) { const parts = val(ln).split(';'); cur.n = [parts[1], parts[2], parts[0]].filter(Boolean).join(' ').trim(); }
-        else if (cur && /^(item\d+\.)?TEL[;:]/i.test(ln)) { const ph = val(ln).replace(/^tel:/i, ''); if (ph && !cur.phones.includes(ph)) cur.phones.push(ph); }
-    }
-    const seen = new Set();
-    return out.filter(c => { const k = normName(c.name) + '|' + c.phone.replace(/\D/g, '').slice(-10); if (seen.has(k)) return false; seen.add(k); return true; })
-        .sort((a, b) => a.name.localeCompare(b.name));
-}
-function importVcf(event) {
-    const file = event.target.files && event.target.files[0]; if (!file) return;
-    const r = new FileReader();
-    r.onload = e => {
-        const list = parseVcf(String(e.target.result || ''));
-        event.target.value = '';
-        if (!list.length) { document.getElementById('contact-import-hint').innerText = "Couldn't find any contacts in that file. Make sure it's a .vcf (vCard) export."; return; }
-        contactBook = list;
-        try { localStorage.setItem('hisab_contact_book', JSON.stringify(list)); } catch (err) { /* too big for storage: keep for this session */ }
-        document.getElementById('contact-import-hint').innerText = `${list.length} contacts imported on this device.`;
-        renderContactChooser();
-    };
-    r.readAsText(file);
-}
 
 // ---------- Sub-tabs, snapshot and upcoming ----------
 function setBudgetView(v) {
@@ -3991,26 +4291,37 @@ function chosenAccount(selectId) { return document.getElementById(selectId)?.val
 const INCOME_SOURCES = { salary: '💼 Salary', business: '🏪 Business', freelance: '🧑‍💻 Freelance / side work', rent: '🏠 Rent received', profit: '📈 Profit / dividend', gift: '🎁 Gift', other: '💰 Other' };
 let txFilter = 'all';
 
-function openExpenseModal() {
-    document.getElementById('expense-date').value = toDateKey(Date.now());
+function openExpenseModal(id) {
+    const e = id ? (budgetData.expenses || []).find(x => String(x.id) === String(id)) : null;
+    document.getElementById('expense-edit-id').value = e ? e.id : '';
+    document.getElementById('expense-modal-title').innerText = e ? 'Edit expense' : 'Add expense';
+    document.getElementById('expense-delete-btn').style.display = e ? '' : 'none';
+    document.getElementById('expense-desc').value = e ? (e.desc || '') : '';
+    document.getElementById('expense-amount').value = e ? e.amount : '';
+    if (e) document.getElementById('expense-category').value = BILL_CATS[e.category] ? e.category : 'other';
+    document.getElementById('expense-date').value = toDateKey(e ? e.date : Date.now());
     hijriHint('expense-date', 'expense-hijri');
-    fillAccountSelect('expense-account', 'expense-acct-wrap');
+    fillAccountSelect('expense-account', 'expense-acct-wrap', e && e.accountId);
     openModal('expense-modal');
+    if (!e) setTimeout(() => document.getElementById('expense-desc')?.focus(), 60);
 }
 function openIncomeModal(opts = {}) {
     if (!Array.isArray(budgetData.income)) budgetData.income = [];
     const src = document.getElementById('income-source');
     src.innerHTML = Object.entries(INCOME_SOURCES).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
-    const r = opts.recId ? (budgetData.incomeRecurring || []).find(x => x.id === opts.recId) : null;
+    const ed = opts.editId ? budgetData.income.find(x => String(x.id) === String(opts.editId)) : null;
+    const r = !ed && opts.recId ? (budgetData.incomeRecurring || []).find(x => x.id === opts.recId) : null;
+    document.getElementById('income-edit-id').value = ed ? ed.id : '';
+    document.getElementById('income-delete-btn').style.display = ed ? '' : 'none';
     document.getElementById('income-rec-id').value = r ? r.id : '';
-    document.getElementById('income-amount').value = r ? r.amount : '';
-    src.value = r ? r.source : 'salary';
-    document.getElementById('income-desc').value = r ? r.name : '';
-    document.getElementById('income-date-picker').innerHTML = hijriPickerHTML('inc', toDateKey(Date.now()), 'Date received');
-    fillAccountSelect('income-account', 'income-acct-wrap', r && r.accountId);
+    document.getElementById('income-amount').value = ed ? ed.amount : r ? r.amount : '';
+    src.value = ed ? (INCOME_SOURCES[ed.source] ? ed.source : 'other') : r ? r.source : 'salary';
+    document.getElementById('income-desc').value = ed ? (ed.desc || '') : r ? r.name : '';
+    document.getElementById('income-date-picker').innerHTML = hijriPickerHTML('inc', toDateKey(ed ? ed.date : Date.now()), 'Date received');
+    fillAccountSelect('income-account', 'income-acct-wrap', ed ? ed.accountId : r && r.accountId);
     document.getElementById('income-repeat').checked = !!opts.recurring;
-    document.getElementById('income-repeat-row').style.display = r ? 'none' : '';
-    document.getElementById('income-modal-title').innerText = r ? `Log ${r.name}` : (opts.recurring ? 'Add monthly income' : 'Add income');
+    document.getElementById('income-repeat-row').style.display = r || ed ? 'none' : '';
+    document.getElementById('income-modal-title').innerText = ed ? 'Edit income' : r ? `Log ${r.name}` : (opts.recurring ? 'Add monthly income' : 'Add income');
     openModal('income-modal');
     setTimeout(() => document.getElementById('income-amount')?.focus(), 60);
 }
@@ -4023,6 +4334,17 @@ function saveIncome() {
     const key = hpValue('inc');
     const date = keyToMs(key);
     const accountId = chosenAccount('income-account');
+    const editId = document.getElementById('income-edit-id').value;
+    const ed = editId ? budgetData.income.find(x => String(x.id) === String(editId)) : null;
+    if (ed) {
+        Object.assign(ed, { desc, source, amount, date, hijri: Core.hijriKey(key, hijriAdj()), accountId });
+        const lg = activityHistory.find(h => String(h.id) === String(ed.id) + 'l');
+        if (lg) { lg.title = 'Income: ' + desc; lg.amount = amount; lg.timestamp = date; lg.updatedAt = freshStamp(); }
+        document.getElementById('income-edit-id').value = '';
+        closeModal('income-modal'); saveData(); renderBudget();
+        showToast('Income updated', '✏️');
+        return;
+    }
     const id = 'in' + Date.now().toString(36);
     const recId = document.getElementById('income-rec-id').value;
     const rec = { id, desc, source, amount, date, hijri: Core.hijriKey(key, hijriAdj()), accountId };
@@ -4041,12 +4363,16 @@ function saveIncome() {
 function deleteIncome(id) {
     showConfirmSheet('Delete this income entry?', { title: 'Delete income', icon: '🗑️', okText: 'Delete', danger: true }).then(ok => {
         if (!ok) return;
-        budgetData.income = (budgetData.income || []).filter(i => i.id !== id);
-        for (const r of budgetData.incomeRecurring || []) for (const [m, v] of Object.entries(r.received || {})) if (v === id) delete r.received[m];
-        markDeleted(id + 'l');
-        activityHistory = activityHistory.filter(h => h.id !== id + 'l');
+        removeIncome(id);
+        closeModal('income-modal');
         saveData(); renderBudget();
     });
+}
+function removeIncome(id) {
+    budgetData.income = (budgetData.income || []).filter(i => String(i.id) !== String(id));
+    for (const r of budgetData.incomeRecurring || []) for (const [m, v] of Object.entries(r.received || {})) if (v === id) delete r.received[m];
+    markDeleted(id + 'l');
+    activityHistory = activityHistory.filter(h => h.id !== id + 'l');
 }
 function deleteRecurringIncome(id) {
     showConfirmSheet('Stop expecting this income every month? Entries already logged stay.', { title: 'Remove monthly income', icon: '🗑️', okText: 'Remove', danger: true }).then(ok => {
@@ -4066,6 +4392,37 @@ function setTxFilter(f) {
     document.querySelectorAll('#tx-filter-pills .filter-pill').forEach(b => b.classList.toggle('active', b.dataset.tf === f));
     renderTransactions();
 }
+// Every money movement (expenses, income, lend/borrow, repayments, zakat) as rows that open their editor.
+function moneyRows(inYm) {
+    const rows = [];
+    for (const e of budgetData.expenses || []) if (inYm(e.date)) rows.push({ k: 'out', sign: -1, desc: e.desc, sub: (BILL_CATS[e.category || 'other'] || 'Other') + (e.billId ? ' · recurring bill' : ''), amount: Number(e.amount) || 0, date: e.date, open: `openExpenseModal('${e.id}')` });
+    for (const i of budgetData.income || []) if (inYm(i.date)) rows.push({ k: 'in', sign: 1, desc: i.desc, sub: INCOME_SOURCES[i.source || 'other'] || 'Income', amount: Number(i.amount) || 0, date: i.date, open: `openIncomeModal({ editId: '${i.id}' })` });
+    let lentM = 0, borrowedM = 0, backIn = 0, backOut = 0, zakatM = 0;
+    for (const d of budgetData.debts || []) {
+        const who = d.desc || 'Someone';
+        if (inYm(d.date)) {
+            if (d.type === 'lent') lentM += Number(d.amount) || 0; else borrowedM += Number(d.amount) || 0;
+            rows.push({ k: 'people', kind: d.type, sign: d.type === 'lent' ? -1 : 1, desc: d.type === 'lent' ? `Lent to ${who}` : `Borrowed from ${who}`, sub: (d.note ? d.note + ' · ' : '') + (Math.max(0, d.amount - (d.repaid || 0)) > 0 ? `${inr(d.amount - (d.repaid || 0))} pending` : 'settled'), amount: Number(d.amount) || 0, date: d.date, open: `openDebtModal(null, null, '${d.id}')` });
+        }
+        (d.payments || []).forEach((pay, idx) => {
+            if (!inYm(pay.date)) return;
+            if (d.type === 'lent') backIn += Number(pay.amount) || 0; else backOut += Number(pay.amount) || 0;
+            rows.push({ k: 'people', kind: 'repay', sign: d.type === 'lent' ? 1 : -1, desc: d.type === 'lent' ? `${who} paid you back` : `You paid ${who} back`, sub: 'Repayment', amount: Number(pay.amount) || 0, date: pay.date, open: `openRepayEdit('${d.id}', ${idx})` });
+        });
+    }
+    const zp = (budgetData.zakat && Array.isArray(budgetData.zakat.payments)) ? budgetData.zakat.payments : [];
+    for (const p of zp) if (inYm(p.date)) { zakatM += Number(p.amount) || 0; rows.push({ k: 'zakat', sign: -1, desc: 'Zakat paid' + (p.to ? ` · ${p.to}` : ''), sub: p.kind === 'advance' ? 'Paid in advance' : 'Zakat', amount: Number(p.amount) || 0, date: p.date, open: `openZakatPay(null, '${p.id}')` }); }
+    return { rows, lentM, borrowedM, backIn, backOut, zakatM };
+}
+function txRowHTML(r) {
+    const dd = new Date(r.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    return `<button class="tx-row ${r.k} ${r.kind || ''}" onclick="${escapeHTML(r.open)}">
+        <span class="tx-ico">${r.k === 'in' ? '↓' : r.k === 'out' ? '↑' : r.k === 'zakat' ? '🕌' : r.kind === 'repay' ? '↩' : '🤝'}</span>
+        <span class="tx-main"><span class="tx-desc">${escapeHTML(r.desc)}</span><span class="tx-sub">${dd} · ${escapeHTML(hijriText(r.date))} · ${escapeHTML(r.sub)}</span></span>
+        <span class="tx-amt">${r.sign > 0 ? '+' : '−'}₹${r.amount.toLocaleString('en-IN')}</span>
+        <svg class="icon icon-sm tx-edit" aria-hidden="true"><use href="#i-pen"/></svg>
+    </button>`;
+}
 function renderTransactions() {
     const list = document.getElementById('expense-list-container'); if (!list) return;
     const now = new Date();
@@ -4075,21 +4432,24 @@ function renderTransactions() {
     if (lbl) lbl.innerText = sel.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     const q = (document.getElementById('expense-search')?.value || '').trim().toLowerCase();
     const inYm = ms => toDateKey(ms).slice(0, 7) === ym;
-    const rows = [];
-    for (const e of budgetData.expenses || []) if (inYm(e.date)) rows.push({ t: 'out', id: e.id, desc: e.desc, sub: BILL_CATS[e.category || 'other'] || 'Other', amount: Number(e.amount) || 0, date: e.date, bill: !!e.billId });
-    for (const i of budgetData.income || []) if (inYm(i.date)) rows.push({ t: 'in', id: i.id, desc: i.desc, sub: INCOME_SOURCES[i.source || 'other'] || 'Income', amount: Number(i.amount) || 0, date: i.date });
+    const { rows, lentM, borrowedM, backIn, backOut, zakatM } = moneyRows(inYm);
+    const dd = ms => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
     const mm = Core.monthMoney(budgetData, ym, toDateKey);
     const sumEl = document.getElementById('tx-sum');
-    if (sumEl) sumEl.innerHTML = `<div><span class="l">In</span><span class="v pos">₹${mm.income.toLocaleString('en-IN')}</span></div><div><span class="l">Out</span><span class="v neg">₹${mm.spent.toLocaleString('en-IN')}</span></div><div><span class="l">Saved</span><span class="v ${mm.saved < 0 ? 'neg' : ''}">₹${mm.saved.toLocaleString('en-IN')}</span></div>`;
+    if (sumEl) sumEl.innerHTML = `<div><span class="l">Income</span><span class="v pos">₹${mm.income.toLocaleString('en-IN')}</span></div><div><span class="l">Spent</span><span class="v neg">₹${mm.spent.toLocaleString('en-IN')}</span></div><div><span class="l">Saved</span><span class="v ${mm.saved < 0 ? 'neg' : ''}">₹${mm.saved.toLocaleString('en-IN')}</span></div>`;
+    const other = document.getElementById('tx-other-line');
+    if (other) {
+        const bits = [];
+        if (lentM) bits.push(`lent ${inr(lentM)}`); if (borrowedM) bits.push(`borrowed ${inr(borrowedM)}`);
+        if (backIn) bits.push(`got back ${inr(backIn)}`); if (backOut) bits.push(`paid back ${inr(backOut)}`);
+        if (zakatM) bits.push(`zakat ${inr(zakatM)}`);
+        other.innerHTML = bits.length ? `Also this month: ${bits.join(' · ')}. <span class="muted">Lending, borrowing and zakat aren't counted as spending.</span>` : '';
+    }
     const tot = document.getElementById('expense-month-total');
     if (tot) tot.innerText = mm.rate != null ? `${mm.rate}% of income saved` : '';
-    const shown = rows.filter(r => (txFilter === 'all' || r.t === txFilter) && (!q || String(r.desc || '').toLowerCase().includes(q) || String(r.sub).toLowerCase().includes(q))).sort((a, b) => b.date - a.date);
+    const shown = rows.filter(r => (txFilter === 'all' || r.k === txFilter) && (!q || String(r.desc || '').toLowerCase().includes(q) || String(r.sub).toLowerCase().includes(q))).sort((a, b) => b.date - a.date);
     if (!shown.length) { list.innerHTML = `<p style="color:var(--muted); text-align:center;">${q ? 'Nothing matches your search.' : 'Nothing logged for this month.'}</p>`; }
-    else list.innerHTML = shown.map(r => `<div class="tx-row ${r.t}">
-        <div class="tx-main"><div class="tx-desc">${escapeHTML(r.desc)}</div><div class="tx-sub">${new Date(r.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} · ${escapeHTML(hijriText(r.date))} · ${escapeHTML(r.sub)}${r.bill ? ' · recurring bill' : ''}</div></div>
-        <div class="tx-amt">${r.t === 'in' ? '+' : '−'}₹${r.amount.toLocaleString('en-IN')}</div>
-        <button class="btn-icon" onclick="${r.t === 'in' ? 'deleteIncome' : 'deleteExpense'}('${r.id}')" aria-label="Delete">🗑️</button>
-    </div>`).join('');
+    else list.innerHTML = shown.map(txRowHTML).join('');
     const ri = document.getElementById('recurring-income-list');
     if (ri) {
         const recs = budgetData.incomeRecurring || [];
@@ -4097,6 +4457,19 @@ function renderTransactions() {
         ri.innerHTML = recs.length ? recs.map(r => `<div class="bill-row"><div style="flex:1; min-width:0;"><div style="font-weight:650;">${escapeHTML(r.name)}</div><div class="muted" style="font-size:12.5px;">₹${Number(r.amount).toLocaleString('en-IN')} · around day ${r.day} · ${(r.received || {})[cur] ? '<span style="color:var(--green)">received this month</span>' : 'not logged this month'}</div></div>${(r.received || {})[cur] ? '' : `<button class="btn-sm" onclick="openIncomeModal({ recId: '${r.id}' })" style="margin:0;">Log</button>`}<button class="btn-icon" onclick="deleteRecurringIncome('${r.id}')" aria-label="Remove">🗑️</button></div>`).join('')
             : '<div class="muted" style="font-size:13px; padding:10px 0;">Add your salary or any income that comes every month — Hisab will remind you to log it.</div>';
     }
+}
+function renderBudgetRecent() {
+    const el = document.getElementById('budget-recent'); if (!el) return;
+    const rows = moneyRows(() => true).rows.sort((a, b) => b.date - a.date).slice(0, 6);
+    el.innerHTML = rows.length
+        ? `<div class="card-head"><h3>Recent</h3><button class="btn-sm btn-ghost" onclick="setBudgetView('expenses')">See all</button></div>${rows.map(txRowHTML).join('')}<div class="field-hint" style="margin-top:2px;">Tap any entry to change or delete it.</div>`
+        : `<div class="card-head"><h3>Recent</h3></div><div class="muted" style="font-size:13px;">Nothing logged yet. Use <b>+ Expense</b>, <b>+ Income</b> or <b>Lend / borrow</b> above.</div>`;
+}
+function toggleLimitForm() {
+    const f = document.getElementById('budget-limit-form'); if (!f) return;
+    const open = f.style.display === 'none';
+    f.style.display = open ? '' : 'none'; f.dataset.open = open ? '1' : '';
+    if (open) { const i = document.getElementById('budget-set-limit'); i.value = budgetData.limit || ''; i.focus(); }
 }
 function renderMonthMoneyLine() {
     const el = document.getElementById('month-money-line'); if (!el) return;
@@ -4365,7 +4738,7 @@ function renderZakat() {
     const chart = `<div class="card"><div class="card-head"><h3>Wealth vs nisab</h3><span class="muted" style="font-size:12px;">since ${hl(e.fromKey, true)}</span></div><div style="height:190px;"><canvas id="zakatWealthChart"></canvas></div></div>`;
 
     const dueRows = [...e.dues].reverse().slice(0, 12).map(d => `<div class="zk-pay"><div><b>${inrD(d.zakat)}</b> on ${inrD(d.base)} · ${escapeHTML(d.label)}<div class="muted" style="font-size:12px;">Year completed ${d.hijri} (${gl(d.key)})</div></div></div>`).join('');
-    const paidRows = [...z.payments].sort((a, b) => b.date - a.date).slice(0, 12).map(p => `<div class="zk-pay"><div><b>${inrD(p.amount)}</b>${p.kind === 'advance' ? ' <span class="badge">advance</span>' : ''}${p.to ? ' · ' + escapeHTML(p.to) : ''}<div class="muted" style="font-size:12px;">${p.kind === 'advance' && p.forKey ? `for ${hl(p.forKey, true)} · ` : ''}${hijriText(p.date)} · ${new Date(p.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</div></div><button class="btn-icon" onclick="deleteZakatPay('${p.id}')" aria-label="Delete payment">🗑️</button></div>`).join('');
+    const paidRows = [...z.payments].sort((a, b) => b.date - a.date).slice(0, 12).map(p => `<div class="zk-pay"><div><b>${inrD(p.amount)}</b>${p.kind === 'advance' ? ' <span class="badge">advance</span>' : ''}${p.to ? ' · ' + escapeHTML(p.to) : ''}<div class="muted" style="font-size:12px;">${p.kind === 'advance' && p.forKey ? `for ${hl(p.forKey, true)} · ` : ''}${hijriText(p.date)} · ${new Date(p.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</div></div><button class="btn-icon" onclick="openZakatPay(null, '${p.id}')" aria-label="Edit payment">✏️</button></div>`).join('');
     const dueCard = `<div class="card"><div class="card-head"><h3>Zakat due and paid</h3><button class="btn-sm btn-soft" onclick="openZakatPay()"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Payment</button></div>
         <div class="zk-sumline"><span>Due so far <b>${inrD(e.totalDue)}</b></span><span>Paid <b>${inrD(e.paid)}</b></span><span>Left <b>${inrD(Math.max(0, e.outstanding))}</b></span></div>
         ${e.onReceivable > 0.5 ? `<div class="zk-note">About ${inrD(e.onReceivable)} of this is on money people owe you. In the Shafi'i school you may wait until you receive it, then pay for every year it was owed.</div>` : ''}
@@ -4628,7 +5001,11 @@ function deleteAsset() {
 }
 
 // ---------- Payments ----------
-function openZakatPay(mode) {
+function openZakatPay(mode, editId) {
+    const ed = editId ? zakatData().payments.find(p => String(p.id) === String(editId)) : null;
+    document.getElementById('zpay-edit-id').value = ed ? ed.id : '';
+    document.getElementById('zpay-title').innerText = ed ? 'Edit zakat payment' : 'Record zakat paid';
+    document.getElementById('zpay-delete-btn').style.display = ed ? '' : 'none';
     const e = zakatEngine();
     const due = e ? Math.max(0, e.outstanding) : 0;
     const next = e && e.upcoming[0];
@@ -4642,7 +5019,15 @@ function openZakatPay(mode) {
     document.getElementById('zpay-to').value = '';
     document.getElementById('zpay-date').value = toDateKey(Date.now());
     hijriHint('zpay-date', 'zpay-hijri');
-    fillAccountSelect('zpay-account', 'zpay-acct-wrap');
+    fillAccountSelect('zpay-account', 'zpay-acct-wrap', ed && ed.accountId);
+    if (ed) {
+        if (![...forSel.options].some(o => o.value === (ed.kind || 'other'))) forSel.insertAdjacentHTML('beforeend', `<option value="${escapeHTML(ed.kind || 'other')}">${ed.kind === 'advance' ? 'In advance' : ed.kind === 'due' ? 'Zakat that was due' : 'Other / not sure'}</option>`);
+        forSel.value = ed.kind || 'other'; zpayForChanged();
+        document.getElementById('zpay-amount').value = ed.amount;
+        document.getElementById('zpay-to').value = ed.to || '';
+        document.getElementById('zpay-date').value = toDateKey(ed.date);
+        hijriHint('zpay-date', 'zpay-hijri');
+    }
     openModal('zakat-pay-modal');
 }
 function saveZakatPay() {
@@ -4653,6 +5038,18 @@ function saveZakatPay() {
     const to = document.getElementById('zpay-to').value.trim();
     const kind = document.getElementById('zpay-for').value;
     const e = zakatEngine(); const next = e && e.upcoming[0];
+    const editId = document.getElementById('zpay-edit-id').value;
+    const ed = editId ? zakatData().payments.find(x => String(x.id) === String(editId)) : null;
+    if (ed) {
+        Object.assign(ed, { amount: amt, date, to, kind, accountId: chosenAccount('zpay-account'), hijri: hijriOfMs(date) });
+        if (kind !== 'advance') delete ed.forKey; else if (!ed.forKey && next) ed.forKey = next.key;
+        const lg = activityHistory.find(h => String(h.id) === String(ed.id));
+        if (lg) { lg.amount = amt; lg.timestamp = date; lg.title = 'Zakat paid' + (to ? ` (${to})` : ''); lg.updatedAt = freshStamp(); }
+        document.getElementById('zpay-edit-id').value = '';
+        closeModal('zakat-pay-modal'); saveData(); renderBudget();
+        showToast('Zakat payment updated', '✏️');
+        return;
+    }
     const p = { id: 'zp' + Date.now().toString(36), amount: amt, date, to, kind, accountId: chosenAccount('zpay-account'), hijri: hijriOfMs(date) };
     if (kind === 'advance' && next) p.forKey = next.key;
     zakatData().payments.push(p);
@@ -4663,7 +5060,8 @@ function saveZakatPay() {
 }
 function deleteZakatPay(id) {
     if (!confirm('Delete this payment?')) return;
-    const z = zakatData(); z.payments = z.payments.filter(p => p.id !== id);
+    const z = zakatData(); z.payments = z.payments.filter(p => String(p.id) !== String(id));
+    closeModal('zakat-pay-modal');
     markDeleted(id);
     activityHistory = activityHistory.filter(h => h.id !== id);
     saveData(); renderBudget();
@@ -4688,6 +5086,13 @@ function renderBudget() {
     let monthlyTotal = 0;
     budgetData.expenses.forEach(exp => { const d = new Date(exp.date); if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) monthlyTotal += Number(exp.amount) || 0; });
     renderTransactions();
+    renderBudgetRecent();
+    const limWrap = document.getElementById('budget-limit-form'), limLine = document.getElementById('budget-limit-line');
+    if (limWrap && limLine) {
+        const has = Number(budgetData.limit) > 0;
+        limLine.style.display = has ? '' : 'none';
+        if (!limWrap.dataset.open) limWrap.style.display = has ? 'none' : '';
+    }
 
     // Category Chart & Breakdown
     const catCanvas = document.getElementById('expenseCategoryChart');
@@ -5962,8 +6367,9 @@ window.addBadHabit = addBadHabit; window.editBadHabit = editBadHabit; window.can
 window.logSwalathDirect = logSwalathDirect; window.logHizbDirect = logHizbDirect;
 Object.assign(window, { resetSwalathCounter, resetHizbCounter, resetDhikrProgress });
 window.addDhikr = addDhikr; window.logDhikr = logDhikr; window.deleteDhikr = deleteDhikr; window.addJuzIntention = addJuzIntention; window.completeJuz = completeJuz; window.editJuz = editJuz; window.deleteJuz = deleteJuz; window.updateQada = updateQada; window.calculateZakat = calculateZakat;
+Object.assign(window, { toggleLimitForm, setDeenView, quickDeen, openLogEdit, saveLogEdit, undoFromLogEdit, openRepayEdit, saveRepayEdit });
 window.setBudgetLimit = setBudgetLimit; window.addExpense = addExpense; window.deleteExpense = deleteExpense; window.addDebt = addDebt; window.deleteDebt = deleteDebt; window.repayDebt = repayDebt; window.pickContact = pickContact;
-Object.assign(window, { openDebtModal, setDebtType, debtNameTyped, openPersonPay, fillPersonPayFull, savePersonPay, openPersonEdit, savePersonEdit, remindPerson, setPeopleFilter, togglePerson, renderPeople, openContactChooser, renderContactChooser, chooseContact, importVcf, setBudgetView, shiftExpenseMonth, openZakatInBudget, openAssetModal, assetCatChanged, setAssetMode, saveAsset, deleteAsset, openZakatPay, saveZakatPay, deleteZakatPay, renderBudget, openExpenseModal, openIncomeModal, saveIncome, deleteIncome, deleteRecurringIncome, setTxFilter, renderTransactions, hijriHint, hpFromGreg, hpFromHijri, openAccountModal, saveAccount, addOpeningPart, deleteOpening, deleteAccount, openCorrection, corrTyped, saveCorrection, setZakatSetting, setTodaySilver, resetZakatStart, ensurePrices, zpayForChanged, openMonthlyReport, reportShift });
+Object.assign(window, { openDebtModal, setDebtType, debtNameTyped, openPersonPay, fillPersonPayFull, savePersonPay, openPersonEdit, savePersonEdit, remindPerson, setPeopleFilter, togglePerson, renderPeople, openContactChooser, renderContactChooser, chooseContact, pickPhoneContact, loadGoogleContacts, setBudgetView, shiftExpenseMonth, openZakatInBudget, openAssetModal, assetCatChanged, setAssetMode, saveAsset, deleteAsset, openZakatPay, saveZakatPay, deleteZakatPay, renderBudget, openExpenseModal, openIncomeModal, saveIncome, deleteIncome, deleteRecurringIncome, setTxFilter, renderTransactions, hijriHint, hpFromGreg, hpFromHijri, openAccountModal, saveAccount, addOpeningPart, deleteOpening, deleteAccount, openCorrection, corrTyped, saveCorrection, setZakatSetting, setTodaySilver, resetZakatStart, ensurePrices, zpayForChanged, openMonthlyReport, reportShift });
 window.addBacklogItem = addBacklogItem; window.editBacklogItem = editBacklogItem; window.cancelEditBacklogItem = cancelEditBacklogItem; window.toggleBacklogStatus = toggleBacklogStatus; window.deleteBacklogItem = deleteBacklogItem; window.renderBacklog = renderBacklog; window.renderTasks = renderTasks; window.toggleNotifications = toggleNotifications; window.autoFetchThumbnail = autoFetchThumbnail;
 window.showConfirmSheet = showConfirmSheet; window.closeConfirmSheet = closeConfirmSheet;
 window.toggleTaskTag = toggleTaskTag; window.resetTagSelector = resetTagSelector; window.renderTaskTags = renderTaskTags;
@@ -6488,6 +6894,7 @@ onAuthStateChanged(auth, async (user) => {
         hasInitialCloudSync = true;
         migrateLegacyTasks();
         processAutomaticPenalties(); 
+        if (runBudgetRepair()) saveData();
         render();
         syncFromGoogleSheets();
     }
@@ -6791,8 +7198,7 @@ function zakatExtraHTML() {
 // ---------- Render the Deen extras ----------
 function renderDeenExtras() {
     const top = document.getElementById('deen-extras-top');
-    const bottom = document.getElementById('deen-extras-bottom');
-    if (!top && !bottom) return;
+    if (!top) return;
     const todayKey = toDateKey(Date.now());
     const map = dailyDeenMap();
     const goals = extraData.goals || {};
@@ -6803,8 +7209,9 @@ function renderDeenExtras() {
         const pStreak = prayerStreak(todayKey);
         setHTMLUnlessFocused(top, `
         <div class="card">
-            <div class="card-head"><h3>Daily goals</h3><button class="btn-sm btn-ghost" onclick="toggleGoalEdit()">Edit goals</button></div>
-            <div class="goal-rings">
+            <div class="card-head"><h3>Daily goals</h3><button class="btn-sm btn-ghost" onclick="toggleGoalEdit()">${goals.hizb || goals.swalath || goals.dhikr ? 'Edit goals' : 'Set goals'}</button></div>
+            ${goals.hizb || goals.swalath || goals.dhikr ? '' : '<div class="muted" style="font-size:13px;">Set a daily target for Quran, swalath and dhikr and your progress shows here every day.</div>'}
+            <div class="goal-rings" style="${goals.hizb || goals.swalath || goals.dhikr ? '' : 'display:none;'}">
                 ${goalRingHTML('Hizb', 'var(--brand)', td.hizb, goals.hizb || 0, goalStreak(map, 'hizb', goals.hizb || 0, todayKey), '')}
                 ${goalRingHTML('Swalath', 'var(--amber)', td.swalath, goals.swalath || 0, goalStreak(map, 'swalath', goals.swalath || 0, todayKey), '')}
                 ${goalRingHTML('Dhikr', 'var(--indigo)', td.dhikr, goals.dhikr || 0, goalStreak(map, 'dhikr', goals.dhikr || 0, todayKey), '')}
@@ -6825,17 +7232,11 @@ function renderDeenExtras() {
             <div class="muted" style="font-size:12.5px; margin-top:10px;">This week: ${ps.on} on time · ${ps.late} late · ${ps.missed} missed${ps.logged ? ` (${Math.round(((ps.on + ps.late) / ps.logged) * 100)}% prayed)` : ''}</div>
         </div>`);
     }
-    if (bottom) {
-        setHTMLUnlessFocused(bottom, `
-        <div class="card">
-            <div class="card-head"><h3>Khatm planner</h3></div>
-            ${khatmPlanHTML(todayKey, map)}
-        </div>
-        <div class="card">
-            <div class="card-head"><h3>Intentions</h3></div>
-            ${intentionsHTML()}
-        </div>`);
-    }
+    const khEl = document.getElementById('deen-khatm');
+    if (khEl) setHTMLUnlessFocused(khEl, `<div class="card"><div class="card-head"><h3>Khatm planner</h3></div>${khatmPlanHTML(todayKey, map)}</div>`);
+    const inEl = document.getElementById('deen-intentions');
+    if (inEl) setHTMLUnlessFocused(inEl, `<div class="card"><div class="card-head"><h3>Intentions</h3></div>${intentionsHTML()}</div>`);
+    renderDeenToday(todayKey, map, goals);
     const zx = document.getElementById('zakat-extra');
     if (zx) setHTMLUnlessFocused(zx, zakatExtraHTML());
 }

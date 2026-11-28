@@ -392,8 +392,25 @@
 
     <!-- ===================== DEEN ===================== -->
     <section id="tab-deen" class="tab-content">
-        <div class="page-head"><div><h2>Deen</h2><div class="sub">Prayers, Quran, dhikr and zakat</div></div><div class="actions"><button class="btn-sm btn-secondary" onclick="openRecover()"><svg class="icon icon-sm"><use href="#i-history"/></svg>Recover</button></div></div>
+        <div class="page-head"><div><h2>Deen</h2><div class="sub">Prayers, Quran, dhikr, qada and zakat</div></div><div class="actions"><button class="btn-sm btn-secondary" onclick="openHistory('deen')"><svg class="icon icon-sm"><use href="#i-history"/></svg>History</button><button class="btn-sm btn-ghost" onclick="openRecover()">Recover</button></div></div>
 
+        <div class="horizontal-pill-slider" id="deen-view-pills">
+            <button class="filter-pill active" data-dview="today" onclick="setDeenView('today')">Today</button>
+            <button class="filter-pill" data-dview="quran" onclick="setDeenView('quran')">Quran</button>
+            <button class="filter-pill" data-dview="dhikr" onclick="setDeenView('dhikr')">Dhikr &amp; Swalath</button>
+            <button class="filter-pill" data-dview="qada" onclick="setDeenView('qada')">Qada <span class="c" id="dview-qada-count"></span></button>
+            <button class="filter-pill" data-dview="zakat" onclick="setDeenView('zakat')">Zakat</button>
+        </div>
+
+        <!-- ---------- Today ---------- -->
+        <div class="deen-view active" data-dview="today">
+        <div class="deen-today" id="deen-today-strip"></div>
+        <div class="card quick-log">
+            <div class="card-head"><h3>Quick log</h3><span class="muted" style="font-size:12.5px;">adds to today</span></div>
+            <div class="ql-row"><span class="ql-l">Swalath</span><div class="ql-chips"><button class="btn-sm btn-soft" onclick="quickDeen('swalath',100)">+100</button><button class="btn-sm btn-soft" onclick="quickDeen('swalath',313)">+313</button><button class="btn-sm btn-soft" onclick="quickDeen('swalath',1000)">+1000</button><button class="btn-sm btn-ghost" onclick="setDeenView('dhikr')">Other…</button></div></div>
+            <div class="ql-row"><span class="ql-l">Quran</span><div class="ql-chips"><button class="btn-sm btn-soft" onclick="quickDeen('hizb',0.25)">¼ hizb</button><button class="btn-sm btn-soft" onclick="quickDeen('hizb',0.5)">½ hizb</button><button class="btn-sm btn-soft" onclick="quickDeen('hizb',1)">1 hizb</button><button class="btn-sm btn-soft" onclick="quickDeen('hizb',2)">1 juz</button></div></div>
+        </div>
+        <div id="deen-extras-top"></div>
         <div class="card" id="prayer-times-card">
             <div class="card-head">
                 <h3><span class="icon-chip" style="background:var(--sky-soft); color:var(--sky)"><svg class="icon icon-sm"><use href="#i-moon-star"/></svg></span>Prayer times</h3>
@@ -406,21 +423,10 @@
                 <div id="next-prayer-countdown-text" class="num" style="font-size:24px; font-weight:700;"></div>
             </div>
         </div>
+        </div>
 
-        <div id="deen-extras-top"></div>
-
-        <div class="dashboard-grid">
-            <div class="card">
-                <div class="card-head"><h3>Swalath counter</h3><button class="btn-icon" onclick="resetSwalathCounter()" title="Start afresh" aria-label="Reset Swalath counter"><svg class="icon icon-sm"><use href="#i-refresh"/></svg></button></div>
-                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px;">
-                    <span class="muted" style="font-size:13.5px;">Total</span>
-                    <span class="big-figure" style="color:var(--brand)" id="deen-total-swalath">0</span>
-                </div>
-                <div class="inline-form">
-                    <input type="number" id="swalath-input-amount" value="100" min="1" inputmode="numeric">
-                    <button onclick="logSwalathDirect()">Log</button>
-                </div>
-            </div>
+        <!-- ---------- Quran ---------- -->
+        <div class="deen-view" data-dview="quran">
             <div class="card">
                 <div class="card-head"><h3>Quran progress</h3><button class="btn-icon" onclick="resetHizbCounter()" title="Start afresh" aria-label="Reset Hizb counter"><svg class="icon icon-sm"><use href="#i-refresh"/></svg></button></div>
                 <div class="grid-3" style="margin-bottom:14px;">
@@ -433,7 +439,30 @@
                     <button onclick="logHizbDirect()">Log hizb</button>
                 </div>
             </div>
+
+        <div id="deen-khatm"></div>
+        <div class="card">
+                <div class="card-head"><h3>Juz dedications</h3></div>
+                <select id="juz-select"><option value="">Select juz</option></select>
+                <input type="text" id="juz-intention" placeholder="Intention / dedication (optional)">
+                <button onclick="addJuzIntention()" style="margin:0;">Set intention</button>
+                <div id="juz-list-container" style="margin-top:14px; display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
         </div>
+
+        <!-- ---------- Dhikr & Swalath ---------- -->
+        <div class="deen-view" data-dview="dhikr">
+            <div class="card">
+                <div class="card-head"><h3>Swalath counter</h3><button class="btn-icon" onclick="resetSwalathCounter()" title="Start afresh" aria-label="Reset Swalath counter"><svg class="icon icon-sm"><use href="#i-refresh"/></svg></button></div>
+                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px;">
+                    <span class="muted" style="font-size:13.5px;">Total</span>
+                    <span class="big-figure" style="color:var(--brand)" id="deen-total-swalath">0</span>
+                </div>
+                <div class="inline-form">
+                    <input type="number" id="swalath-input-amount" value="100" min="1" inputmode="numeric">
+                    <button onclick="logSwalathDirect()">Log</button>
+                </div>
+            </div>
 
         <div class="card">
             <div class="card-head"><h3>Commit to a dhikr</h3></div>
@@ -452,26 +481,24 @@
             <button onclick="addDhikr()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Add dhikr</button>
         </div>
         <div id="dhikr-list-container" style="margin-bottom:16px;"></div>
+        <div id="deen-intentions"></div>
+        </div>
 
-        <div class="dashboard-grid">
+        <!-- ---------- Qada ---------- -->
+        <div class="deen-view" data-dview="qada">
+        <div class="field-hint" style="margin:0 2px 10px;">Prayers you missed and still need to make up. Tap <b>Prayed 1</b> each time you make one up.</div>
             <div class="card">
                 <div class="card-head"><h3>Qada prayers</h3></div>
                 <div id="qada-container"></div>
             </div>
-            <div class="card">
-                <div class="card-head"><h3>Juz dedications</h3></div>
-                <select id="juz-select"><option value="">Select juz</option></select>
-                <input type="text" id="juz-intention" placeholder="Intention / dedication (optional)">
-                <button onclick="addJuzIntention()" style="margin:0;">Set intention</button>
-                <div id="juz-list-container" style="margin-top:14px; display:flex; flex-direction:column; gap:8px;"></div>
-            </div>
         </div>
 
-        <div id="deen-extras-bottom"></div>
-
+        <!-- ---------- Zakat ---------- -->
+        <div class="deen-view" data-dview="zakat">
         <div class="card">
             <div class="card-head"><h3>Zakat</h3><button class="btn-sm btn-soft" onclick="openZakatInBudget()">Open calculator</button></div>
             <div id="deen-zakat-summary"></div>
+        </div>
         </div>
     </section>
 
@@ -503,7 +530,7 @@
             <div style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px;">
                 <div>
                     <div style="font-weight:750; font-size:15px;" id="budget-month-title">This month</div>
-                    <div class="muted" style="font-size:13px;">Limit ₹<span id="budget-limit-display">0</span></div>
+                    <div class="muted" style="font-size:13px;" id="budget-limit-line">Limit ₹<span id="budget-limit-display">0</span> · <a href="#" onclick="toggleLimitForm(); return false;">change</a></div>
                 </div>
                 <div style="text-align:right;">
                     <div class="big-figure" style="color:var(--indigo)">₹<span id="budget-spent">0</span></div>
@@ -515,11 +542,16 @@
                 <span>₹0</span><span id="budget-remaining-text">₹0 remaining</span>
             </div>
             <div class="month-money" id="month-money-line"></div>
-            <div class="inline-form" style="margin-top:14px;">
-                <input type="number" id="budget-set-limit" placeholder="Monthly limit (₹)" inputmode="decimal">
-                <button class="btn-secondary" onclick="setBudgetLimit()">Set limit</button>
+            <div id="budget-limit-form" style="margin-top:14px;">
+                <label class="field-label" for="budget-set-limit">Monthly spending limit (optional)</label>
+                <div class="inline-form">
+                    <input type="number" id="budget-set-limit" placeholder="e.g. 30000" inputmode="decimal">
+                    <button class="btn-secondary" onclick="setBudgetLimit()">Save</button>
+                </div>
             </div>
         </div>
+
+        <div class="card" id="budget-recent"></div>
 
         <div id="savings-goal-card"></div>
 
@@ -544,8 +576,11 @@
             <button class="filter-pill active" data-tf="all" onclick="setTxFilter('all')">All</button>
             <button class="filter-pill" data-tf="in" onclick="setTxFilter('in')">Income</button>
             <button class="filter-pill" data-tf="out" onclick="setTxFilter('out')">Spending</button>
+            <button class="filter-pill" data-tf="people" onclick="setTxFilter('people')">Lend / borrow</button>
+            <button class="filter-pill" data-tf="zakat" onclick="setTxFilter('zakat')">Zakat</button>
         </div>
-        <input type="search" id="expense-search" placeholder="Search" oninput="renderTransactions()" style="margin-bottom:12px;">
+        <div class="tx-note" id="tx-other-line"></div>
+        <input type="search" id="expense-search" placeholder="Search by name, note or category" oninput="renderTransactions()" style="margin-bottom:12px;">
         <div id="expense-list-container" style="margin-bottom:8px;"></div>
 
         <div class="section-title"><h3>Monthly income</h3><button class="btn-sm btn-soft" onclick="openIncomeModal({ recurring: true })"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Add</button></div>
@@ -821,9 +856,10 @@
 <div id="expense-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('expense-modal')">
     <div class="modal-content">
         <div class="modal-head">
-            <h2>Add expense</h2>
+            <h2 id="expense-modal-title">Add expense</h2>
             <button class="btn-icon" onclick="closeModal('expense-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
         </div>
+        <input type="hidden" id="expense-edit-id">
         <label class="field-label" for="expense-desc">Description</label>
         <input type="text" id="expense-desc" placeholder="e.g. Groceries">
         <div class="field-row">
@@ -842,7 +878,10 @@
             <option value="entertainment">Entertainment</option>
             <option value="other">Other</option>
         </select>
-        <button onclick="addExpense()" style="margin-top:6px;">Save expense</button>
+        <div class="modal-actions">
+            <button class="btn-secondary btn-danger-soft" id="expense-delete-btn" onclick="deleteExpense(document.getElementById('expense-edit-id').value)" style="display:none;">Delete</button>
+            <button onclick="addExpense()">Save expense</button>
+        </div>
     </div>
 </div>
 
@@ -852,7 +891,7 @@
             <h2 id="income-modal-title">Add income</h2>
             <button class="btn-icon" onclick="closeModal('income-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
         </div>
-        <input type="hidden" id="income-rec-id">
+        <input type="hidden" id="income-rec-id"><input type="hidden" id="income-edit-id">
         <div class="field-row">
             <div><label class="field-label" for="income-amount">Amount (₹)</label><input type="number" id="income-amount" placeholder="0" inputmode="decimal"></div>
             <div><label class="field-label" for="income-source">Source</label><select id="income-source"></select></div>
@@ -862,7 +901,10 @@
         <div id="income-date-picker"></div>
         <div class="acct-pick" id="income-acct-wrap"><label class="field-label" for="income-account">Received into</label><select id="income-account"></select></div>
         <label class="check-row" id="income-repeat-row"><input type="checkbox" id="income-repeat"><span>This comes every month — remind me to log it</span></label>
-        <button onclick="saveIncome()" style="margin-top:6px;">Save income</button>
+        <div class="modal-actions">
+            <button class="btn-secondary btn-danger-soft" id="income-delete-btn" onclick="deleteIncome(document.getElementById('income-edit-id').value)" style="display:none;">Delete</button>
+            <button onclick="saveIncome()">Save income</button>
+        </div>
     </div>
 </div>
 
@@ -870,9 +912,10 @@
 <div id="debt-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('debt-modal')">
     <div class="modal-content">
         <div class="modal-head">
-            <h2>Lend or borrow</h2>
+            <h2 id="debt-modal-title">Lend or borrow</h2>
             <button class="btn-icon" onclick="closeModal('debt-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
         </div>
+        <input type="hidden" id="debt-edit-id">
         <div class="seg-toggle" id="debt-type-seg">
             <button type="button" data-v="lent" onclick="setDebtType('lent')">I lent (they owe me)</button>
             <button type="button" data-v="borrowed" onclick="setDebtType('borrowed')">I borrowed (I owe them)</button>
@@ -895,7 +938,11 @@
             <div><label class="field-label" for="debt-due">Due date (reminder)</label><input type="date" id="debt-due"></div>
         </div>
         <div class="acct-pick" id="debt-acct-wrap"><label class="field-label" for="debt-account">Account</label><select id="debt-account"></select></div>
-        <button onclick="addDebt()" style="margin-top:6px;">Save</button>
+        <div class="field-hint" id="debt-edit-hint" style="display:none;"></div>
+        <div class="modal-actions">
+            <button class="btn-secondary btn-danger-soft" id="debt-delete-btn" onclick="deleteDebt(document.getElementById('debt-edit-id').value)" style="display:none;">Delete</button>
+            <button onclick="addDebt()">Save</button>
+        </div>
     </div>
 </div>
 
@@ -963,19 +1010,12 @@
             <button class="btn-icon" onclick="closeModal('contact-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
         </div>
         <input type="search" id="contact-search" placeholder="Search by name or number" oninput="renderContactChooser()" autocomplete="off">
-        <div id="contact-results" class="contact-results"></div>
-        <div class="contact-import">
-            <button class="btn-secondary" onclick="document.getElementById('vcf-file').click()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-upload"/></svg>Import contacts file (.vcf)</button>
-            <input type="file" id="vcf-file" accept=".vcf,text/vcard,text/x-vcard" style="display:none;" onchange="importVcf(event)">
-            <div class="field-hint" id="contact-import-hint"></div>
-            <details class="howto" id="contact-howto"><summary>How do I get a contacts file?</summary>
-                <div><b>Samsung:</b> Contacts app → ☰ menu → Manage contacts → Import or export contacts → Export → Internal storage → Export. Then tap Import above and pick <i>Contacts.vcf</i> (usually in Documents or Internal storage).<br>
-                <b>Other Android:</b> Contacts app → menu → Manage contacts → Export → save the .vcf file.<br>
-                <b>iPhone:</b> Contacts app → Lists → long-press "All Contacts" → Export, then save to Files.<br>
-                <b>Google Contacts:</b> contacts.google.com → Export → vCard.<br>
-                The file stays on this device. Only the people you pick are saved to Hisab.</div>
-            </details>
+        <div class="contact-sources">
+            <button class="btn-secondary" id="contact-phone-btn" onclick="pickPhoneContact()" style="margin:0;"><svg class="icon icon-sm"><use href="#i-phone"/></svg>Phone contacts</button>
+            <button class="btn-secondary" id="contact-google-btn" onclick="loadGoogleContacts(true)" style="margin:0;"><span class="g-logo" aria-hidden="true">G</span><span id="contact-google-label">Google contacts</span></button>
         </div>
+        <div class="field-hint" id="contact-import-hint"></div>
+        <div id="contact-results" class="contact-results"></div>
     </div>
 </div>
 
@@ -1036,12 +1076,54 @@
     </div>
 </div>
 
+<div id="log-edit-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('log-edit-modal')">
+    <div class="modal-content" style="max-width:420px;">
+        <div class="modal-head">
+            <h2>Edit entry</h2>
+            <button class="btn-icon" onclick="closeModal('log-edit-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="log-edit-id">
+        <div id="log-edit-title" style="font-weight:700; margin-bottom:10px;"></div>
+        <div class="field-row">
+            <div id="log-edit-amount-wrap"><label class="field-label" for="log-edit-amount" id="log-edit-amount-label">Amount</label><input type="number" id="log-edit-amount" min="0" step="any" inputmode="decimal"></div>
+            <div><label class="field-label" for="log-edit-date">Date</label><input type="date" id="log-edit-date" oninput="hijriHint('log-edit-date','log-edit-hijri')"><div class="hijri-hint" id="log-edit-hijri"></div></div>
+            <div><label class="field-label" for="log-edit-time">Time</label><input type="time" id="log-edit-time"></div>
+        </div>
+        <label class="field-label" for="log-edit-note">Note</label>
+        <input type="text" id="log-edit-note" placeholder="Optional">
+        <div class="field-hint" id="log-edit-hint"></div>
+        <div class="modal-actions">
+            <button class="btn-secondary btn-danger-soft" onclick="undoFromLogEdit()">Delete</button>
+            <button onclick="saveLogEdit()">Save</button>
+        </div>
+    </div>
+</div>
+
+<div id="repay-edit-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('repay-edit-modal')">
+    <div class="modal-content" style="max-width:400px;">
+        <div class="modal-head">
+            <h2 id="repay-edit-title">Edit repayment</h2>
+            <button class="btn-icon" onclick="closeModal('repay-edit-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <input type="hidden" id="repay-edit-key">
+        <div class="field-row">
+            <div><label class="field-label" for="repay-edit-amount">Amount (₹)</label><input type="number" id="repay-edit-amount" inputmode="decimal"></div>
+            <div><label class="field-label" for="repay-edit-date">Date</label><input type="date" id="repay-edit-date"></div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary btn-danger-soft" onclick="saveRepayEdit(true)">Delete</button>
+            <button onclick="saveRepayEdit(false)">Save</button>
+        </div>
+    </div>
+</div>
+
 <div id="zakat-pay-modal" class="modal-overlay" onclick="if(event.target === this) closeModal('zakat-pay-modal')">
     <div class="modal-content" style="max-width:400px;">
         <div class="modal-head">
-            <h2>Record zakat paid</h2>
+            <h2 id="zpay-title">Record zakat paid</h2>
             <button class="btn-icon" onclick="closeModal('zakat-pay-modal')" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
         </div>
+        <input type="hidden" id="zpay-edit-id">
         <label class="field-label" for="zpay-for">This payment is</label>
         <select id="zpay-for" onchange="zpayForChanged()"></select>
         <div class="field-hint" id="zpay-adv-hint">Paying before the year completes is allowed in the Shafi'i school once your wealth has reached nisab. It's taken off the next zakat that falls due.</div>
@@ -1052,7 +1134,10 @@
         <label class="field-label" for="zpay-to">Given to (optional)</label>
         <input type="text" id="zpay-to" placeholder="Masjid, relative, orphanage…">
         <div class="acct-pick" id="zpay-acct-wrap"><label class="field-label" for="zpay-account">Paid from</label><select id="zpay-account"></select></div>
-        <div class="modal-actions"><button onclick="saveZakatPay()">Save</button></div>
+        <div class="modal-actions">
+            <button class="btn-secondary btn-danger-soft" id="zpay-delete-btn" onclick="deleteZakatPay(document.getElementById('zpay-edit-id').value)" style="display:none;">Delete</button>
+            <button onclick="saveZakatPay()">Save</button>
+        </div>
     </div>
 </div>
 
